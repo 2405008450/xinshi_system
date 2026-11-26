@@ -1,4 +1,5 @@
 """会议纯记录及多人执行任务，同一事务保存。"""
+from meeting_numbering import code_for
 from datetime import datetime
 from uuid import UUID, uuid4
 from typing import Literal
@@ -78,7 +79,7 @@ def save(db, user, meeting_id, data):
             task = MeetingActionTask(id=uuid4(), client_id=action.client_id, meeting_id=row.id, assignee_id=uid,
                 arranger_id=user.id, category=action.category, content=action.content.strip(), project=project, due_at=action.due_at)
             db.add(task)
-            events.extend(notify(db, [uid], row, f'会议任务安排 · 第{row.number}个会议',
+            events.extend(notify(db, [uid], row, f'会议任务安排 · {code_for(db, row)}',
                 f'{user.full_name or user.username}安排：{action.content[:200]}；完成时间：{action.due_at:%Y年%m月%d日 %H:%M}（UTC+8）。请到我的任务与思考查看。', 'meeting_task'))
     row.record_content, row.record_version = data.content, row.record_version+1
     db.commit()

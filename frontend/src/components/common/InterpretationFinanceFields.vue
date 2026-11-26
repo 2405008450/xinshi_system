@@ -31,7 +31,7 @@
       <el-form-item label="加班费"><el-checkbox v-model="model.has_overtime">有加班费</el-checkbox></el-form-item>
       <div v-if="model.has_overtime" class="money-row"><TaxPriceFields v-model="model.overtime.taxPrices" prefix="overtime.taxPrices" :show-unit-prices="false" @change="value=>model.overtime.amount=value.totalExclTax??value.totalInclTax??model.overtime.amount" /><el-form-item label="原加班费（税口径未确认）" prop="overtime.amount" :rules="[{required:true,message:'请填写总加班费'}]"><el-input-number v-model="model.overtime.amount" :min="0" :precision="2" :controls="false" /></el-form-item><el-form-item label="加班费货币"><el-select v-model="model.overtime.currency"><el-option v-for="code in currencies" :key="code" :value="code" /></el-select></el-form-item></div>
     </template>
-    <template v-if="!referenceOnly">
+    <template v-if="!referenceOnly&&!hideTotals">
       <section class="settlement-totals" :class="{'settlement-totals--compact':compact}" data-dialog-field-search-group :data-dialog-field-search-group-title="fixed?'固定收费':'总价与说明'">
         <div class="settlement-totals-heading"><h3>{{fixed?'固定收费':'总价与说明'}}</h3><el-button v-if="compact&&!fixed" size="small" :disabled="amountRows.length>=20" @click="addAmount">添加总价调整</el-button></div>
         <template v-if="!fixed">
@@ -74,7 +74,7 @@ import TaxPriceFields from './TaxPriceFields.vue'
 import {taxPriceForm,taxUnitAmount} from '@/utils/taxPrices'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 const model=defineModel({type:Object,required:true})
-const props=defineProps({directions:{type:Array,default:()=>[]},referenceOnly:Boolean,compact:Boolean})
+const props=defineProps({directions:{type:Array,default:()=>[]},referenceOnly:Boolean,compact:Boolean,hideTotals:Boolean})
 const fixed=computed(()=>!props.referenceOnly&&model.value.settlement.pricing_mode==='fixed')
 const amountKey=computed(()=>fixed.value?'fixed_totals':'adjusted_totals')
 const amountRows=computed(()=>model.value[amountKey.value])

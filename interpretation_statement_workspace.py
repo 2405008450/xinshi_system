@@ -143,7 +143,9 @@ def write(target:UUID,data:Write,db=Depends(get_db),user=Depends(get_current_use
         if action=='add_projects' and (not board or board['status']!='active'):raise HTTPException(422,'请选择有效目标单据')
         if mode!='special' and action=='generate':
             for old in ws['boards']:
-                if old['group']==group and old['status']=='active' and set(old['months'])&set(months) and old.get('period_number')==data.period_number:old['status']='void'
+                if old['group']==group and old['status']=='active' and set(old['months'])&set(months) and old.get('period_number')==data.period_number:
+                    if old.get('payment_registration',{}).get('confirmation',{}).get('is_paid'):raise HTTPException(409,'原对账单已登记付款，请直接编辑原单；如需重新生成，请先核对并清除原单付款，修改历史仍保留')
+                    old['status']='void'
         if action=='generate':
             template=sources.template(db,target,months[0])
             template['rows']=[]
@@ -160,6 +162,7 @@ def write(target:UUID,data:Write,db=Depends(get_db),user=Depends(get_current_use
     elif action=='merge':
         ids=set(details.get('board_ids',[]));items=[item for item in ws['boards'] if item['id'] in ids and item['group']==group and item['status']=='active']
         if len(items)<2 or len(items)!=len(ids):raise HTTPException(422,'请选择至少两份有效账单')
+        if any(item.get('payment_registration',{}).get('confirmation',{}).get('is_paid') for item in items):raise HTTPException(409,'所选对账单已登记付款，请先核对并清除原单付款后再合并；原记录仍保留在历史中')
         board=deepcopy(items[0]);board.update(id=str(uuid4()),number=f'IB-{business_now():%y%m%d}-{ws["revision"]+1:03d}',months=sorted({month for item in items for month in item['months']}),name='合并月份对账单',removed_projects=[])
         board['statement']['rows']=[deepcopy(line) for item in items for line in item['statement']['rows']]
         for item in items:item['status']='void'
@@ -189,7 +192,7 @@ def write(target:UUID,data:Write,db=Depends(get_db),user=Depends(get_current_use
                 for item in peers:
                     if not item.get('period_number'):item['period_number']=1
                 period=max([item.get('period_number') or 1 for item in peers],default=1)+1
-            new=deepcopy(board);new.update(id=str(uuid4()),number=f'IB-{business_now():%y%m%d}-{ws["revision"]+1:03d}',period_number=period,removed_projects=[]);new['statement']['rows']=[];ws['boards'].append(new)
+            new=deepcopy(board);new.update(id=str(uuid4()),number=f'IB-{business_now():%y%m%d}-{ws["revision"]+1:03d}',period_number=period,removed_projects=[]);new.pop('payment_registration',None);new['statement']['rows']=[];ws['boards'].append(new)
         elif action in ('remove_projects','schedule','move_projects'):
             ids={str(uid) for uid in data.project_ids};lines=[line for line in board['statement']['rows'] if line['root_id'] in ids]
             if not lines:raise HTTPException(422,'请选择单内项目')

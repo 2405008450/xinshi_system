@@ -1,4 +1,4 @@
-import api from './index'
+﻿import api from './index'
 
 function toCamelCase(str) {
   return str.replace(/([-_][a-z])/g, (group) => group.toUpperCase().replace('-', '').replace('_', ''))

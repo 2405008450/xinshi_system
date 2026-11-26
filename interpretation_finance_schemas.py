@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tax_prices import TaxPrices
-from translation_document_requirements import PaymentMethod, QuotationDraft, QuotationLine
+from translation_document_requirements import PaymentMethod, QuotationDraft, QuotationLine, DocumentNotes
 
 
 class InterpretationSettlement(BaseModel):
@@ -22,6 +22,10 @@ class InterpretationSettlement(BaseModel):
     payments: list['InterpretationReceipt'] = Field(default_factory=list, max_length=100)
     quotation_required: bool = False
     invoice_required: bool = False
+    statement_required: bool = True
+    invoice_requirement_override: bool | None = None
+    document_notes: DocumentNotes = Field(default_factory=DocumentNotes)
+    statement_subject_key: Literal['guangzhou','shenzhen','shanghai'] | None = None
     customer_explanation: str = Field(default='', max_length=5000)
     payment_note: str = Field(default='', max_length=5000)
 
@@ -93,16 +97,20 @@ class FinanceWrite(StrictInput):
     update_library: bool = False
     library_revision: int | None = Field(default=None, ge=0)
     sync_confirmed: bool = False
+    payment_registration: dict | None = None
 
     @model_validator(mode='before')
     @classmethod
     def server_metadata(cls,value):
         # 允许内部参考价同步读取旧快照；客户端不能覆盖独立单据工作区和需求记录。
-        if isinstance(value,dict):return {key:item for key,item in value.items() if key not in ('_oral_workspace','_oral_invoice_requests')}
+        if isinstance(value,dict):return {key:item for key,item in value.items() if key not in ('_oral_workspace','_oral_invoice_requests','_oral_settlement_settings')}
         return value
 
     @model_validator(mode='after')
     def validate_totals(self):
+        if self.payment_registration is not None:
+            from business_finance_payment import Registration
+            self.payment_registration = Registration.model_validate(self.payment_registration).model_dump(mode='json')
         currencies=[row.currency for row in self.settlement_adjustments]
         if len(set(currencies))!=len(currencies):
             raise ValueError('每种货币只能填写一组结算折扣和调整后金额')

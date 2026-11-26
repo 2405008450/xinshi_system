@@ -111,6 +111,7 @@ def settlement_projects(db, project, month, scope):
         raise HTTPException(422, '请先为项目关联客户')
     target_record = finance.record(db, 'project', target)
     mode = finance.settlement_mode(target_record.payload if target_record else {})
+    target_period=finance.settlement(target_record.payload if target_record else {}).period_number
     grouped = scope == 'settlement' and mode in ('monthly', 'sub_client')
     projects = [project]
     if client and (scope == 'customer' or grouped):
@@ -124,11 +125,14 @@ def settlement_projects(db, project, month, scope):
     for item in projects:
         row = records.get(item.id)
         payload = row.payload if row else {}
-        if billing_month(item, payload) != month or (grouped and finance.settlement_mode(payload) != mode):
+        if billing_month(item, payload) != month or (grouped and (finance.settlement_mode(payload) != mode or finance.settlement(payload).period_number!=target_period)):
             continue
         matching.append((item, row))
     is_single = scope == 'project' or (scope == 'settlement' and not grouped)
     billed_client = (project.sub_client or client) if is_single or (grouped and mode == 'sub_client') else client
+    if project.sub_client_id:
+        from interpretation_settlement_settings import state,party_value
+        if party_value(state(db,project.client_id),project.sub_client_id,month,target_period)=='client':billed_client=client
     return mode, billed_client, matching
 
 
@@ -142,6 +146,7 @@ def build(db, target: UUID, month, scope, basis=None):
         payload = row.payload if row else {}
         setting = finance.settlement(payload)
         lines = project_rows(item, payload, basis or setting.tax_basis)
+        if setting.statement_required is False:continue
         if any(line['subtotal'] is None and line.get('counted_in_total', True) for line in lines):
             pending.append(f'{item.order_no} 收费金额待补')
         rows.extend(lines)
@@ -153,9 +158,11 @@ def build(db, target: UUID, month, scope, basis=None):
             code = row['currency']
             totals[code] = totals.get(code, Decimal(0)) + Decimal(row['subtotal'])
     subject = db.get(statements.CustomerStatementCompany, 'company')
+    target_record=finance.record(db,'project',target)
+    subject_key=finance.settlement(target_record.payload if target_record else {}).statement_subject_key
     private = statements.private_statement_settings_available()
-    settings = statements.settings_value(*statements.statement_company_settings(db)) if private else {}
-    result = dict(company=subject.company if subject else statements.COMPANY,
+    settings = statements.settings_value(*statements.statement_company_settings(db,subject_key)) if private else {}
+    result = dict(company=statements.SUBJECTS[subject_key][1] if subject_key else subject.company if subject else statements.COMPANY,
                   title='口译特殊结算对账单' if scope == 'settlement' and mode == 'special' else '口译对账单',
                   client_name=(billed_client.client_name or billed_client.client_short_name) if billed_client else (project.client_full_name or project.client_short_name or ''),
                   month=month, issue_date=business_now().date().isoformat(), scope=scope,

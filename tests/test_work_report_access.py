@@ -127,6 +127,21 @@ def test_all_departments_differs_from_all_people_and_excludes_inactive(environme
     assert access.receiving_rules(db,viewer)==[]
 
 
+def test_department_grouping_is_sorted_before_pagination_without_duplicates(environment):
+    db,(owner,viewer,sender)=environment
+    configure_user(db,owner)
+    owner.department='翻译部';viewer.department='HR部';sender.department=None
+    db.commit()
+    access.save_rule(db,owner,access.AccessRuleWrite(name='部门分组',viewer_ids=[viewer.id],senders_all=True))
+    for person in (owner,viewer,sender):report(db,person,date(2026,11,26))
+    pages=[access.received_reports(db,viewer,None,None,None,page,1) for page in (1,2,3)]
+    assert all(page['total']==3 for page in pages)
+    items=[page['items'][0] for page in pages]
+    assert [item['department_name'] for item in items]==['HR部','IT部','未分配部门']
+    assert len({item['id'] for item in items})==3
+    assert access.received_reports(db,viewer,None,None,sender.id,1,20)['items'][0]['department_name']=='未分配部门'
+
+
 def test_finalized_reports_only_and_revoke_detail_access(environment):
     db,(owner,viewer,sender)=environment
     configure_user(db,owner)

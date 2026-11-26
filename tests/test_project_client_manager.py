@@ -73,6 +73,35 @@ def test_save_rollback_and_history_pagination(environment):
     assert history('translation', project.id, skip=1, limit=1, db=db)['items'] == []
 
 
+@pytest.mark.parametrize('include_unchanged_manager',[False,True])
+def test_interpreter_save_preserves_active_manager_without_customer_role(environment,monkeypatch,include_unchanged_manager):
+    """复现选好译员后保存：经理未调整时不按客户专员角色重新校验。"""
+    from sqlalchemy import event
+    from models import Base
+    from resource_models import ResourcePerson
+    from interpretation_schemas import InterpretationProjectCreate, InterpretationProjectUpdate
+    import interpretation_service as service
+    db,(owner,_,_other)=environment
+    monkeypatch.setattr(service,'generate_interpretation_order_no',lambda *_:'IP-MANAGER-SAVE')
+    def set_sqlite_id(_mapper,_connection,target):
+        if hasattr(target,'id') and target.id is None:target.id=uuid4()
+    event.listen(Base,'before_insert',set_sqlite_id,propagate=True)
+    try:
+        owner.full_name='赵震锋'
+        person=ResourcePerson(id=uuid4(),resource_code='RC-MANAGER',full_name='隔离测试译员',status='standby')
+        db.add(person);db.commit()
+        project=service.create_interpretation_project(db,InterpretationProjectCreate(project_name='经理保存测试'),owner.id)
+        values={'project_name':project.project_name,'interpreter_assignments':[{'translator_id':person.id}]}
+        if include_unchanged_manager:values['client_manager_id']=owner.id
+        updated=service.update_interpretation_project(db,project.id,InterpretationProjectUpdate(**values),owner.id)
+        assert updated.client_manager_id==owner.id
+        assert updated.current_client_manager=='赵震锋'
+        assert len(updated.interpreter_assignments)==1
+        assert db.query(ProjectClientManagerChange).filter_by(project_id=project.id).count()==1
+    finally:
+        event.remove(Base,'before_insert',set_sqlite_id)
+
+
 def test_migration_is_repeatable_and_only_creates_new_table():
     from sqlalchemy import create_engine, inspect
     from tools.apply_project_client_manager_migration import apply_migration

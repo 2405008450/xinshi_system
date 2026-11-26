@@ -38,10 +38,11 @@ import {computed,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import AppForm from './AppForm.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import {getOrderBillingPeriods,saveOrderBillingPeriod} from '@/api/customerStatements'
+import {readOralBillingPeriods,saveOralBillingPeriod} from '@/api/interpretationSettlementSettings'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {currentStatementMonth} from '@/utils/statementRequirementMonth'
 
-const props=defineProps({projectId:String,month:String,version:String})
+const props=defineProps({projectId:String,month:String,version:String,module:{type:String,default:'translation'}})
 const emit=defineEmits(['close','saved'])
 const form=reactive({month:props.month || currentStatementMonth(),period:'',periodNumber:undefined})
 const options=ref(null),loading=ref(false),saving=ref(false),error=ref('')
@@ -64,7 +65,7 @@ async function load(){
   form.periodNumber=undefined
   error.value=''
   try{
-    const result=await getOrderBillingPeriods(props.projectId,form.month,current.signal)
+    const result=await (props.module==='interpretation'?readOralBillingPeriods(props.projectId,form.month,current.signal):getOrderBillingPeriods(props.projectId,form.month,current.signal))
     if(current.signal.aborted)return
     options.value=result
     form.period=result.boards.find(board=>board.id===result.board_id)?.id ||
@@ -86,7 +87,7 @@ async function save(){
   error.value=''
   try{
     const {period,month}=form
-    await saveOrderBillingPeriod(props.projectId,{
+    await (props.module==='interpretation'?saveOralBillingPeriod:saveOrderBillingPeriod)(props.projectId,{
       month,board_id:options.value.boards.some(board=>board.id===period)?period:null,
       create_period:period==='new',period_number:period==='custom'?form.periodNumber:undefined,
       revision:options.value.revision,version:props.version,

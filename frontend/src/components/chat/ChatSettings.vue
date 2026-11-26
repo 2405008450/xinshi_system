@@ -1,5 +1,6 @@
 <template>
   <section class="chat-settings" aria-label="会话设置">
+    <el-button text @click="helpVisible=true">会话使用帮助</el-button><ChatNavigationHelp v-model="helpVisible" />
     <ChatTimeDisplaySettings />
     <div class="chat-settings__annotation"><el-button text class="chat-settings__section" @click="translationVisible=true">笔译项目</el-button></div>
     <TranslationChatSettings v-model="translationVisible" />
@@ -17,6 +18,8 @@
 import TranslationChatSettings from './TranslationChatSettings.vue'
 
 import { ref } from 'vue'
+import ChatNavigationHelp from './ChatNavigationHelp.vue'
+const helpVisible=ref(false)
 import ChatTimeDisplaySettings from './ChatTimeDisplaySettings.vue'
 import ChatDispatchDefaultsDialog from './ChatDispatchDefaultsDialog.vue'
 import ChatDefaultParticipantsDialog from './ChatDefaultParticipantsDialog.vue'

@@ -158,22 +158,12 @@ class MissingClientDb:
         self.added.id = uuid4()
 
 
-def test_translation_client_resolver_creates_pending_client_for_new_short_name(monkeypatch):
+@pytest.mark.parametrize('module',['translation','interpretation','annotation','recruitment'])
+def test_project_client_resolver_rejects_new_short_name(module):
     db = MissingClientDb()
-    monkeypatch.setattr("crud.generate_client_code", lambda _db: "C000001")
-
-    client_id, sub_client_id, created = _resolve_or_create_project_client(
-        db, "  新增简称  ", client_name="  新增客户全称  ", manager_contact="  10086  "
-    )
-
-    assert created is True
-    assert client_id == db.added.id
-    assert sub_client_id is None
-    assert db.added.client_short_name == "新增简称"
-    assert db.added.client_name == "新增客户全称"
-    assert db.added.client_code == "C000001"
-    assert db.added.manager_contact == "10086"
-    assert db.added.client_status == "pending"
+    with pytest.raises(ValueError, match='请在 新咨询管理/客户管理 先输入客户名称'):
+        _resolve_or_create_project_client(db, '新增简称', client_name='新增客户全称', registration_source=module)
+    assert db.added is None
 
 
 @pytest.mark.parametrize(
@@ -184,7 +174,7 @@ def test_three_project_resolvers_reuse_translation_client_logic(monkeypatch, res
     parent_id, sub_client_id = uuid4(), uuid4()
     monkeypatch.setattr(
         "crud._resolve_or_create_project_client",
-        lambda *_args: (parent_id, sub_client_id, False),
+        lambda *_args, **_kwargs: (parent_id, sub_client_id, False),
     )
     data = {
         "client_id": None,

@@ -24,6 +24,7 @@
             <p v-if="board.months.length>1" class="oral-merged">合并对账单 · 共 {{board.months.length}} 个月份：{{board.months.join('、')}}</p>
             <div class="statement-toolbar"><el-button :disabled="!canWrite" @click="editHeader(board)">修改抬头／账户</el-button><el-button v-if="filters.mode!=='special'" :disabled="!canWrite" @click="setPeriod(board)">调整账期</el-button><el-button :disabled="!canWrite" @click="change('new_board',board.id,{},filters.mode==='special'?'新增独立特殊结算对账单？':'新增下一期对账单；未分期的原单调整为第1期？')">{{filters.mode==='special'?'新增对账单':'新增下一期对账单'}}</el-button><el-button :disabled="!canWrite" @click="addTo(board)">添加筛选／勾选项目</el-button><el-button :disabled="exporting" @click="download(board,'excel')">Excel</el-button><el-button :disabled="exporting" @click="download(board,'pdf')">PDF</el-button><el-button @click="maximized=board">最大化查看</el-button></div>
             <details class="oral-board-projects"><summary>项目明细／增删操作</summary><el-table :data="board.statement.rows" row-key="line_id" size="small" border max-height="260" @selection-change="boardSelected[board.id]=[...new Set($event.map(row=>row.root_id))]"><el-table-column type="selection" width="40" /><el-table-column label="拖动" width="50"><template #default="{row}"><span draggable="true" @dragstart="dragProject($event,row.root_id,board.id)">⠿</span></template></el-table-column><el-table-column prop="order_no" label="订单号" min-width="145" /><el-table-column prop="project_name" label="项目名称" min-width="190" /><el-table-column prop="subtotal" label="金额" width="110" /><el-table-column label="编辑" width="80"><template #default="{row}"><el-button link :disabled="!canWrite" @click="editLine(board,row)">编辑</el-button></template></el-table-column></el-table><div class="statement-toolbar"><el-button :disabled="!canWrite||!boardSelected[board.id]?.length" @click="change('remove_projects',board.id,{},'仅从本单移除所选项目，可逐项恢复？',boardSelected[board.id])">移除所选项目</el-button><el-button :disabled="!canWrite||!boardSelected[board.id]?.length" @click="schedule(board)">设为待入账</el-button><el-button :disabled="!board.removed_projects.length" @click="removedBoard=board">已移除项目／恢复（{{board.removed_projects.length}}）</el-button></div></details>
+            <InterpretationBoardPayment v-if="module==='interpretation'&&filters.mode!=='individual'" :project-id="filters.id" :board-id="board.id" :mode="filters.mode" :version="state.revision" :can-write="canWrite" @saved="load" />
             <div class="oral-board-scroll"><CustomerStatementPaper :statement="board.statement" /></div>
           </section>
         </div>
@@ -48,6 +49,7 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {translationSettlementModeLabels as modeLabels} from '@/utils/settlementModes'
 import {hasPermission} from '@/utils/permission'
 import CustomerStatementPaper from './CustomerStatementPaper.vue'
+import InterpretationBoardPayment from './InterpretationBoardPayment.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import AppForm from './AppForm.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'

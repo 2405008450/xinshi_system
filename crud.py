@@ -1587,7 +1587,7 @@ def _resolve_or_create_project_client(
     manager_contact: Optional[str] = None,
     *, registration_source: str = "translation",
 ) -> tuple[Optional[UUID], Optional[UUID], bool]:
-    """按简称/编号关联已有客户；简称不存在时创建一条待完善的母客户记录。"""
+    """项目仅关联已有客户；新咨询仍可登记一条待完善的母客户记录。"""
     if not getattr(db,'info',{}).get('client_contacts_visible',True):manager_contact=None
     normalized_short_name = (client_short_name or "").strip()
     normalized_client_code = (client_code or "").strip()
@@ -1631,6 +1631,9 @@ def _resolve_or_create_project_client(
         )
         if sub_client:
             return sub_client.parent_client_id, sub_client.id, False
+
+    if registration_source in {'translation', 'interpretation', 'annotation', 'recruitment'} and (normalized_short_name or normalized_client_name):
+        raise ValueError("请在 新咨询管理/客户管理 先输入客户名称")
 
     if not normalized_short_name:
         return None, None, False
@@ -2598,7 +2601,7 @@ def create_translation_project(
     if 'contact_name' in project.model_fields_set:
         save_project_contact(db, db_project, project.contact_name, project.created_by)
     from project_client_contact_details import save_project_contact_details
-    save_project_contact_details(db, {**contact_details_data, 'client_id': db_project.client_id, 'sub_client_id': db_project.sub_client_id, 'contact_name': db_project.contact_name})
+    save_project_contact_details(db, {**contact_details_data, 'client_id': db_project.client_id, 'sub_client_id': db_project.sub_client_id, 'contact_name': getattr(db_project,'contact_name',None)})
     from translation_customer_type import save as save_customer_type
     if 'customer_type' in project.model_fields_set:
         save_customer_type(db, db_project, project.customer_type)
@@ -2734,7 +2737,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         ):
             raise ValueError('项目经理字段与角色负责人配置不一致')
     
-    # 编辑时手工输入简称与新增项目保持一致：优先复用已有客户，确实不存在则自动创建。
+    # 编辑与新增项目均只复用已有客户；新名称须先在新咨询/客户管理登记。
     has_client_input = bool(
         (project_update.client_short_name or '').strip()
         or (project_update.client_code or '').strip()

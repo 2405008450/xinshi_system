@@ -28,7 +28,6 @@
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
         <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="Phone" label="新咨询管理" />
-        <li class="el-menu-item sidebar-meeting-item" role="menuitem" tabindex="0" aria-label="会议安排" title="会议安排" @click="openMeetingCenter" @keydown.enter.prevent="openMeetingCenter" @keydown.space.prevent="openMeetingCenter"><el-badge :value="meetingBadge" :max="99" :hidden="!meetingBadge"><el-icon><Calendar /></el-icon></el-badge><span v-show="!isCollapse" style="margin-left:8px">会议安排</span></li>
         <SidebarNavigationItem v-if="showConsultations" index="/data-analysis" :icon="DataBoard" label="数据分析" />
 
         <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="EditPen" label="笔译项目" />
@@ -157,7 +156,7 @@ function openMeetingCenter(){window.dispatchEvent(new CustomEvent('meeting-open'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu, Wallet, Calendar } from '@element-plus/icons-vue'
+import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu, Wallet } from '@element-plus/icons-vue'
 import {
   canViewTalentResourceLibrary,
   hasPermission

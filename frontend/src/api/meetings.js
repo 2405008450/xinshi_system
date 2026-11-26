@@ -13,3 +13,5 @@ export const confirmMeetingActual=(id,data)=>api.post(`/meetings/${id}/confirm-a
 export const saveMeetingRecord=(id,data)=>api.put(`/meetings/${id}/record`,data,{timeout:60000})
 export const getMeetingTasks=(params,signal)=>api.get('/meetings/my-tasks',{params,signal})
 export const updateMeetingTask=(id,data)=>api.put(`/meetings/tasks/${id}/status`,data)
+export const meetingLocationConflicts=(params,signal)=>api.get('/meetings/location-conflicts',{params,signal})
+export const updateMeetingStatus=(id,data)=>api.put(`/meetings/${id}/status`,data)

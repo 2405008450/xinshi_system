@@ -324,7 +324,7 @@
             </el-row>
             <el-row :gutter="16" class="project-client-identity-row"><el-col :xs="24" :md="8"><el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
-                    <el-autocomplete
+                    <ExistingClientAutocomplete
                       v-model="form.clientShortName"
                       :fetch-suggestions="fetchClientSuggestions"
                       value-key="client_short_name"
@@ -342,30 +342,32 @@
                           <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
                         </div>
                       </template>
-                    </el-autocomplete>
+                    </ExistingClientAutocomplete>
                   </div>
-                <ClientNameGuidance create-on-save />
-</el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户来源" prop="clientSource"><el-input v-model="form.clientSource" maxlength="500" placeholder="请输入客户来源（选填）" /></el-form-item></el-col></el-row>
+                <ClientNameGuidance />
+</el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput existing-only v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <el-form-item label="领域/行业/产品" prop="interpretationDomain" data-dialog-field-search-aliases="口译领域 领域 行业 产品"><el-input v-model="form.interpretationDomain" type="textarea" :autosize="{minRows:1,maxRows:4}" placeholder="请输入领域/行业/产品，如商务、医疗、法律等" /></el-form-item>
             <el-form-item label="项目路径" prop="filePath"><PathInput v-model="form.filePath" placeholder="请输入项目路径" @open="openPathValue(form.filePath)" @copy="copyPathValue(form.filePath)" /></el-form-item>
             <div class="interpretation-task-remarks">
-              <el-form-item label="工作内容" prop="taskDescription" label-position="top" label-width="auto">
+              <div class="interpretation-project-notes">
+                <el-form-item label="工作内容" prop="taskDescription" label-position="top" label-width="auto">
                 <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="请输入工作内容，可填写详细的工作内容和要求" resize="vertical" />
               </el-form-item>
-              <el-form-item label="需求发布" prop="socialPostRequest" label-position="top" label-width="auto">
+                <el-form-item label="客户要求" prop="interpreterSpecialRequirements" label-position="top" label-width="auto">
+                <el-input v-model="form.interpreterSpecialRequirements" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="请输入客户要求（选填）" resize="vertical" />
+              </el-form-item>
+                <el-form-item label="补充说明" prop="remarks" label-position="top" label-width="auto">
+                <el-input v-model="form.remarks" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="请输入补充说明（选填）" resize="vertical" />
+              </el-form-item>
+                <ProjectCustomerRequirements class="interpretation-requirement-actions" module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
+              </div>
+              <el-form-item class="demand-release-field" label="需求发布" prop="socialPostRequest" label-position="top" label-width="auto">
                 <div class="demand-release-editor">
-                  <el-input v-model="form.socialPostRequest" type="textarea" :autosize="{minRows:8,maxRows:18}" placeholder="填齐项目名称、时间、地点、方向人数、领域和工作内容后自动生成，可继续编辑" @input="demandReleaseManuallyEdited=true" />
+                  <el-input v-model="form.socialPostRequest" type="textarea" :rows="16" resize="vertical" placeholder="填齐项目名称、时间、地点、方向人数、领域和工作内容后自动生成，可继续编辑" @input="demandReleaseManuallyEdited=true" />
                   <el-button type="primary" plain :loading="demandReleaseLoading" @click="generateDemandRelease(false)">{{form.socialPostRequest?'重新生成':'生成需求发布'}}</el-button>
                 </div>
               </el-form-item>
-              <el-form-item label="客户要求" prop="interpreterSpecialRequirements" label-position="top" label-width="auto">
-                <el-input v-model="form.interpreterSpecialRequirements" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入客户要求（选填）" resize="vertical" />
-              </el-form-item>
-              <el-form-item label="补充说明" prop="remarks" label-position="top" label-width="auto">
-                <el-input v-model="form.remarks" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入补充说明（选填）" resize="vertical" />
-              </el-form-item>
-              <ProjectCustomerRequirements class="interpretation-requirement-actions" module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
             </div>
             <div class="section-title-row"><h3>预定时间</h3><el-button type="primary" plain @click="addTimeRange">增加时间段</el-button></div>
             <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card" data-dialog-field-search-group :data-dialog-field-search-group-title="`时间段 ${index + 1}`">
@@ -422,7 +424,7 @@
               </el-col>
             </el-row>
             <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
-            <el-form-item label="价格与收费">
+            <el-form-item label="价格与付款">
               <InterpretationFinanceEditor v-model:pending="form.financeDraft" :target-id="form.id"
                 :project="financeProject" :can-write="canWrite" defer-save />
             </el-form-item>
@@ -567,6 +569,7 @@
 </template>
 
 <script setup>
+import ExistingClientAutocomplete from '@/components/common/ExistingClientAutocomplete.vue'
 import InterpretationSettingsDialog from './InterpretationSettingsDialog.vue'
 const interpretationSettingsVisible=ref(false)
 
@@ -593,6 +596,7 @@ import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectC
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
+import {projectClientManagerPayload} from '@/utils/projectClientManagerPayload'
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
@@ -885,7 +889,7 @@ const headerFilterDefinition = (key) => {
 const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '', locations:[''], locationDetails:[emptyInterpretationLocation()], languageDirections:[emptyLanguageDirection()] })
 const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: null })
 const defaultForm = () => ({
-  ...emptyProjectContactDetails(),clientSource:'',
+  ...emptyProjectContactDetails(),
   id: '', orderNo: '', projectName: '', socialPostRequest:'', demandReleaseKey:createRequestUuid(), projectTypes: [], taskDescription: '',
   financeDraft: null,
   clientId: '', subClientId: '', parentClientShortName: '', subClientName: '', clientShortName: '', clientFullName: '', clientCode: '',
@@ -975,7 +979,7 @@ const rules = {
   interpretationDomain: [{required:true,validator:requiredTextValidator('请输入领域/行业/产品'),trigger:['blur','change']}],
   filePath: [{required:true,validator:requiredTextValidator('请输入项目路径'),trigger:['blur','change']}],
   taskDescription: [{ validator: requiredTextValidator('请输入工作内容'), trigger: ['blur', 'change'] }],
-  clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  clientShortName: [{ required: true, validator: requiredTextValidator('请在 新咨询管理/客户管理 先输入客户名称，再选择已有客户'), trigger: ['blur', 'change'] }],
   locations: [{ validator: validateLocations, trigger: 'change' }],
   languageDirections: [{ validator: validateLanguageDirections, trigger: 'change' }],
   projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }],
@@ -1318,13 +1322,12 @@ const buildPayload = () => {
   return {
     ...projectContactPayload(form),
     ...(form.financeDraft ? { financeDraft: form.financeDraft } : {}),
-    clientManagerId: form.clientManagerId || null,
-    clientManagerChangeReason: form.clientManagerChangeReason || null,
+    ...projectClientManagerPayload(form, clientManagerBaseline.value, !form.id),
     projectName: form.projectName?.trim() || null,
     projectTypes: form.projectTypes,
     taskDescription: form.taskDescription?.trim() || null,
     socialPostRequest: form.socialPostRequest?.trim() || null,
-    clientSource: String(form.clientSource || '').trim(),
+
     clientId: form.clientId || null,
     subClientId: form.subClientId || null,
     clientName: form.clientFullName?.trim() || null,
@@ -1772,12 +1775,19 @@ watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value=
 
 <style scoped>
 .interpretation-type-field { display: flex; align-items: center; gap: 12px; width: 100%; }
-.interpretation-task-remarks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-.interpretation-task-remarks > .el-form-item { min-width: 0; }
-.interpretation-requirement-actions { grid-column: 3 / -1; }
-.demand-release-editor{width:100%;display:flex;flex-direction:column;gap:8px}
-.demand-release-editor>.el-button{align-self:flex-end}
-@media (max-width: 768px) { .interpretation-task-remarks { grid-template-columns: minmax(0, 1fr); gap: 0; } .interpretation-requirement-actions { grid-column: 1 / -1; } }
+.interpretation-task-remarks { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr); gap:24px; align-items:start; margin-bottom:24px; }
+.interpretation-project-notes,.demand-release-field { min-width:0; }
+.interpretation-project-notes > .el-form-item { margin-bottom:18px; }
+.interpretation-requirement-actions { display:flex; flex-wrap:wrap; gap:8px; padding-top:4px; }
+.interpretation-requirement-actions :deep(.el-button) { margin-left:0; max-width:100%; }
+.demand-release-field { margin-bottom:0; }
+.demand-release-editor { width:100%; display:flex; flex-direction:column; gap:12px; }
+.demand-release-editor :deep(.el-textarea__inner) { min-height:400px; }
+.demand-release-editor > .el-button { align-self:flex-end; }
+@media (max-width:1000px) {
+  .interpretation-task-remarks { grid-template-columns:minmax(0,1fr); gap:20px; }
+  .demand-release-editor :deep(.el-textarea__inner) { min-height:280px; }
+}
 </style>
 
 <style scoped>

@@ -23,6 +23,11 @@ def test_registration_is_first_creation_and_reused_client_keeps_source(environme
     db, _ = environment
     apply_migration(db.connection())
     apply_migration(db.connection())
+    if module in {'translation','interpretation','annotation','recruitment'}:
+        with pytest.raises(ValueError, match='请在 新咨询管理/客户管理 先输入客户名称'):
+            crud._resolve_or_create_project_client(db, '来源测试', None, '来源测试全称', registration_source=module)
+        assert db.query(Client).count()==0
+        return
     client_id, _, created = crud._resolve_or_create_project_client(
         db, '来源测试', None, '来源测试全称', registration_source=module)
     db.commit()

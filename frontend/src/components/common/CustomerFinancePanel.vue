@@ -41,6 +41,8 @@
       </el-tab-pane>
       <el-tab-pane label="口译" name="interpretation">
         <div v-if="active==='interpretation'" class="customer-finance-section">
+          <el-card shadow="never"><template #header><strong>客户结算设置</strong></template><InterpretationCustomerPreferences :client-id="clientId" :can-write="canWrite" /></el-card>
+          <el-card v-if="subClients.length" shadow="never"><template #header><strong>子客户结算设置</strong></template><div class="sub-client-finance-selectors"><el-select v-model="subClientId" aria-label="口译子客户" placeholder="选择子客户" filterable><el-option v-for="child in subClients" :key="child.id" :value="child.id" :label="buyerLabel(child)" /></el-select><el-date-picker v-model="subClientMonth" type="month" value-format="YYYY-MM" placeholder="账单月份" /><el-input-number v-model="subClientPeriod" :min="1" :max="999" :controls="false" placeholder="期次（空为整月）" /></div><SubClientFinancePreferences v-if="subClientId" module="interpretation" :sub-client-id="subClientId" :month="subClientMonth||undefined" :period="subClientPeriod" :can-write="canWrite" /></el-card>
           <InterpretationFinanceEditor scope="client" :target-id="clientId" :can-write="canWrite" @saved="revision++" />
           <InterpretationFinance :key="revision" :client-id="clientId" client-scope />
         </div>
@@ -82,6 +84,7 @@ import CustomerRateDifferences from './CustomerRateDifferences.vue'
 import CustomerTranslationRates from './CustomerTranslationRates.vue'
 import InterpretationFinanceEditor from './InterpretationFinanceEditor.vue'
 import SubClientFinancePreferences from './SubClientFinancePreferences.vue'
+import InterpretationCustomerPreferences from './InterpretationCustomerPreferences.vue'
 import StatementPeriodSelect from './StatementPeriodSelect.vue'
 import {buyerLabel,getClientInvoiceBuyers} from '@/api/invoiceParties'
 const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean,initialSection:String})

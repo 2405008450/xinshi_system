@@ -1,6 +1,6 @@
 import { customerManagementAccess, customerManagementHelpSections } from '@/utils/customerManagementHelp'
 
-export const translationHelpUpdatedAt = '2026-11-26'
+export const translationHelpUpdatedAt = '2026-11-27'
 
 export const translationHelpSections = [
   ...customerManagementHelpSections.filter(section => ['customer-registration-source', 'customer-name-history'].includes(section.id)).map(section => ({ ...section, group: '先看这里：登记与补充' })),
@@ -47,7 +47,7 @@ export const translationHelpSections = [
   {
     id:'register-mother',group:'先看这里：登记与补充',title:'3. 登记母订单：按这个顺序填写',
     steps:['在“笔译项目管理”点击“新增项目”，选择“新增母订单”或“新增母子订单”。','填写项目名称、客户全称和简称、客户联系人、客户类型。已有客户可选择带入；个人客户的全称和简称一般一致，联系人默认带入简称，仍需核对。','选择服务内容、翻译方向，填写工作量统计、接单时间、交稿时间、原文路径及客户要求。带红色必填标记的项目需要补齐。客户确无专业或特殊要求时，填写“无”。','需要多个文件时，先补充子订单，并到子订单管理中逐个填写文件的统计等资料。','核对后点击“保存”；需要通知时，再选择相应的发送按钮。'],
-    paragraphs:['客户简称建议使用“行政区划＋字号＋行业表述”，例如“广州信实翻译服务有限公司”可简称“广州信实翻译”。有公司名称时，个人姓名一般填写在客户联系人中。','在「新增母订单」填写本地或 UNC 原文路径，点击「提取文件名与工作量」。系统可读取单个文件，或只有一个文件且无子文件夹的目录，并回填文件名、字数、字符数（不计空格）和中朝统计。目录内有多个文件或子文件夹时，请用「新增母子订单」。','标题栏的字段搜索可以查找并定位表单字段，隐藏的折叠区会自动展开。窗口可以拖动、最大化，主要保存按钮固定在底部。'],
+    paragraphs:['四类项目的客户简称及全称仅支持搜索选择已有客户，尝试输入新名称时提示先到新咨询管理/客户管理录入。项目窗口已移除客户来源；客户联系人和子客户仍可输入新增。客户简称建议使用“行政区划＋字号＋行业表述”，例如“广州信实翻译服务有限公司”可简称“广州信实翻译”。有公司名称时，个人姓名一般填写在客户联系人中。','在「新增母订单」填写本地或 UNC 原文路径，点击「提取文件名与工作量」。系统可读取单个文件，或只有一个文件且无子文件夹的目录，并回填文件名、字数、字符数（不计空格）和中朝统计。目录内有多个文件或子文件夹时，请用「新增母子订单」。','标题栏的字段搜索可以查找并定位表单字段，隐藏的折叠区会自动展开。窗口可以拖动、最大化，主要保存按钮固定在底部。'],
     tip:'“复用项目信息”适合重复客户或相似业务。可按订单号、客户名称、项目名称、翻译方向、客户经理、客户类型搜索历史母订单。复用母订单业务信息，不复制历史子订单、付款流水或发送记录；请核对新的文件、时间、要求和客户经理。'
   },
   {
@@ -184,3 +184,7 @@ export const translationHelpSections = [
   }
 
 ].map((section,index)=>({...section,title:`${index+1}. ${section.title.replace(/^\d+\.\s*/, '')}`}))
+
+translationHelpSections.push({id:'service-content-statistics-help',group:'项目填写',title:`${translationHelpSections.length+1}. 服务内容、翻译方向与统计提示`,paragraphs:[
+ '服务内容和翻译方向旁的提示用于解释选项及填写方式，简要展示，点击可查看完整说明。',
+ '工作量统计填写要求默认折叠，点击标题展开；重新打开恢复折叠，截止日期和逾期提示保持直接可见。']})

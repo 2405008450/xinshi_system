@@ -72,7 +72,10 @@ def test_confirm_persists_and_becomes_visible_only_after_success(environment, mo
         assert listed['saved_at'].date() == actual_save_time.date()
         assert listed['shift']['label'] == '早班'
         assert shift_days and all(shift_day==day for shift_day in shift_days)
-        assert access.received_report(db,viewer,saved.id)['report_date'] == day
+        detail=access.received_report(db,viewer,saved.id)
+        assert detail['report_date'] == day
+        assert detail['shift']['label'] == '早班'
+        assert shift_days[-1] == day
         assert client.post(endpoint, json=payload).status_code == 409
         db.rollback()
         assert db.query(DailyReport).filter_by(user_id=sender.id, report_date=day).count() == 1

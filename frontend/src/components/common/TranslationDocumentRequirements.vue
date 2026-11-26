@@ -5,7 +5,7 @@
       <el-form-item label="是否需对账单" prop="statementRequired" data-field-key="statementRequired"><div class="finance-document-choice"><el-checkbox v-model="statementChecked" :disabled="confirmingStatement" @change="update('statementRequired',$event)">需</el-checkbox><el-tag v-if="modelValue.paymentMethod==='special' && unknownDefault" type="warning" size="small" effect="plain">客户默认未知</el-tag><el-button v-if="modelValue.statementRequired" link type="primary" @click="$emit('statement')">打开对账单</el-button></div><el-input :model-value="notes.statement" size="small" placeholder="说明" aria-label="对账单说明" data-dialog-field-search-label="对账单说明" :maxlength="2000" clearable @update:model-value="updateNote('statement',$event)" /></el-form-item>
       <el-form-item label="是否需发票" data-field-key="invoiceRequired"><div class="finance-document-choice"><el-select v-if="editableInvoice" :model-value="modelValue.invoiceRequirementOverride ?? 'auto'" aria-label="是否需发票" @change="update('invoiceRequirementOverride',$event)"><el-option label="需" :value="true" /><el-option label="无需" :value="false" /><el-option v-if="modelValue.invoiceRequirementOverride==null" :label="invoiceNeeded===null?'按计费口径自动判断':invoiceNeeded?'需（计费口径）':'无需（计费口径）'" value="auto" /></el-select><ReadonlyField v-else :model-value="invoiceNeeded===null?'按计费口径自动判断':invoiceNeeded?'需':'无需'" source="auto" aria-label="是否需发票" /><el-button v-if="invoiceNeeded" link type="primary" @click="$emit('invoice')">发票</el-button></div><el-input :model-value="notes.invoice" size="small" placeholder="说明" aria-label="发票说明" data-dialog-field-search-label="发票说明" :maxlength="2000" clearable @update:model-value="updateNote('invoice',$event)" /></el-form-item>
       <div v-if="modelValue.clientId" class="document-customer-settings" data-dialog-field-search-label="客户单据设置同步">
-        <el-button link type="primary" @click="emit('customer-settings')">{{usesSubClient ? '客户管理 → 财务信息 → 笔译 → 子客户结算设置' : '客户管理 → 财务信息 → 笔译 → 对账单设置'}}</el-button>
+        <el-button link type="primary" @click="emit('customer-settings')">{{`客户管理 → 财务信息 → ${module==='interpretation'?'口译':'笔译'} → ${usesSubClient?'子客户结算设置':'对账单设置'}`}}</el-button>
         <div v-for="[field,label] in documentFields" :key="field" class="document-sync-row">
           <span>{{label}}</span>
           <el-tag v-if="modelValue.customerDocumentSources?.[field]" size="small" type="info">来自客户管理</el-tag>
@@ -23,14 +23,14 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {getStatementRequirementContext} from '@/api/translationCustomerFinance'
 import ReadonlyField from './ReadonlyField.vue'
 import {documentNotesForm,invoiceRequirement,usesSubClientDocumentSettings} from '@/utils/documentRequirements'
-const props=defineProps({modelValue:{type:Object,required:true},persistStatement:Function,editableInvoice:Boolean})
+const props=defineProps({modelValue:{type:Object,required:true},persistStatement:Function,editableInvoice:Boolean,module:{type:String,default:'translation'}})
 const emit=defineEmits(['update:modelValue','quotation','statement','invoice','customer-settings'])
 const documentFields=[['quotationRequired','报价单'],['statementRequired','对账单'],['invoiceRequired','发票']]
 const notes=computed(()=>documentNotesForm(props.modelValue.documentNotes))
-const invoiceNeeded=computed(()=>invoiceRequirement(props.modelValue))
+const invoiceNeeded=computed(()=>props.module==='interpretation'?(typeof props.modelValue.invoiceRequirementOverride==='boolean'?props.modelValue.invoiceRequirementOverride:props.modelValue.billingTaxMode==='incl_tax'?true:props.modelValue.billingTaxMode==='excl_tax'?false:null):invoiceRequirement(props.modelValue))
 const confirmingStatement=ref(false)
 const usesParentSettings=computed(()=>!!props.modelValue.subClientId && props.modelValue.settlementParty==='client')
-const usesSubClient=computed(()=>usesSubClientDocumentSettings(props.modelValue) && !!props.persistStatement)
+const usesSubClient=computed(()=>usesSubClientDocumentSettings(props.modelValue) && (props.module==='interpretation'||!!props.persistStatement))
 const statementChecked=ref(props.modelValue.statementRequired)
 watch(()=>props.modelValue.statementRequired,value=>{statementChecked.value=value})
 const unknownDefault=ref(false)
@@ -38,6 +38,7 @@ watch(()=>[props.modelValue.rootId,props.modelValue.clientId],async ([projectId,
   let current=true
   onCleanup(()=>{current=false})
   unknownDefault.value=false
+  if(props.module!=='translation')return
   if(!projectId&&!clientId)return
   try{
     const context=await getStatementRequirementContext({project_id:projectId||undefined,client_id:clientId||undefined})
@@ -45,6 +46,10 @@ watch(()=>[props.modelValue.rootId,props.modelValue.clientId],async ([projectId,
   }catch{/* 确认调整时重新读取客户设置。 */}
 },{immediate:true})
 async function update(field,value){
+  if(props.module!=='translation'){
+    emit('update:modelValue',{...props.modelValue,[field]:field==='invoiceRequirementOverride'&&typeof value!=='boolean'?null:value})
+    return
+  }
   if(field!=='statementRequired'){
     if(field==='invoiceRequirementOverride'&&typeof value!=='boolean')return
     const updates=field==='invoiceRequirementOverride'&&usesSubClient.value?{subClientInvoiceRequired:value}:{}

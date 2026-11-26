@@ -1,7 +1,7 @@
 <template>
   <section class="report-snapshot">
     <ReportDailyNotices :idle-minutes="report.idle_minutes" :items="report.items || []" />
-    <el-descriptions :column="2" border size="small"><el-descriptions-item label="姓名">{{report.user_name||'-'}}</el-descriptions-item><el-descriptions-item label="报告日期">{{report.report_date||'-'}}</el-descriptions-item><el-descriptions-item label="最近保存时间">{{formatBusinessDateTime(report.saved_at)}}</el-descriptions-item><el-descriptions-item label="提交时间">{{formatBusinessDateTime(report.finalized_at)}}</el-descriptions-item><el-descriptions-item label="补充说明" :span="2"><ScreenshotText :text="report.supplemental_note || '-'" /></el-descriptions-item></el-descriptions>
+    <el-descriptions :column="2" border size="small"><el-descriptions-item label="姓名">{{report.user_name||'-'}}</el-descriptions-item><el-descriptions-item label="报告日期">{{report.report_date||'-'}}</el-descriptions-item><el-descriptions-item label="班次"><span>{{report.shift?.label || '未安排'}}</span><span v-if="report.shift?.periods?.length"> · {{report.shift.periods.join(' / ')}}</span></el-descriptions-item><el-descriptions-item label="总计时间">{{durationLabel(totalMinutes)}}</el-descriptions-item><el-descriptions-item label="最近保存时间">{{formatBusinessDateTime(report.saved_at)}}</el-descriptions-item><el-descriptions-item label="提交时间">{{formatBusinessDateTime(report.finalized_at)}}</el-descriptions-item><el-descriptions-item label="补充说明" :span="2"><ScreenshotText :text="report.supplemental_note || '-'" /></el-descriptions-item></el-descriptions>
     <ReportIdleTime v-if="report.idle_minutes!=null" :minutes="report.idle_minutes" :confirmed="report.idle_declaration_confirmed" :declaration-text="report.idle_declaration_text||''" />
     <div class="snapshot-filter"><el-input v-model="projectFilter" placeholder="筛选项目名称或订单号" clearable /><el-checkbox v-model="onlyLunch">仅看中午加班</el-checkbox></div>
     <article v-for="(item,index) in report.items||[]" :key="item.display_metadata?._feedback_key||item.id||index" v-show="matchesItem(item)" :class="{'is-child':item.display_metadata?.parent_item_key}">
@@ -23,6 +23,7 @@ import {computed,ref,watch,onBeforeUnmount} from 'vue'
 import {matchesSearch} from '@/utils/searchMatching'
 import {reportOutline} from '@/utils/workReportHierarchy'
 const props=defineProps({report:{type:Object,required:true},feedback:Boolean})
+const totalMinutes=computed(()=>(props.report.items||[]).reduce((sum,item)=>sum+(Number(item.duration_minutes)||0),0))
 const projectFilter=ref(''),appliedFilter=ref(''),onlyLunch=ref(false);let timer
 watch(projectFilter,value=>{clearTimeout(timer);if(!value)appliedFilter.value='';else timer=setTimeout(()=>{appliedFilter.value=value},400)})
 onBeforeUnmount(()=>clearTimeout(timer))

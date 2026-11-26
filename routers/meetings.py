@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 from typing import Literal
 from fastapi import APIRouter, Depends, Query
@@ -39,6 +39,14 @@ def availability(start_at: datetime, end_at: datetime, db=Depends(get_db), user=
 def summary(db=Depends(get_db), user=Depends(get_current_user)):
     return service.summary(db, user)
 
+@router.get('/location-conflicts')
+def location_conflicts(location: str, start_at: datetime, end_at: datetime, db=Depends(get_db), user=Depends(get_current_user)):
+    return service.location_conflicts(db, location, start_at, end_at)
+
+@router.put('/{meeting_id}/status')
+def change_status(meeting_id: UUID, data: service.StatusWrite, db=Depends(get_db), user=Depends(get_current_user)):
+    return service.change_status(db, user, meeting_id, data)
+
 @router.get('/client-options')
 def clients(keyword: str = Query('', max_length=300), db=Depends(get_db), user=Depends(get_current_user)):
     from models import Client
@@ -55,8 +63,8 @@ def projects(project_type: str, keyword: str = Query('', max_length=300), db=Dep
     return search(db, project_type, keyword, 1, 50, period='all')
 
 @router.get('')
-def listing(keyword: str = Query('', max_length=300), page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100), db=Depends(get_db), user=Depends(get_current_user)):
-    return service.listing(db, user, keyword, page, page_size)
+def listing(period: Literal['day', 'week', 'month', 'year'] = 'day', anchor: date | None = None, keyword: str = Query('', max_length=300), page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100), db=Depends(get_db), user=Depends(get_current_user)):
+    return service.listing(db, user, keyword, page, page_size, period, anchor)
 
 @router.post('')
 def create(data: service.MeetingWrite, db=Depends(get_db), user=Depends(get_current_user)):

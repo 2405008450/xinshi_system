@@ -1,18 +1,20 @@
 <template>
   <ReadonlyField v-if="clientId" v-bind="$attrs" :model-value="modelValue" source="auto" placeholder="选择客户后自动带出" />
-  <el-autocomplete v-else v-bind="$attrs" :model-value="modelValue" :fetch-suggestions="search" value-key="client_name" :debounce="400" :trigger-on-focus="true" clearable :placeholder="placeholder" style="width:100%" @update:model-value="$emit('update:modelValue',$event)" @select="select">
+  <component :is="existingOnly?ExistingClientAutocomplete:ElAutocomplete" v-else v-bind="$attrs" :model-value="modelValue" :fetch-suggestions="search" value-key="client_name" :debounce="400" :trigger-on-focus="true" clearable :placeholder="existingOnly?'搜索并选择已有客户全称':placeholder" style="width:100%" @update:model-value="$emit('update:modelValue',$event)" @select="select">
     <template #default="{item}">
       <div class="client-full-name-option"><span>{{item.client_name}} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span><small>{{item.client_short_name}} · {{item.client_code || item.sub_client_code || '未生成编号'}}{{item.parent_client_short_name ? ' · 归属 '+item.parent_client_short_name : ''}}</small></div>
     </template>
-  </el-autocomplete>
+  </component>
 </template>
 <script setup>
 import {onBeforeUnmount,watch} from 'vue'
 import ReadonlyField from './ReadonlyField.vue'
+import ExistingClientAutocomplete from './ExistingClientAutocomplete.vue'
+import {ElAutocomplete} from 'element-plus'
 import {getClients} from '@/api/clients'
 import {flattenProjectClientOptions} from '@/utils/projectClientAutocomplete'
 defineOptions({inheritAttrs:false})
-const props=defineProps({modelValue:{type:String,default:''},clientId:{type:String,default:''},includeSubClients:Boolean,placeholder:{type:String,default:'输入客户全称搜索，或填写新客户全称'}})
+const props=defineProps({modelValue:{type:String,default:''},clientId:{type:String,default:''},includeSubClients:Boolean,existingOnly:Boolean,placeholder:{type:String,default:'输入客户全称搜索，或填写新客户全称'}})
 const emit=defineEmits(['update:modelValue','select'])
 let sequence=0,controller
 async function search(value,callback){

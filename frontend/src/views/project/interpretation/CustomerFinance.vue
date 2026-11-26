@@ -14,7 +14,7 @@
       </div>
     </template>
     <CustomerQuotationDialog v-if="quotationVisible" v-model="quotationVisible" module="interpretation" :projects="documentProjects" :query="queryParams()" @saved="saved" />
-    <BusinessFinanceLedgerDialog v-if="ledgerVisible" v-model="ledgerVisible" module="interpretation" :query="queryParams()" />
+    <BusinessFinanceLedgerDialog @price="row=>openDocument('price',row)" @statement="row=>openDocument('statement',row)" @invoice="row=>openDocument('invoice',row)" v-if="ledgerVisible" v-model="ledgerVisible" module="interpretation" :query="queryParams()" />
     <DraggableFormDialog v-model="invoicePicker" title="选择开票项目" width="min(760px, calc(100vw - 32px))" append-to-body><el-select v-model="invoiceTarget" filterable remote :remote-method="searchInvoiceProjects" :loading="invoiceSearching" style="width:100%"><el-option v-for="row in invoiceOptions" :key="row.id" :value="row.id" :label="row.order_no+' · '+row.project_name" /></el-select><template #footer><el-button @click="invoicePicker=false">取消</el-button><el-button :disabled="!invoiceTarget" type="primary" @click="chooseInvoice">打开发票窗口</el-button></template></DraggableFormDialog>
     <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :projects="documentProjects" :query="queryParams()" :initial-mode="specialEntry?'special':undefined" />
     <InterpretationInvoiceDialog v-if="invoiceVisible" v-model="invoiceVisible" :project-id="actionRow?.id"
@@ -154,14 +154,14 @@ const documentProjects=computed(()=>actionRow.value?[actionRow.value]:rows.value
 function financeRowActions(row){
   const history={command:'history',label:'修改记录'}
   const mode=row.settlement_mode
-  if(mode==='special')return [{command:'statement',label:'特殊结算对账单'},{command:'invoice',label:'特殊结算发票'},{command:'price',label:'价格与收费'},history]
+  if(mode==='special')return [{command:'statement',label:'特殊结算对账单'},{command:'invoice',label:'特殊结算发票'},{command:'price',label:'价格与付款'},history]
   const labels={
     monthly:['合并对账单','合并结算发票'],
     sub_client:['子客户对账单','子客户结算发票'],
   }
   const [statement,invoice]=labels[mode]||['对账单','发票']
   return [
-    {command:'price',label:canWrite?'价格与收费':'查看价格与收费'},
+    {command:'price',label:canWrite?'价格与付款':'查看价格与付款'},
     {command:'quotation',label:'报价单'},
     {command:'statement',label:statement,disabled:!row.billing_month},
     {command:'invoice',label:invoice},

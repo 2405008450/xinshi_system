@@ -1,15 +1,16 @@
 <template>
   <span>
-    <el-button v-if="!hideTrigger" :disabled="!targetId&&!deferSave" :link="scope==='project'&&!deferSave" type="primary" @click="open()">{{scope==='client'?'口译参考价及调整记录':'价格与收费'}}</el-button>
-    <DraggableFormDialog v-model="visible" append-to-body class="interpretation-finance-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" :before-close="close" :close-on-click-modal="false">
+    <el-button v-if="!hideTrigger" :disabled="!targetId&&!deferSave" :link="scope==='project'&&!deferSave" type="primary" @click="open()">{{scope==='client'?'口译参考价及调整记录':'价格与付款'}}</el-button>
+    <DraggableFormDialog v-model="visible" append-to-body class="interpretation-finance-dialog" width="min(1280px, calc(100vw - 32px))" top="5vh" :before-close="close" :close-on-click-modal="false">
       <template #header>
-        <DialogFieldSearchHeader class="interpretation-finance-heading" ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="scope==='client'?'客户口译参考价':`${historyOnly?'修改记录':'价格与收费'}${context.order_no?' · '+context.order_no:''}`" copyable-title :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch">
+        <DialogFieldSearchHeader class="interpretation-finance-heading" ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="scope==='client'?'客户口译参考价':`${historyOnly?'修改记录':'价格与付款'}${context.order_no?' · '+context.order_no:''}`" copyable-title :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch">
           <template v-if="scope==='project'" #actions>
             <span class="interpretation-finance-meta" @mousedown.stop>
               <span class="interpretation-finance-project-name">{{context.project_name||'-'}}</span>
               <span>客户简称：<ClientManagementLink :value="context.client_short_name" :row="context" show-sub-client /></span>
-              <span>项目状态：{{getProjectStatusLabel('interpretation',context.project_status)}}</span>
+              <span>客户经理：{{context.client_manager||'未分配'}}</span>
             </span>
+            <SubClientPeriodProjects v-if="visible&&targetId&&context.sub_client_id" module="interpretation" :project-id="String(targetId)" :period-key="`${draft?.settlement.billing_month||context.billing_month}:${draft?.settlement.period_number||0}`" />
           </template>
         </DialogFieldSearchHeader>
       </template>
@@ -34,11 +35,10 @@
               <h3>计价方式</h3>
               <el-form-item data-dialog-field-search-label="计价方式">
                 <el-radio-group :model-value="draft.settlement.pricing_mode" :disabled="pricingModeSwitching" aria-label="计价方式" @update:model-value="changePricingMode">
-                  <el-radio-button value="time">按时长计费</el-radio-button>
+                  <el-radio-button value="time">工作量</el-radio-button>
                   <el-radio-button value="fixed">固定收费</el-radio-button>
                 </el-radio-group>
               </el-form-item>
-              <el-form-item label="计费税口径"><el-select v-model="draft.settlement.tax_basis" style="width:200px;max-width:100%"><el-option label="不含税" value="excl_tax" /><el-option label="含税" value="incl_tax" /><el-option label="税口径未确认" value="legacy" /></el-select></el-form-item>
           <div v-if="draft.settlement.pricing_mode==='time'" class="finance-reference-actions">
             <el-form-item label="客户参考价"><el-button :disabled="!context.reference_rates?.length" @click="adopt">采用匹配方向的客户参考价</el-button></el-form-item>
             <el-form-item v-if="canWriteClients&&context.client_id&&context.library_revision!=null" label="同步客户参考价">
@@ -46,14 +46,18 @@
             </el-form-item>
           </div>
             </section>
-            <section class="finance-region finance-documents" data-dialog-field-search-group data-dialog-field-search-group-title="单据需求">
-              <h3>单据需求</h3>
-              <el-form-item label="单据需求"><el-checkbox v-model="draft.settlement.quotation_required">需报价单</el-checkbox><el-checkbox v-model="draft.settlement.invoice_required">需发票</el-checkbox></el-form-item>
-              <el-form-item label="单据"><el-button @click="quotationVisible=true">报价单</el-button><el-button :disabled="!targetId" @click="statementVisible=true">对账单</el-button></el-form-item>
-              <el-form-item label="账单月份"><el-date-picker v-model="draft.settlement.billing_month" type="month" value-format="YYYY-MM" :placeholder="context.billing_month||'默认按订单日期'" /></el-form-item>
+            <section class="finance-region interpretation-document-region" data-dialog-field-search-group data-dialog-field-search-group-title="客户结算设置">
+              <h3>客户结算设置</h3>
+              <TranslationDocumentRequirements module="interpretation" :model-value="documentModel" editable-invoice @update:model-value="updateDocuments" @customer-settings="customerSettingsVisible=true" @quotation="quotationVisible=true" @statement="statementVisible=true" @invoice="invoiceVisible=true" />
+              <SubClientFinancePreferences v-if="context.sub_client_id&&targetId" module="interpretation" :sub-client-id="context.sub_client_id" :month="draft.settlement.billing_month||context.billing_month" :period="draft.settlement.period_number" :can-write="settingsWritable">
+                <template #document-action="{kind}"><el-button v-if="kind==='quotation'&&draft.settlement.quotation_required" link @click="quotationVisible=true">打开报价单</el-button><el-button v-if="kind==='statement'&&draft.settlement.statement_required" link @click="statementVisible=true">打开对账单</el-button><el-button v-if="kind==='invoice'&&documentModel.invoiceRequired" link @click="invoiceVisible=true">发票</el-button></template>
+                <template #settings-link><el-button link @click="customerSettingsVisible=true">客户管理 · 子客户结算设置</el-button><small>修改后自动同步</small></template>
+              </SubClientFinancePreferences>
+              <el-form-item label="账单月份"><div class="interpretation-billing-period"><ReadonlyField :model-value="[draft.settlement.billing_month||context.billing_month||'保存后自动生成',draft.settlement.period_number?'第'+draft.settlement.period_number+'期':'整月（不分期）'].join(' · ')" source="auto" /><el-button :disabled="!settingsWritable||!targetId" @click="billingPeriodVisible=true">调整账期</el-button></div></el-form-item>
+              <small v-if="!settingsWritable&&canWrite">请先保存当前收费修改，再调整共享设置或账期。</small>
             </section>
           </div>
-          <InterpretationFinanceFields v-model="draft" :directions="activeDirections" :reference-only="scope==='client'" :compact="scope==='project'">
+          <InterpretationFinanceFields v-model="draft" :directions="activeDirections" :reference-only="scope==='client'" :compact="scope==='project'" :hide-totals="scope==='project'">
             <template v-if="scope==='project'" #notes>
               <el-form-item label="内部说明"><el-input v-model="draft.explanation" type="textarea" :rows="2" maxlength="5000" show-word-limit /></el-form-item>
               <el-form-item label="客户说明"><el-input v-model="draft.settlement.customer_explanation" type="textarea" :rows="2" maxlength="5000" show-word-limit /></el-form-item>
@@ -61,7 +65,8 @@
           </InterpretationFinanceFields>
           <template v-if="scope==='project'">
             <InterpretationSettlementAmounts v-model="draft" />
-            <InterpretationPaymentFields v-model="draft" />
+            <InterpretationPaymentRegistration v-if="draft.settlement.payment_method==='individual'" v-model="draft" :project-id="targetId?String(targetId):''" :can-write="canWrite" :can-confirm="canManageHr()&&!deferSave&&!!context.revision" :confirm-disabled="saving||signature()!==original" @confirm-payment="confirmPayment" @invoice-saved="refreshQuotationRevision" />
+            <p v-else class="finance-region">请在 <el-button link type="primary" :disabled="!targetId||deferSave||signature()!==original" @click="statementVisible=true">{{settlementModeLabels[draft.settlement.payment_method]}}</el-button> 查看结算情况和登记付款。请先保存收费修改，再打开对应对账单。</p>
             <p v-if="deferSave">收费和报价单随项目保存，对账单使用已保存的收费。</p>
           </template>
         </AppForm>
@@ -84,6 +89,13 @@
       </div>
       <template #footer><el-button :disabled="saving" @click="close()">关闭</el-button><el-button v-if="canWrite&&!historyOnly&&(scope==='client'||financeModule==='interpretation')" type="primary" :disabled="loading||!draft||!context.ready" :loading="saving" @click="save()">{{deferSave?'应用到项目':'保存'}}</el-button></template>
     </DraggableFormDialog>
+    <DraggableFormDialog class="oral-customer-settings-dialog" v-model="customerSettingsVisible" title="客户管理 · 口译结算设置" width="min(960px,calc(100vw - 32px))" append-to-body>
+      <InterpretationCustomerPreferences v-if="context.client_id" :client-id="context.client_id" :can-write="settingsWritable" />
+      <SubClientFinancePreferences v-if="context.sub_client_id" module="interpretation" :sub-client-id="context.sub_client_id" :month="draft?.settlement.billing_month||context.billing_month" :period="draft?.settlement.period_number" :can-write="settingsWritable" />
+      <template #footer><el-button @click="customerSettingsVisible=false">关闭</el-button></template>
+    </DraggableFormDialog>
+    <OrderBillingPeriodDialog v-if="billingPeriodVisible" module="interpretation" :project-id="String(targetId)" :month="draft?.settlement.billing_month||context.billing_month" @close="billingPeriodVisible=false" @saved="billingPeriodVisible=false;open();emit('saved')" />
+    <InterpretationInvoiceDialog v-if="invoiceVisible" v-model="invoiceVisible" :project-id="String(targetId||'')" :can-write="canWrite" @saved="refreshQuotationRevision" />
     <CustomerQuotationDialog v-if="quotationVisible" v-model="quotationVisible" module="interpretation" :defer-save="deferSave"
       :projects="documentProjects" :draft-project="quotationProject" :draft="quotationDraft||context.quotation||quotationDefaults"
       @update:draft="quotationDraft=$event" @saved="refreshQuotationRevision" />
@@ -93,6 +105,12 @@
 <script setup>
 import { translationSettlementModeLabels as settlementModeLabels } from '@/utils/settlementModes'
 import CustomerQuotationDialog from './CustomerQuotationDialog.vue'
+import TranslationDocumentRequirements from './TranslationDocumentRequirements.vue'
+import SubClientFinancePreferences from './SubClientFinancePreferences.vue'
+import SubClientPeriodProjects from './SubClientPeriodProjects.vue'
+import InterpretationCustomerPreferences from './InterpretationCustomerPreferences.vue'
+import InterpretationInvoiceDialog from './InterpretationInvoiceDialog.vue'
+import OrderBillingPeriodDialog from './OrderBillingPeriodDialog.vue'
 import InterpretationStatementDialog from './InterpretationStatementDialog.vue'
 import ClientManagementLink from './ClientManagementLink.vue'
 import CustomerFinanceModuleTabs from './CustomerFinanceModuleTabs.vue'
@@ -102,14 +120,15 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import CustomerRateDifferences from './CustomerRateDifferences.vue'
 import InterpretationFinanceFields from './InterpretationFinanceFields.vue'
 import InterpretationSettlementAmounts from './InterpretationSettlementAmounts.vue'
-import InterpretationPaymentFields from './InterpretationPaymentFields.vue'
+import InterpretationPaymentRegistration from './InterpretationPaymentRegistration.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import {getInterpretationFinance,saveInterpretationFinance,getInterpretationFinanceHistory} from '@/api/interpretationCustomerFinance'
 import {emptyInterpretationFinance,financeDraft,financeSummary,formatFinanceAmounts,interpretationCurrencies,interpretationFinancePayload,interpretationFinanceTotals} from '@/utils/interpretationCustomerFinance'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 import {getProjectStatusLabel} from '@/utils/projectStatus'
-import {hasPermission} from '@/utils/permission'
+import {hasPermission,canManageHr} from '@/utils/permission'
+import api from '@/api'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {requestInterpretationPricingModeSwitch} from '@/utils/interpretationPricingModeSwitch'
 const props=defineProps({
@@ -119,6 +138,18 @@ const props=defineProps({
 const emit=defineEmits(['saved','update:pending'])
 const canWriteClients=hasPermission('clients:write')
 const financeModule=ref('interpretation')
+const customerSettingsVisible=ref(false),billingPeriodVisible=ref(false),invoiceVisible=ref(false)
+const settingsWritable=computed(()=>props.canWrite&&!props.deferSave&&!saving.value&&!!draft.value&&signature()===original.value)
+const documentModel=computed(()=>({id:String(props.targetId||''),rootId:String(props.targetId||''),clientId:context.value.client_id,subClientId:context.value.sub_client_id,settlementParty:context.value.settlement_party,
+  quotationRequired:!!draft.value?.settlement.quotation_required,statementRequired:draft.value?.settlement.statement_required!==false,
+  invoiceRequired:draft.value?.settlement.invoice_requirement_override??(draft.value?.settlement.tax_basis==='incl_tax'),
+  invoiceRequirementOverride:draft.value?.settlement.invoice_requirement_override??null,paymentMethod:draft.value?.settlement.payment_method,
+  billingTaxMode:draft.value?.settlement.tax_basis,documentNotes:draft.value?.settlement.document_notes||{}}))
+function updateDocuments(value){Object.assign(draft.value.settlement,{quotation_required:value.quotationRequired,statement_required:value.statementRequired,
+  invoice_requirement_override:value.invoiceRequirementOverride,invoice_required:value.invoiceRequirementOverride??draft.value.settlement.tax_basis==='incl_tax',document_notes:value.documentNotes})}
+function onSettingsChanged(event){if(event.detail?.clientId!==context.value.client_id||!visible.value)return;if(signature()===original.value)void open();else error.value='客户结算设置已更新，请先保留当前修改并重新加载，避免覆盖其他窗口的调整'}
+window.addEventListener('interpretation-settlement-settings-changed',onSettingsChanged)
+onBeforeUnmount(()=>window.removeEventListener('interpretation-settlement-settings-changed',onSettingsChanged))
 const pricingModeSwitching=ref(false)
 async function changePricingMode(next){
   if(pricingModeSwitching.value||saving.value||!props.canWrite||!draft.value)return
@@ -280,6 +311,15 @@ async function save(syncToClient=false){
   }catch(e){error.value=getLocalizedErrorMessage(e,'保存失败')}
   finally{saving.value=false}
 }
+async function confirmPayment(paymentId){
+  if(saving.value||props.deferSave||signature()!==original.value)return
+  saving.value=true;error.value=''
+  try{
+    const data=await api.post(`/interpretation-customer-finance/project/${props.targetId}/confirm-payment`,{revision:context.value.revision,payment_id:paymentId})
+    context.value=data;draft.value=financeDraft(data.payload);original.value=signature();void loadHistory();emit('saved')
+    ElMessage.success('付款已确认并记录')
+  }catch(e){error.value=getLocalizedErrorMessage(e,'确认付款失败')}finally{saving.value=false}
+}
 async function refreshQuotationRevision(){
   const seq=sequence
   try{
@@ -319,3 +359,7 @@ defineExpose({open})
 .interpretation-order-config :deep(.el-form-item:last-child){margin-bottom:0}
 @media(max-width:880px){.interpretation-order-config{grid-template-columns:minmax(0,1fr)}.interpretation-settlement-region{grid-row:auto}}
 </style>
+
+<style scoped>.interpretation-billing-period{display:flex;align-items:center;gap:12px;width:100%}.interpretation-billing-period>.el-input{flex:1}.interpretation-document-region>small{font-size:12px;color:var(--el-text-color-secondary)}</style>
+
+<style>.oral-customer-settings-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.oral-customer-settings-dialog>.el-dialog__body{flex:1;min-height:0;overflow:auto}.oral-customer-settings-dialog>.el-dialog__header,.oral-customer-settings-dialog>.el-dialog__footer{flex:none}</style>

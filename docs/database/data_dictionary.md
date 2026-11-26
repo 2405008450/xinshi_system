@@ -3062,3 +3062,29 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - meeting_arrangement.record_content TEXT（最多30000字）、record_version INTEGER 并发版本：支持纯记录，或同事务创建多人任务。
 - meeting_action_task：id UUID主键；client_id UUID请求键；meeting_id/assignee_id/arranger_id UUID外键；category project/non_project；content TEXT；project JSON项目身份快照；due_at/assigned_at/completed_at TIMESTAMPTZ；status pending/in_progress/completed；revision INTEGER。client_id+assignee_id唯一，会议和执行人索引。每人独立任务、仅本人修改状态；召开人读取本会议任务。
 - 工作报告分类目录改为共享展示所有用户已保存的分类和二级内容；不公开创建人的报告正文，不共享个人排版固定任务，项目分类新增仍仅超级管理员。无需修改既有表结构或历史行。
+
+- 会议编号：接口 meeting_no，格式 MT-YYMMDD-NNN，按 UTC+8 创建日每日递增（超过999继续扩展位数）；新建时事务级日期锁分配并保存于 meeting_arrangement.association.meeting_no。既有记录按创建日与 number 顺序只读计算兼容编号，不修改历史数据。列表支持所有召开人的日/周/月/年范围，按会议时间与范围重叠筛选；详细回执、任务记录及写操作继续校验原有参与权限。无新增表或字段迁移。
+
+- 会议状态沿用 association.lifecycle JSON：status（pending/in_progress/ended/cancelled）、version（并发版本）、started_at/updated_at（UTC+8 ISO时间）。默认待开始，召开人手动变更；切换进行中记录服务器起点并按计划时长倒计时，结束与取消停表。地点冲突按同地点、时间严格重叠查询，排除已取消会议，仅提醒。无既有表结构变更。
+
+
+### 口译付款登记与笔译表单统一（2026-11-26）
+
+不新增或修改物理表结构。`interpretation_customer_finance.payload.payment_registration` 复用笔译付款确认及付款明细输入契约；原 `settlement.payments/payment_status/payment_note` 同步保留，列表、账单和营收继续使用同一收款口径。
+
+- `confirmation`：已付定金/已付全款、付款账户、支付截图备注、全款币种及金额、匹配金额及不匹配原因；全款确认人/时间由行政确认接口生成。
+- `payments`：服务端分配的 UUID、定金/中期款/尾款、期次、预定和实际金额、币种、UTC+8付款时间、付款方式、逐笔截图备注及行政确认人/时间。修改明细后使原确认失效；未修改的确认保留，客户端不能伪造确认。
+- `full_payment_received_on`：兼容旧全款收款日期。旧账簿在读取时转换，不批量改写历史；旧客户端缺少新字段时不能清空已登记的新付款资料。
+- 沿用财务 `revision` 乐观锁及历史表，付款变更/清除/确认均保留前后快照。新增付款历史和行政确认接口分别为 `/interpretation-customer-finance/project/{id}/payment-history` 和 `/confirm-payment`；不访问笔译付款记录。
+- 独立“结算金额”展示区域移除；既有 `settlement_adjustments` 的折扣和调整金额在“总价与说明”编辑，计费、付款核对与账单仍按同一税口径和币种计算。
+
+
+### 口译客户/子客户结算设置与账期（2026-11-26）
+
+复用 `interpretation_customer_finance` 与历史表，无新增表或已有表结构修改。客户行 JSON 的受保护键 `_oral_settlement_settings` 保存口译独立设置：`customer`、`sub_clients`（按子客户 UUID）、`parties`（键为子客户UUID:月份:期次，0为整月）。各设置对象使用独立 `revision` 乐观锁；普通收费/参考价提交不能覆盖此键。
+
+客户/子客户设置包含报价单、对账单、发票要求、各单据说明、对账单主体、税口径；客户另有默认结算模式和 `collection_terms` 自由文本付款账期。设置变更写入原历史表并同步对应口译项目；特殊结算保留独立单据设置，所有口译设置与笔译子客户表隔离。项目单据要求改动回写对应客户/子客户设置，同事务同步其他适用项目；单价仍按原确认同步流程处理。
+
+项目 `settlement` JSON 增加 `statement_required`、`invoice_requirement_override`、`document_notes`、`statement_subject_key`；沿用 `billing_month`、`period_number`。同期项目、对账单和发票按同一月份/期次筛选，结算对象决定采用客户或子客户名称和资料。账期设置走财务版本校验，修改后重新读取当前上下文。
+
+口译对账单工作区 `_oral_workspace.boards[].payment_registration` 保存单据独立付款（与项目 payment_registration 相同契约），使用工作区 revision 乐观锁和既有客户财务历史；按单内实际总价核对，行政确认元数据由服务端生成。新增期次不复制付款，查账追账对有效独立单据使用单据金额与付款，避免与源项目重复累计。未新建数据表。

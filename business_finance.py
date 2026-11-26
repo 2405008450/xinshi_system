@@ -260,4 +260,8 @@ def ledger(module:Literal['interpretation','annotation','recruitment'],client_id
         row=saved.get(project.id)
         item=oral.finance_context('project',project,True,row) if module=='interpretation' else context(db,module,project,stored=row)
         result.append(item)
+    if module=='interpretation':
+        from interpretation_board_payments import ledger_units
+        units,covered=ledger_units(db,result)
+        return {'items':result,'units':units,'covered_project_ids':covered}
     return {'items':result}

@@ -1,5 +1,5 @@
 """会议安排：当前账号访问范围、参会人员快照、班次提示、原子通知与回执。"""
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from uuid import UUID, uuid4
 from typing import Literal
 from fastapi import HTTPException
@@ -10,9 +10,56 @@ from models import AppUser, AppNotification, EmployeeLeave
 from chat_time import now, api_time, BUSINESS_TIMEZONE
 from meeting_models import Meeting, MeetingParticipant
 from search_matching import keyword_any
+from meeting_numbering import allocate, code_for, codes_query
 
 TYPES = ('项目会议', '管理会议', '部门会议', '培训会议', '客户会议', '开发会议', '其他会议')
 LOCATIONS = ('广州公司内会议室（+线上）', '广州公司外会议室（+线上）', '线上')
+STATUS_LABELS = {'pending': '待开始', 'in_progress': '进行中', 'ended': '已结束', 'cancelled': '已取消'}
+
+
+def meeting_state(row):
+    value = (row.association or {}).get('lifecycle') or {}
+    return {'status': value.get('status', 'pending'), 'status_started_at': value.get('started_at'), 'status_version': value.get('version', 0)}
+
+
+class StatusWrite(BaseModel):
+    status: Literal['pending', 'in_progress', 'ended', 'cancelled']
+    version: int = Field(ge=0)
+
+
+def change_status(db, user, meeting_id, data):
+    require_ready(db)
+    row = db.query(Meeting).filter_by(id=meeting_id).with_for_update().first()
+    if not row or row.organizer_id != user.id:
+        raise HTTPException(403, '仅召开人可调整会议状态')
+    state = meeting_state(row)
+    if state['status_version'] != data.version:
+        raise HTTPException(409, '会议状态已更新，请刷新后重试')
+    if data.status == state['status']:
+        return detail(db, user, row.id)
+    moment = now()
+    lifecycle = {'status': data.status, 'version': data.version+1, 'updated_at': moment.isoformat(),
+                 'started_at': moment.isoformat() if data.status == 'in_progress' else state['status_started_at']}
+    if data.status == 'pending':
+        lifecycle['started_at'] = None
+    row.association = {**(row.association or {}), 'lifecycle': lifecycle}
+    targets = [uid for uid, in db.query(MeetingParticipant.user_id).filter_by(meeting_id=row.id)]
+    events = notify(db, targets, row, f'会议状态 · {code_for(db, row)}', f'{row.topic}：{STATUS_LABELS[data.status]}', 'meeting_invitation')
+    db.commit()
+    publish(events)
+    return detail(db, user, row.id)
+
+
+def location_conflicts(db, location, start_at, end_at):
+    require_ready(db)
+    start_at, end_at = stamp(start_at), stamp(end_at)
+    if location not in LOCATIONS or end_at <= start_at:
+        raise HTTPException(422, '请填写有效的地点和起止时间')
+    codes = codes_query(db)
+    rows = db.query(Meeting, codes.c.meeting_no).join(codes, codes.c.meeting_id == Meeting.id).filter(
+        Meeting.location == location, Meeting.start_at < end_at, Meeting.end_at > start_at,
+        func.coalesce(Meeting.association['lifecycle']['status'].as_string(), 'pending') != 'cancelled').order_by(Meeting.start_at).all()
+    return api_time([{'id': row.id, 'meeting_no': code, 'topic': row.topic, 'start_at': row.start_at, 'end_at': row.end_at} for row, code in rows])
 
 
 def stamp(value):
@@ -242,7 +289,10 @@ def create(db, user, data):
             association['technical_task_number'] = numbers(db).get(task.id) or ''
     topic = '、'.join(names) + data.meeting_type if data.meeting_type in ('部门会议', '培训会议') else data.topic.strip()
     topic = topic or association.get('task_name') or (association.get('project') or {}).get('project_name') or '、'.join(c['name'] for c in association.get('clients', [])) or data.meeting_type
-    row = Meeting(id=uuid4(), client_id=data.client_id, organizer_id=user.id, topic=topic[:500], meeting_type=data.meeting_type,
+    conflicts = location_conflicts(db, data.location, data.start_at, data.end_at)
+    created_at = now()
+    association['meeting_no'] = allocate(db, created_at)
+    row = Meeting(created_at=created_at, id=uuid4(), client_id=data.client_id, organizer_id=user.id, topic=topic[:500], meeting_type=data.meeting_type,
                   location=data.location, start_at=data.start_at, end_at=data.end_at, note=data.note,
                   agendas=agendas,
                   selection=data.model_dump(mode='json', include={'all_people', 'department_ids', 'user_ids'}), association=association)
@@ -257,16 +307,18 @@ def create(db, user, data):
         raise
     for p in targets:
         db.add(MeetingParticipant(meeting_id=row.id, user_id=p.id, name=p.full_name or p.username))
-    events = notify(db, [p.id for p in targets], row, f'会议安排 · 第{row.number}个会议',
+    events = notify(db, [p.id for p in targets], row, f'会议安排 · {code_for(db, row)}',
                     f'{row.topic}；{data.start_at:%Y年%m月%d日 %H:%M} 至 {data.end_at:%Y年%m月%d日 %H:%M}（UTC+8）；{row.location}。请在会议安排中提交参会回执。', 'meeting_invitation')
     db.commit()
     publish(events)
-    return detail(db, user, row.id)
+    result = detail(db, user, row.id)
+    result['location_conflicts'] = conflicts
+    return result
 
 
-def serialize(row, user, members, organizer_name):
+def serialize(row, user, members, organizer_name, meeting_no):
     mine = next((p for p in members if p.user_id == user.id), None)
-    return api_time({'id': row.id, 'number': row.number, 'organizer_id': row.organizer_id, 'organizer_name': organizer_name,
+    return api_time({**meeting_state(row), 'server_now': now(), 'id': row.id, 'number': row.number, 'meeting_no': meeting_no, 'organizer_id': row.organizer_id, 'organizer_name': organizer_name,
         'is_organizer': row.organizer_id == user.id, 'topic': row.topic, 'meeting_type': row.meeting_type,
         'location': row.location, 'start_at': row.start_at, 'end_at': row.end_at, 'note': row.note, 'association': row.association,
         'remind_before_minutes': lead_minutes(row.start_at, row.end_at), 'participant_count': len(members),
@@ -279,15 +331,32 @@ def serialize(row, user, members, organizer_name):
         'record_content': row.record_content, 'record_version': row.record_version})
 
 
-def listing(db, user, keyword='', page=1, page_size=10):
+def period_bounds(period, anchor):
+    day = anchor or now().date()
+    if period == 'week':
+        start = day - timedelta(days=day.weekday()); end = start + timedelta(days=7)
+    elif period == 'month':
+        start = day.replace(day=1); end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    elif period == 'year':
+        start = day.replace(month=1, day=1); end = start.replace(year=start.year+1)
+    else:
+        start = day; end = day + timedelta(days=1)
+    return datetime.combine(start, time.min, BUSINESS_TIMEZONE), datetime.combine(end, time.min, BUSINESS_TIMEZONE)
+
+
+def listing(db, user, keyword='', page=1, page_size=10, period='day', anchor=None):
     require_ready(db)
-    query = visible_query(db, user).filter(keyword_any([Meeting.topic, Meeting.meeting_type, Meeting.location, func.cast(Meeting.number, __import__('sqlalchemy').String)], keyword))
+    left, right = period_bounds(period, anchor)
+    codes = codes_query(db)
+    query = db.query(Meeting).join(codes, codes.c.meeting_id == Meeting.id).filter(
+        Meeting.start_at < right, Meeting.end_at > left,
+        keyword_any([Meeting.topic, Meeting.meeting_type, Meeting.location, codes.c.meeting_no, func.cast(Meeting.number, __import__('sqlalchemy').String)], keyword))
     total = query.count()
-    rows = query.order_by(Meeting.start_at.desc(), Meeting.number.desc()).offset((page-1)*page_size).limit(page_size).all()
-    ids = [r.id for r in rows]
+    rows = query.add_columns(codes.c.meeting_no).order_by(Meeting.start_at.desc(), Meeting.number.desc()).offset((page-1)*page_size).limit(page_size).all()
+    ids = [r.id for r, code in rows]
     members = db.query(MeetingParticipant).filter(MeetingParticipant.meeting_id.in_(ids)).all() if ids else []
-    users = {p.id: p.full_name or p.username for p in db.query(AppUser).filter(AppUser.id.in_({r.organizer_id for r in rows}))} if rows else {}
-    return {'total': total, 'items': [serialize(r, user, [p for p in members if p.meeting_id == r.id], users.get(r.organizer_id, '')) for r in rows]}
+    users = {p.id: p.full_name or p.username for p in db.query(AppUser).filter(AppUser.id.in_({r.organizer_id for r, code in rows})).all()} if rows else {}
+    return api_time({'total': total, 'server_now': now(), 'range_start': left, 'range_end': right, 'items': [serialize(r, user, [p for p in members if p.meeting_id == r.id], users.get(r.organizer_id, ''), code) for r, code in rows]})
 
 
 def detail(db, user, meeting_id):
@@ -295,7 +364,7 @@ def detail(db, user, meeting_id):
     row = get_meeting(db, user, meeting_id)
     members = db.query(MeetingParticipant).filter_by(meeting_id=row.id).order_by(MeetingParticipant.name, MeetingParticipant.user_id).all()
     organizer = db.get(AppUser, row.organizer_id)
-    data = serialize(row, user, members, organizer.full_name or organizer.username if organizer else '')
+    data = serialize(row, user, members, organizer.full_name or organizer.username if organizer else '', code_for(db, row))
     # 不能参加的个人事由仅向召开人及本人展示。
     data['participants'] = [api_time({'user_id': p.user_id, 'name': p.name, 'response': p.response,
         'reason': p.reason if row.organizer_id == user.id or p.user_id == user.id else '', 'responded_at': p.responded_at,
@@ -322,7 +391,7 @@ def receipt(db, user, meeting_id, data):
         raise HTTPException(409, '回执已更新，请刷新后重试')
     member.response, member.reason, member.responded_at = data.response, reason, now()
     member.response_version += 1
-    events = notify(db, [row.organizer_id], row, f'会议回执 · 第{row.number}个会议',
+    events = notify(db, [row.organizer_id], row, f'会议回执 · {code_for(db, row)}',
         f'{member.name}：' + ('可以参加' if data.response == 'attending' else '不能参加，请进入会议安排查看事由'), 'meeting_receipt')
     db.commit()
     publish(events)
@@ -345,9 +414,10 @@ def summary(db, user):
     invitations = db.query(MeetingParticipant).filter_by(user_id=user.id, response='pending').count()
     receipts = db.query(MeetingParticipant).join(Meeting, Meeting.id == MeetingParticipant.meeting_id).filter(
         Meeting.organizer_id == user.id, MeetingParticipant.response_version > MeetingParticipant.organizer_seen_version).count()
-    upcoming = db.query(Meeting).filter(Meeting.organizer_id == user.id, Meeting.end_at > now()).order_by(Meeting.start_at).limit(30).all()
+    state = func.coalesce(Meeting.association['lifecycle']['status'].as_string(), 'pending')
+    upcoming = db.query(Meeting).filter(Meeting.organizer_id == user.id, or_(state == 'in_progress', (state == 'pending') & (Meeting.end_at > now()))).order_by(Meeting.start_at).all()
     unread = db.query(AppNotification).filter(AppNotification.recipient_user_id == user.id, AppNotification.is_read.is_(False),
         AppNotification.notification_type.in_(['meeting_invitation', 'meeting_receipt', 'meeting_task'])).count()
     return api_time({'pending': invitations, 'unread_receipts': receipts, 'unread_notifications': unread, 'server_now': now(),
-        'upcoming': [{'id': r.id, 'number': r.number, 'topic': r.topic, 'start_at': r.start_at, 'end_at': r.end_at,
+        'upcoming': [{**meeting_state(r), 'meeting_no': code_for(db, r), 'id': r.id, 'number': r.number, 'topic': r.topic, 'start_at': r.start_at, 'end_at': r.end_at,
                       'remind_before_minutes': lead_minutes(r.start_at, r.end_at)} for r in upcoming]})

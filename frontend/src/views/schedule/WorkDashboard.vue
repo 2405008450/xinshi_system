@@ -12,7 +12,7 @@
       >
         <template #context>
           <MyShiftStatus :loading="shiftLoading" :day="myShiftDay" />
-          <el-button @click="meetingHelpVisible=true">任务与会议帮助</el-button>
+          <el-button @click="meetingHelpVisible=true">工作台帮助</el-button>
         </template>
       </ScheduleHeader>
     </template>
@@ -172,7 +172,7 @@
         @update:report-date="fieldWorkReportDate = $event" @status-change="onDailyReportStatus" />
       <template #footer><div ref="fieldWorkReportFooter" class="field-work-report-footer" /><el-button @click="fieldWorkReportOpen = false">关闭</el-button></template>
     </DraggableFormDialog>
-    <MeetingHelp v-model="meetingHelpVisible" />
+    <MeetingHelp v-model="meetingHelpVisible" workbench />
     <ShiftMatrixDialog
       v-model="matrixVisible"
       :reference-date="scheduleDate"

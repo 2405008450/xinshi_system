@@ -75,6 +75,32 @@ def test_statistics_only_admin_department_or_zhao_confirmed_only(environment,mon
     with pytest.raises(HTTPException):access.report_statistics(db,sender,date(2026,10,24),'week')
 
 
+def test_department_statistics_reconcile_and_respect_creation_dates_and_filters(environment,monkeypatch):
+    db,(owner,viewer,sender)=environment
+    from department_models import Department,DepartmentMember
+    configure_user(db,owner)
+    owner.department='翻译部';viewer.department='HR部';sender.department='HR部'
+    owner.created_at=datetime(2026,11,23);viewer.created_at=datetime(2026,11,27);sender.created_at=datetime(2026,11,24)
+    department=Department(id=uuid4(),name='HR部',aliases=[],revision=1);db.add(department)
+    db.add(DepartmentMember(department_id=department.id,user_id=owner.id,position='兼任'))
+    db.commit()
+    monkeypatch.setattr(access,'now',lambda:datetime(2026,11,26,18,tzinfo=BUSINESS_TIMEZONE))
+    report(db,sender,date(2026,11,26));report(db,owner,date(2026,11,25),'draft')
+    result=access.report_statistics(db,owner,date(2026,11,26),'week')
+    groups={group['name']:group for group in result['departments']}
+    assert groups['IT部']['people_count']==1 and groups['IT部']['expected_count']==4
+    assert groups['HR部']['people_count']==2 and groups['HR部']['expected_count']==3
+    assert groups['HR部']['written_count']==1 and groups['HR部']['missing_count']==2
+    assert sum(group['expected_count'] for group in groups.values())==7
+    assert sum(group['missing_count'] for group in groups.values())==6
+    assert len({p['id'] for group in groups.values() for p in group['people']})==3
+    for index,day in enumerate(result['days']):
+        assert sum(group['days'][index]['expected_count'] for group in groups.values())==day['expected_count']
+    filtered=access.report_statistics(db,owner,date(2026,11,26),'week',department_id=department.id,sender_id=sender.id)
+    assert len(filtered['departments'])==1 and filtered['departments'][0]['people_count']==1
+    assert filtered['departments'][0]['written_count']==1
+
+
 def test_one_amendment_after_sent_keeps_snapshot_and_feedback(environment,monkeypatch):
     db,(owner,viewer,sender)=environment
     import task_service as service
