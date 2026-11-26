@@ -393,7 +393,7 @@
         </div>
 
         <div v-if="settings.enabled && !conversationMode" class="chat-composer">
-          <div v-if="replyToMessage" class="group-compose-reply">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}<el-button link @click="replyToMessage=null">取消引用</el-button></div>
+          <div v-if="replyToMessage" class="group-compose-reply"><span class="chat-compose-reply__text">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}</span><button type="button" class="chat-compose-reply__close" aria-label="取消引用" title="取消引用" @click="replyToMessage=null"><el-icon><Close /></el-icon></button></div>
           <div class="chat-composer__header">
             <span>发送消息</span>
             <div class="chat-composer__mention-wrap">
@@ -457,7 +457,7 @@
         </div>
 
         <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation">
-          <div v-if="replyToMessage" class="group-compose-reply">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}<el-button link @click="replyToMessage=null">取消引用</el-button></div>
+          <div v-if="replyToMessage" class="group-compose-reply"><span class="chat-compose-reply__text">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}</span><button type="button" class="chat-compose-reply__close" aria-label="取消引用" title="取消引用" @click="replyToMessage=null"><el-icon><Close /></el-icon></button></div>
           <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="startComposerResize" @keydown="resizeComposerByKeyboard" />
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
             <el-tag
@@ -567,6 +567,7 @@
 
 <script setup>
 import ChatDesktopPresence from '@/components/chat/ChatDesktopPresence.vue'
+import { Close } from '@element-plus/icons-vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import ChatRecalledMessage from './chat/ChatRecalledMessage.vue'
 import ChatMessageInlineEditor from './chat/ChatMessageInlineEditor.vue'
@@ -1603,7 +1604,12 @@ const handleSend = async () => {
     draft.persistNow()
     await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
-    void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
+    if (payload.replyToMessageId) {
+      seenMentions.value = [...new Set([...seenMentions.value, payload.replyToMessageId])]
+      void refreshSessions()
+    } else {
+      void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
+    }
     if (composer.mentionedUserIds.length) memberFreshness.invalidate()
     composer.content = ''; replyToMessage.value = null
     sendRequestId = ''; sendFingerprint = ''
