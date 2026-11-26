@@ -83,7 +83,8 @@ def test_reply_read_and_recall_stay_in_the_current_room(rooms):
     other = UUID(service.room_specs(db)[1]['id'])
     with pytest.raises(HTTPException):
         send(db, other, user, reply_to_id=int(first['id']))
-    assert next(row for row in service.catalog(db, user) if row['project_id'] == str(room))['unread'] == 1
+    assert next(row for row in service.catalog(db, user) if row['project_id'] == str(room))['unread'] == 0
+    assert db.get(Member, (room, user.id)).last_read_id == 0
     service.preferences(db, user, room, PreferenceWrite(read_message_id=int(reply['id']), pinned=True))
     result = service.preferences(db, user, room, PreferenceWrite(read_message_id=int(first['id'])))
     assert result['last_read_id'] == reply['id'] and result['pinned']

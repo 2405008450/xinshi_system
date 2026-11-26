@@ -413,12 +413,24 @@ def report_editor_context(db: Session = Depends(get_db), current_user: AppUser =
     from department_models import Department, DepartmentMember
     from organization_service import ready
     from task_models import DailyReportItem
+    from work_report_categories import frequent_report_types
     names = [current_user.department] if current_user.department else []
     if ready(db):
         names.extend(name for name, in db.query(Department.name).join(DepartmentMember, Department.id == DepartmentMember.department_id).filter(DepartmentMember.user_id == current_user.id).order_by(Department.name))
-    history = db.query(DailyReportItem.progress_content).join(DailyReport, DailyReport.id == DailyReportItem.report_id).filter(DailyReport.user_id == current_user.id).order_by(DailyReport.report_date.desc(), DailyReportItem.sort_order).limit(500).all()
+    history_rows = db.query(DailyReportItem.source_type, DailyReportItem.progress_content, DailyReportItem.display_metadata).join(DailyReport, DailyReport.id == DailyReportItem.report_id).filter(DailyReport.user_id == current_user.id).order_by(DailyReport.report_date.desc(), DailyReportItem.sort_order).limit(500).all()
     layout_member=bool(db.query(AppUser.id).filter(AppUser.id==current_user.id,department_condition(db,['排版部'])).first())
-    return {"user_name": current_user.full_name or current_user.username, "departments": list(dict.fromkeys(names)), "is_layout_department":layout_member, "task_history": list(dict.fromkeys(text.strip() for text, in history if text and text.strip()))[:200], **category_catalog(db, current_user)}
+    catalog = category_catalog(db, current_user)
+    frequent = frequent_report_types(catalog['work_categories'], [metadata for _, _, metadata in history_rows])
+    auto_sources = {'consultation_handoff', 'interpretation_project_creation', 'recruitment_project_creation', 'annotation_project_creation', 'translation_project_creation', 'annotation_work_status'}
+    task_history = list(dict.fromkeys(
+        text.strip()
+        for source_type, text, metadata in history_rows
+        if source_type == 'manual'
+        and (not isinstance(metadata, dict) or metadata.get('source') not in auto_sources)
+        and text and text.strip()
+        and 'screenshot://' not in text
+    ))[:200]
+    return {"user_name": current_user.full_name or current_user.username, "departments": list(dict.fromkeys(names)), "is_layout_department":layout_member, "task_history": task_history, "frequent_report_types": frequent, **catalog}
 
 
 class ReportCategoryCreate(BaseModel):
@@ -429,6 +441,19 @@ class ReportCategoryCreate(BaseModel):
 class ReportCategoryGroupCreate(BaseModel):
     name: str = Field(min_length=1,max_length=20)
     content: str = Field(min_length=1,max_length=80)
+
+
+class PreferredReportTypesWrite(BaseModel):
+    types: list[str] = Field(default_factory=list, max_length=200)
+
+
+@reports_router.put('/preferred-types', dependencies=[Depends(require_permission('reports:read'))])
+def update_preferred_report_types(payload: PreferredReportTypesWrite, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from work_report_categories import save_preferred_types
+    try:
+        return save_preferred_types(db, current_user, payload.types)
+    except (ValueError, PermissionError) as exc:
+        raise _http_error(exc) from exc
 
 
 @reports_router.post('/category-groups', dependencies=[Depends(require_permission('reports:read'))])

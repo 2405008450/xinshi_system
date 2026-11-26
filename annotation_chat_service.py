@@ -177,6 +177,7 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
             ChatProjectMessage.client_message_id == payload.client_message_id).first()
         if existing:
             return existing
+    reply = None
     if payload.reply_to_message_id:
         reply = message_query(db, project_id).filter(ChatProjectMessage.id == payload.reply_to_message_id).first()
         if not reply or reply.recalled_at:
@@ -229,9 +230,17 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
     from chat_message_notifications import ordinary_notifications
     notifications.extend(ordinary_notifications(db, 'annotation', project_id, user, [p.id for p in mentioned], message))
     link_notifications(db, notifications, message.id)
+    reply_settled = False
+    if reply is not None and reply.sender_user_id != user.id:
+        from chat_receipt_read import settle_received
+        settle_received(db, reply, user.id)
+        reply_settled = True
     if commit:
         commit_chat_notifications(db, notifications)
         publish(db, project_id, 'message', message.id)
+        if reply_settled:
+            from chat_receipt_read import notify_settled
+            notify_settled(user.id)
         from project_chat_crud import _broadcast_live_message
         _broadcast_live_message(db, message, 'annotation')
         notify_state(user.id, project_id)

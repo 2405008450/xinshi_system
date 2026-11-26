@@ -22,6 +22,28 @@ DEFAULT_CATEGORIES = {
 LAYOUT_TASK_PRESETS = ['专检', '排版', '稽查']
 ROOT_CATEGORY_PARENT = '__work_groups__'
 LAYOUT_PRESET_PARENT = '__layout_tasks__'
+PREFERRED_TYPE_PARENT = '__favorite_types__'
+
+
+def catalog_type_values(groups):
+    values = set()
+    for parent, names in groups.items():
+        for name in names:
+            if parent == '项目工作' and name in DEFAULT_CATEGORIES['项目工作']:
+                values.add(name)
+            else:
+                values.add(f'{parent}::{name}')
+    return values
+
+
+def normalize_report_type_value(groups, value):
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or text.endswith('::__custom__') or text == '其他项目':
+        return None
+    allowed = catalog_type_values(groups)
+    return text if text in allowed else None
 
 
 def valid_category_name(value, limit=80):
@@ -51,6 +73,7 @@ def can_add_project_category(db, user):
 def category_catalog(db, user):
     groups = {parent: list(names) for parent, names in DEFAULT_CATEGORIES.items()}
     presets=list(LAYOUT_TASK_PRESETS)
+    preferred=[]
     ready = inspect(db.connection()).has_table(WorkReportCategory.__tablename__)
     if ready:
         rows = db.query(WorkReportCategory).filter(WorkReportCategory.scope.in_(['*', str(user.id)])).order_by(WorkReportCategory.name).all()
@@ -60,7 +83,11 @@ def category_catalog(db, user):
             if row.parent in groups and row.name not in groups[row.parent]:
                 groups[row.parent].append(row.name)
             if row.parent==LAYOUT_PRESET_PARENT and row.name not in presets:presets.append(row.name)
-    return {'work_categories': groups, 'layout_task_presets':presets, 'can_add_project_category': can_add_project_category(db, user), 'category_storage_ready': ready}
+        allowed = catalog_type_values(groups)
+        for row in rows:
+            if row.parent==PREFERRED_TYPE_PARENT and row.scope==str(user.id) and row.name in allowed and row.name not in preferred:
+                preferred.append(row.name)
+    return {'work_categories': groups, 'layout_task_presets':presets, 'preferred_report_types': preferred, 'can_add_project_category': can_add_project_category(db, user), 'category_storage_ready': ready}
 
 
 def add_category(db, user, parent, name):
@@ -116,6 +143,41 @@ def add_layout_task_preset(db,user,name):
         db.rollback()
         if name not in category_catalog(db,user)['layout_task_presets']:raise
     return category_catalog(db,user)
+
+
+def save_preferred_types(db, user, types):
+    catalog = category_catalog(db, user)
+    if not catalog['category_storage_ready']:
+        raise ValueError('工作分类存储尚未初始化')
+    groups = catalog['work_categories']
+    cleaned = []
+    for raw in types or []:
+        value = normalize_report_type_value(groups, raw)
+        if value and len(value) <= 80 and value not in cleaned:
+            cleaned.append(value)
+    scope = str(user.id)
+    db.query(WorkReportCategory).filter_by(scope=scope, parent=PREFERRED_TYPE_PARENT).delete(synchronize_session=False)
+    for value in cleaned:
+        db.add(WorkReportCategory(scope=scope, parent=PREFERRED_TYPE_PARENT, name=value))
+    db.commit()
+    return category_catalog(db, user)
+
+
+def frequent_report_types(groups, metadata_rows, limit=15):
+    counts = {}
+    recency = {}
+    for index, metadata in enumerate(metadata_rows):
+        if not isinstance(metadata, dict):
+            continue
+        for raw in metadata.get('report_types') or []:
+            value = normalize_report_type_value(groups, raw)
+            if not value:
+                continue
+            counts[value] = counts.get(value, 0) + 1
+            if value not in recency:
+                recency[value] = index
+    ordered = sorted(counts.keys(), key=lambda value: (-counts[value], recency[value]))
+    return ordered[:limit]
 
 
 def validate_categories(db, user, items):

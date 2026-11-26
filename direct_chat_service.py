@@ -88,6 +88,7 @@ def send_message(db, project_id, user, payload):
         existing = message_query(db, project_id).filter_by(sender_user_id=user.id, client_message_id=payload.client_message_id).first()
         if existing:
             return existing
+    reply = None
     if payload.reply_to_message_id:
         reply = message_query(db, project_id).filter_by(id=payload.reply_to_message_id).first()
         if not reply or reply.recalled_at:
@@ -118,6 +119,11 @@ def send_message(db, project_id, user, payload):
     from chat_message_notifications import ordinary_notifications
     notifications.extend(ordinary_notifications(db, 'direct', project_id, user, [p.id for p in mentioned], message))
     link_notifications(db,notifications,message.id)
+    reply_settled = False
+    if reply is not None and reply.sender_user_id != user.id:
+        from chat_receipt_read import settle_received
+        settle_received(db, reply, user.id)
+        reply_settled = True
     conversation.last_message_at = stamp
     members = db.query(ChatDirectMember).filter_by(conversation_id=project_id).all()
     for member in members:
@@ -127,6 +133,9 @@ def send_message(db, project_id, user, payload):
     live_recipients = {member.user_id for member in members} & {other_id}
     commit_chat_notifications(db, notifications)
     publish(db, project_id, 'message', message_id, participants)
+    if reply_settled:
+        from chat_receipt_read import notify_settled
+        notify_settled(user.id)
     message = message_query(db, project_id).filter_by(id=message_id).one()
     from project_chat_crud import _broadcast_live_message
     _broadcast_live_message(db, message, 'direct', participants=live_recipients)

@@ -28,8 +28,27 @@ def source(project_type):
     return project_type + '_project_creation'
 
 
+def _clean_text(value):
+    return str(value).strip() if value is not None else ''
+
+
 def name(project, project_type):
-    return (getattr(project, 'source_file_name', None) if project_type == 'translation' else None) or project.project_name
+    if project_type == 'translation':
+        source_file_name = _clean_text(getattr(project, 'source_file_name', None))
+        if source_file_name:
+            return source_file_name
+    project_name = _clean_text(getattr(project, 'project_name', None))
+    if project_name:
+        return project_name
+    if project_type == 'recruitment':
+        parts = [
+            _clean_text(getattr(project, 'client_short_name', None)),
+            _clean_text(getattr(project, 'position_title', None)),
+        ]
+        fallback = '-'.join(part for part in parts if part)
+        if fallback:
+            return fallback
+    return _clean_text(getattr(project, 'order_no', None))
 
 
 
@@ -87,11 +106,13 @@ def submit(db, user, project_id, payload: ConsultationReportWrite, project_type=
             generated_at=instant.replace(tzinfo=None), created_at=instant.replace(tzinfo=None), updated_at=instant.replace(tzinfo=None))
         db.add(report)
         db.flush()
+    order_no = _clean_text(getattr(project, 'order_no', None)) or payload.order_no
+    task_name = name(project, project_type) or payload.task_name
     item = DailyReportItem(id=uuid4(), report_id=report.id, source_type='manual', source_id=project.id,
-        task_type='项目工作', task_name=name(project, project_type),
+        task_type='项目工作', task_name=task_name,
         progress_content=payload.progress_content, duration_minutes=payload.duration_minutes,
         sort_order=max((row.sort_order for row in report.items), default=-1) + 1,
-        display_metadata={'report_types': [LABELS[project_type] + '项目'], 'project_type': project_type, 'order_no': project.order_no,
+        display_metadata={'report_types': [LABELS[project_type] + '项目'], 'project_type': project_type, 'order_no': order_no,
             'quantity': payload.quantity, 'quantity_unit': payload.quantity_unit, 'source': source(project_type),
             'capture_id': str(capture.id), 'added_at': instant.isoformat(), '_feedback_key': str(uuid4())})
     report.items.append(item)

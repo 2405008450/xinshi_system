@@ -43,6 +43,7 @@ export const getDailyReportDeliveries = (reportDate) =>
 export const getDailyReportEditorContext = () => api.get('/daily-reports/editor-context')
 export const createDailyReportCategory = data => api.post('/daily-reports/categories', data)
 export const createDailyReportCategoryGroup = data => api.post('/daily-reports/category-groups',data)
+export const savePreferredReportTypes = types => api.put('/daily-reports/preferred-types', { types })
 export const createLayoutTaskPreset = name => api.post('/daily-reports/layout-task-presets',{parent:'__layout_tasks__',name})
 export const getReportAccessContext = () => api.get('/daily-reports/access-context')
 export const getReportAccessSettings = () => api.get('/daily-reports/access-settings')

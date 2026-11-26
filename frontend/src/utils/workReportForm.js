@@ -9,6 +9,24 @@ export const defaultWorkCategories = {
   培训工作: ['AI知识培训','客户部培训','标注项目培训','笔译项目培训','口译项目培训','招聘项目培训','资源开拓培训','HR工作培训','排版培训','专检培训']
 }
 export function categoryValue(parent,name) {return parent==='项目工作'&&projectTypes.includes(name)?name:`${parent}::${name}`}
+export function workTypeLabel(value) {
+  if (!value || typeof value !== 'string') return ''
+  if (!value.includes('::')) return value
+  const [parent, name] = value.split('::')
+  if (name === '__custom__') return `${parent} · 其他（自定义）`
+  return `${name}（${parent}）`
+}
+export function buildPreferredWorkTypeOptions(categories=defaultWorkCategories,rows=[],preferredTypes=[]) {
+  const groups=Object.fromEntries(Object.entries({...defaultWorkCategories,...categories}).map(([parent,names])=>[parent,[...names]]))
+  const valid=new Set()
+  for(const [parent,names] of Object.entries(groups))for(const name of names)valid.add(categoryValue(parent,name))
+  const ordered=[]
+  const seen=new Set()
+  const add=value=>{if(!value||seen.has(value))return;seen.add(value);ordered.push({value,label:workTypeLabel(value)})}
+  for(const value of preferredTypes||[])if(valid.has(value))add(value)
+  for(const row of rows||[])for(const value of rowTypes(row))add(value)
+  return ordered
+}
 export function buildWorkTypeOptions(categories=defaultWorkCategories,rows=[]) {
   const groups=Object.fromEntries(Object.entries({...defaultWorkCategories,...categories}).map(([parent,names])=>[parent,[...names]]))
   for(const row of rows)for(const value of rowTypes(row))if(value.includes('::')){const [parent,name]=value.split('::');if(groups[parent]&&name!=='__custom__'&&!groups[parent].includes(name))groups[parent].push(name)}

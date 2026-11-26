@@ -251,3 +251,73 @@ def test_legacy_first_proof_and_invalid_detail_reference(context):
         save(db,actor,row,current,[{**saved['payments'][0],'proofs':'screenshot://00000000-0000-0000-0000-000000000000'}])
     assert error.value.status_code==422
     db.rollback()
+
+
+@pytest.mark.parametrize('code', ['55P03', '40P01'])
+def test_price_update_without_payment_retries_transient_lock_conflict(context, monkeypatch, code):
+    _, db, clients, _, actor = context
+    row = project(db, clients[0], f'PRICE-RETRY-{code}', fixed=True)
+    current = finance.read(db, row.id)
+    payload = finance.PriceWrite(
+        version=current['version'], order_id=row.id,
+        pricing_mode='fixed', currency='CNY', adjusted_total=350, explanation='锁冲突重试验证',
+    )
+    class LockConflict(Exception):
+        pgcode = code
+
+    write = finance._write_finance
+    calls = 0
+
+    def write_with_lock(*args):
+        nonlocal calls
+        calls += 1
+        write(*args)
+        if calls < 3:
+            raise OperationalError(None, None, LockConflict())
+
+    monkeypatch.setattr(finance, '_write_finance', write_with_lock)
+    monkeypatch.setattr('time.sleep', lambda *_: None)
+    saved = finance.update(row.id, payload, db, actor)
+
+    assert calls == 3
+    assert saved['item']['totals_excl_tax'] == {'CNY': '350.00'}
+    assert saved['item']['explanation'] == '锁冲突重试验证'
+
+
+def test_table_patch_retries_lock_timeout_and_returns_409_when_exhausted(context, monkeypatch):
+    _, db, clients, _, actor = context
+    row = project(db, clients[0], 'TABLE-RETRY', fixed=True)
+    current = finance.read(db, row.id)
+    patch = finance.TablePatch(version=current['version'], order_id=row.id, explanation='表格锁重试')
+
+    class LockTimeout(Exception):
+        pgcode = '55P03'
+
+    real_save = finance.save_table_cell
+    calls = 0
+
+    def flaky_save(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OperationalError(None, None, LockTimeout())
+        return real_save(*args)
+
+    monkeypatch.setattr(finance, 'save_table_cell', flaky_save)
+    monkeypatch.setattr('time.sleep', lambda *_: None)
+    saved = finance.update_table(row.id, patch, db, actor)
+    assert calls == 2
+    assert saved['item']['explanation'] == '表格锁重试'
+
+    calls = 0
+    def always_locked(*args):
+        nonlocal calls
+        calls += 1
+        raise OperationalError(None, None, LockTimeout())
+
+    monkeypatch.setattr(finance, 'save_table_cell', always_locked)
+    with pytest.raises(HTTPException) as error:
+        finance.update_table(row.id, patch, db, actor)
+    assert calls == 3
+    assert error.value.status_code == 409
+    assert '数据库正在处理其他修改' in error.value.detail

@@ -16,6 +16,7 @@
           <el-icon class="sheet-tip__icon"><InfoFilled /></el-icon>
           直接填写单元格，Tab 切换；重复订单归入二级，系统记录为灰底只读。报告归属所选日期，保存与提交时间另行记录。
         </span>
+        <span class="report-autosave-state" role="status">{{autosaveLabel}}</span>
       </div>
       <div class="toolbar-actions">
         <el-button v-if="editable&&!amending" size="small" :loading="loading" @click="loadReport(true)">重新汇总</el-button>
@@ -29,11 +30,11 @@
       </div>
     </div>
 
-    <div class="report-autosave-state" role="status">{{autosaveLabel}}</div><el-alert v-if="localDraftError||reportCloud.error" :title="localDraftError||reportCloud.error" type="warning" :closable="false" />
+    <el-alert v-if="localDraftError||reportCloud.error" :title="localDraftError||reportCloud.error" type="warning" :closable="false" />
     <el-alert v-if="submitNotice" :title="submitNotice" :type="submitNoticeType" show-icon :closable="false" class="report-submit-notice" />
     <ReportDailyNotices :idle-minutes="report.idle_minutes" :has-lunch-work="hasLunchWork" />
     <ReportIdleTime ref="idleTimeRef" :report-date="reportDate" v-model:minutes="report.idle_minutes" v-model:confirmed="report.idle_declaration_confirmed" :declaration-text="report.idle_declaration_text||''" :editable="editable&&!saving" @change="onIdleChange" />
-    <DailyReportEditor ref="sheetRef" :rows="report.items" :editable="editable && !saving" :loading="loading" :history="taskHistory" :categories="editorContext.work_categories" :layout-department="editorContext.is_layout_department" :task-presets="editorContext.layout_task_presets" :can-add-project-category="editorContext.can_add_project_category" :category-storage-ready="editorContext.category_storage_ready" @categories-change="Object.assign(editorContext,$event)" @dirty-change="onEditorChange" @remember="rememberTask" />
+    <DailyReportEditor ref="sheetRef" :rows="report.items" :editable="editable && !saving" :loading="loading" :history="taskHistory" :categories="editorContext.work_categories" :preferred-types="editorContext.preferred_report_types" :frequent-types="editorContext.frequent_report_types" :layout-department="editorContext.is_layout_department" :task-presets="editorContext.layout_task_presets" :can-add-project-category="editorContext.can_add_project_category" :category-storage-ready="editorContext.category_storage_ready" @categories-change="Object.assign(editorContext,$event)" @dirty-change="onEditorChange" @remember="rememberTask" />
 
     <ReportRevisionHistory v-if="report.id" :report-id="report.id" :version="report.amendment_used" />
     <section v-if="report.id" class="report-feedback-section"><ReportFeedbackPanel :key="report.id" :report-id="report.id" /></section>
@@ -56,6 +57,7 @@
           <el-form-item>
             <el-input
               v-model="report.supplemental_note"
+              data-screenshot-editor="own"
               type="textarea"
               :rows="3"
               maxlength="10000"
@@ -182,9 +184,11 @@ const editorContext=reactive({user_name:'',departments:[]})
 const owner=localStorage.getItem('user_id')||'anonymous'
 const historyKey=`daily-report-task-history:${owner}`
 const draftKey=date=>`daily-report-form-draft:${owner}:${date}`
+const autoTaskHistoryPattern=/^(?:phone|wechat|wecom|email|qq|website|taobao|douyin|xiaohongshu|baidu|other)\s*-\s*.+\s*-\s*.+$/i
+const cleanTaskHistory=list=>[...new Set((list||[]).filter(value=>typeof value==='string'&&value.trim()&&!value.includes('screenshot://')&&!autoTaskHistoryPattern.test(value.trim())).map(value=>value.trim()))].slice(0,200)
 const taskHistory=ref([])
-try{const saved=JSON.parse(localStorage.getItem(historyKey)||'[]');if(Array.isArray(saved))taskHistory.value=saved.filter(value=>typeof value==='string').slice(0,200)}catch{/* 本地存储不可用时仍可编辑。 */}
-function rememberTask(value){if(!value?.trim())return;taskHistory.value=[value,...taskHistory.value.filter(item=>item!==value)].slice(0,200);try{localStorage.setItem(historyKey,JSON.stringify(taskHistory.value))}catch{/* 保留会话内历史。 */}}
+try{const saved=JSON.parse(localStorage.getItem(historyKey)||'[]');if(Array.isArray(saved))taskHistory.value=cleanTaskHistory(saved)}catch{/* 本地存储不可用时仍可编辑。 */}
+function rememberTask(value){if(!value?.trim()||value.includes('screenshot://')||autoTaskHistoryPattern.test(value.trim()))return;taskHistory.value=cleanTaskHistory([value,...taskHistory.value]);try{localStorage.setItem(historyKey,JSON.stringify(taskHistory.value))}catch{/* 保留会话内历史。 */}}
 function autoDraftPayload(date){return {report_date:date,amending:amending.value,items:sheetRef.value?.getRows()||report.items,supplemental_note:report.supplemental_note,idle_minutes:report.idle_minutes,idle_declaration_confirmed:report.idle_declaration_confirmed}}
 let fieldWorkApplied = false
 async function applyFieldWork(date) {
@@ -282,7 +286,7 @@ function onEditorChange(count){
   })
 }
 function changeDate(date){if(!date||date===props.reportDate)return;cacheDraft();emit('update:report-date',date)}
-async function loadEditorContext(){try{const data=await getDailyReportEditorContext();Object.assign(editorContext,data);taskHistory.value=[...new Set([...taskHistory.value,...(data.task_history||[])])].slice(0,200)}catch(error){ElMessage.error(error?.detail||'读取姓名与部门失败')}}
+async function loadEditorContext(){try{const data=await getDailyReportEditorContext();Object.assign(editorContext,data);taskHistory.value=cleanTaskHistory([...taskHistory.value,...(data.task_history||[])])}catch(error){ElMessage.error(error?.detail||'读取姓名与部门失败')}}
 
 function reportPayload() {
   syncSheetRows()
@@ -421,10 +425,10 @@ defineExpose({prepareClose(){if(saving.value||validating.value)return false;cach
 </script>
 
 <style scoped>
-.report-identity{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;padding:12px 0 16px}.report-date{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.report-date :deep(.el-date-editor){width:150px}.report-departments{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}
+.report-identity{display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;padding:6px 0 10px}.report-date{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.report-date :deep(.el-date-editor){width:150px}.report-departments{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}
 @media(max-width:768px){.report-toolbar{align-items:flex-start;flex-direction:column}.toolbar-primary{width:100%}.toolbar-actions{width:100%;justify-content:flex-start}}
 </style>
 
 <style scoped>.report-feedback-section{margin-top:20px;padding:16px;border:1px solid #dbe3ec;border-radius:8px}</style>
 
-<style scoped>.report-autosave-state{font-size:12px;color:#64748b;margin:8px 0}</style>
+<style scoped>.report-autosave-state{font-size:12px;color:#64748b;white-space:nowrap}</style>

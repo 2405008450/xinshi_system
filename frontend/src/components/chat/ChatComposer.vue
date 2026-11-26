@@ -1,7 +1,7 @@
 <template>
     <div ref="composer" class="group-composer" :style="composerStyle" @paste.capture="paste">
       <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="start" @keydown="resizeByKeyboard" />
-      <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
+      <div v-if="replyTo" class="group-compose-reply"><span class="chat-compose-reply__text">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}</span><button type="button" class="chat-compose-reply__close" aria-label="取消引用" title="取消引用" :disabled="sending || !!retryPayload" @click="cancelQuote"><el-icon><Close /></el-icon></button></div>
       <div class="group-compose-tools">
         <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片：单张20MB，10MB以内保留原图，聊天截图保留30天" /></el-upload>
@@ -51,7 +51,7 @@ import 'element-plus/es/components/input/style/css'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import ChatDesktopPresence from './ChatDesktopPresence.vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
-import { Paperclip, Picture } from '@element-plus/icons-vue'
+import { Close, Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { composerStyle, inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
 const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')

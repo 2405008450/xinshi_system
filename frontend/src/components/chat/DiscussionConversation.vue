@@ -26,7 +26,7 @@
     </div>
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
-      <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
+      <div v-if="replyTo" class="discussion-chat__reply"><span class="chat-compose-reply__text">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}</span><button type="button" class="chat-compose-reply__close" aria-label="取消引用" title="取消引用" :disabled="sending || !!retryPayload" @click="cancelQuote"><el-icon><Close /></el-icon></button></div>
       <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @mention-open="ensureMentionUsers" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
       <div class="discussion-chat__footer"><span class="discussion-chat__shortcut">Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" size="small" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" size="small" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
@@ -39,6 +39,7 @@
 </template>
 <script setup>
 import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import {useChatDraft} from '@/composables/useChatDraft'
 import ChatRecalledMessage from './ChatRecalledMessage.vue'
 import ChatMessageInlineEditor from './ChatMessageInlineEditor.vue'
@@ -54,6 +55,7 @@ import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
 import TechnicalRequirementsPanel from './TechnicalRequirementsPanel.vue'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Close } from '@element-plus/icons-vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import ChatMessageReferences from './ChatMessageReferences.vue'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
@@ -84,6 +86,7 @@ function createDevelopmentTask(message, excerpt) {
   taskDraft.value = { content }
 }
 const currentUserId = localStorage.getItem('user_id') || ''
+const { refresh: refreshSessions } = useAnnotationFollowed()
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
@@ -199,6 +202,7 @@ async function send() {
   try {
     const row = await chatRequest(`${base}/messages`, { method: 'post', data: payload })
     if (disposed) return
+    if (payload.replyToId) void refreshSessions()
     retryPayload.value = null; content.value = ''; replyTo.value = null
     if (keyword.value) { keyword.value = ''; await refresh(true) } else { merge([row]); await goBottom() }
     await nextTick(); input.value?.focus()

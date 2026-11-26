@@ -43,7 +43,7 @@
       <div data-dialog-field-search-label="安排日期"><span>安排日期：</span>
       <el-date-picker v-model="personalDate" type="date" value-format="YYYY-MM-DD" aria-label="自主任务安排日期" :clearable="false" />
       </div>
-      <DailyReportEditor ref="personalEditor" planning :single-task="!!personalTarget" :rows="personalRows" :editable="!saving" :categories="context.work_categories" :layout-department="context.is_layout_department" :task-presets="context.layout_task_presets" :history="context.task_history||[]" :can-add-project-category="context.can_add_project_category" :category-storage-ready="context.category_storage_ready" @categories-change="Object.assign(context,$event)" />
+      <DailyReportEditor ref="personalEditor" planning :single-task="!!personalTarget" :rows="personalRows" :editable="!saving" :categories="context.work_categories" :preferred-types="context.preferred_report_types" :frequent-types="context.frequent_report_types" :layout-department="context.is_layout_department" :task-presets="context.layout_task_presets" :history="context.task_history||[]" :can-add-project-category="context.can_add_project_category" :category-storage-ready="context.category_storage_ready" @categories-change="Object.assign(context,$event)" />
       </div>
       <template #footer><el-button :disabled="saving" @click="personalVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePersonal">保存任务</el-button></template>
     </DraggableFormDialog>
@@ -51,7 +51,7 @@
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="加入工作报告" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
       <div ref="editorBody">
       <p>填写完整工作报告后，保存并将任务标记为已完成。订单号、项目名称、具体任务和实际用时已带入。</p>
-      <DailyReportEditor ref="editor" single-task :rows="reportRows" :editable="!saving" :categories="context.work_categories" :layout-department="context.is_layout_department" :task-presets="context.layout_task_presets" :history="context.task_history||[]" :can-add-project-category="context.can_add_project_category" :category-storage-ready="context.category_storage_ready" @categories-change="Object.assign(context,$event)" />
+      <DailyReportEditor ref="editor" single-task :rows="reportRows" :editable="!saving" :categories="context.work_categories" :preferred-types="context.preferred_report_types" :frequent-types="context.frequent_report_types" :layout-department="context.is_layout_department" :task-presets="context.layout_task_presets" :history="context.task_history||[]" :can-add-project-category="context.can_add_project_category" :category-storage-ready="context.category_storage_ready" @categories-change="Object.assign(context,$event)" />
       </div>
       <template #footer><el-button :disabled="saving" @click="completionVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="complete">保存报告并完成任务</el-button></template>
     </DraggableFormDialog>

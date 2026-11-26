@@ -909,6 +909,7 @@ def create_project_chat_message(
         if existing:
             return existing
 
+    reply = None
     if reply_to_message_id:
         reply = db.query(ChatProjectMessage).filter_by(id=reply_to_message_id, project_id=project_id).first()
         if not reply or reply.recalled_at:
@@ -979,6 +980,12 @@ def create_project_chat_message(
     )
     mention_recipients = [user.id for user in mention_users]
 
+    reply_settled = False
+    if reply is not None and reply.sender_user_id != sender.id:
+        from chat_receipt_read import settle_received
+        settle_received(db, reply, sender.id)
+        reply_settled = True
+
     if commit:
         message_id = message.id
         db.commit()
@@ -1021,6 +1028,9 @@ def create_project_chat_message(
         project_type='translation',
         mentioned_user_ids=mention_recipients,
     )
+    if reply_settled:
+        from chat_receipt_read import notify_settled
+        notify_settled(sender.id)
 
     return created
 

@@ -1,29 +1,73 @@
 <template>
   <AppForm ref="form" :model="model" class="report-editor" @submit.prevent>
-    <div v-if="!planning&&!singleTask" class="lunch-report-tools"><span>是否有中午加班？</span><el-radio-group v-if="editable" :model-value="lunchChoice" @update:model-value="setLunchChoice"><el-radio :value="true">有</el-radio><el-radio :value="false">无</el-radio></el-radio-group><el-tag v-else :type="lunchChoice?'warning':'info'">{{lunchChoice?'有中午加班':'无中午加班'}}</el-tag>
-      <template v-if="lunchChoice">
-        <el-alert title="声明：本人确认午休期间实际开展了工作，且未因此顺延下午上班时间。" type="warning" :closable="false" />
-        <p class="lunch-report-instructions"><strong>填写说明：</strong>请如实填写12:00–13:30内的实际项目和工作时段，各项目时段不得重叠。</p>
-        <el-checkbox v-if="editable" :model-value="lunchConfirmed" @update:model-value="confirmLunch">我确认上述中午加班声明</el-checkbox>
-        <el-button v-if="editable" :disabled="!lunchConfirmed" @click="addLunch">新增中午加班行</el-button>
-      </template>
+    <div class="report-project-filter">
+      <div v-if="!planning&&!singleTask" class="lunch-report-inline">
+        <span class="lunch-report-inline__label">是否有中午加班？</span>
+        <el-radio-group v-if="editable" :model-value="lunchChoice" @update:model-value="setLunchChoice"><el-radio :value="true">有</el-radio><el-radio :value="false">无</el-radio></el-radio-group>
+        <el-tag v-else size="small" :type="lunchChoice?'warning':'info'">{{lunchChoice?'有中午加班':'无中午加班'}}</el-tag>
+      </div>
+      <el-input v-model="projectFilter" placeholder="筛选项目名称或订单号" clearable aria-label="工作报告项目筛选" />
+      <el-checkbox v-model="onlyLunch">仅看中午加班</el-checkbox>
+      <span class="report-project-filter__hint">筛选只影响查看，保存仍包含全部工作记录。</span>
+      <div v-if="editable" class="report-type-preference-tools">
+        <el-button v-if="hasPreferredTypes" size="small" plain @click="showAllTypes = !showAllTypes">
+          {{ showAllTypes ? `返回常用类型（${effectivePreferredTypes.length}）` : `当前仅看常用（${effectivePreferredTypes.length}）· 查看全部` }}
+        </el-button>
+        <el-popover v-model:visible="preferredPopoverVisible" title="常用类型设置" trigger="click" placement="bottom-end" width="min(600px, calc(100vw - 32px))" @before-enter="openPreferredPopover">
+          <template #reference>
+            <el-button size="small" type="primary" plain>
+              常用类型设置{{ localPreferredTypes.length ? `（${localPreferredTypes.length}）` : '' }}
+            </el-button>
+          </template>
+          <div class="preferred-types-panel">
+            <div class="preferred-types-panel__header">
+              <small>勾选平时常用的任务/项目类型，填写下拉框默认只展示这些选项（一级直选，免去逐级翻找），可随时一键切换查看全部。</small>
+            </div>
+            <div class="preferred-types-panel__quick">
+              <el-button v-if="frequentTypes.length" size="small" link type="primary" @click="applyFrequentToDraft">按历史高频填充（{{ frequentTypes.length }}）</el-button>
+              <el-button size="small" link @click="preferredDraft = []">清空（显示全部）</el-button>
+              <span class="preferred-types-panel__count">已选 {{ preferredDraft.length }} 项</span>
+            </div>
+            <div class="preferred-types-panel__body">
+              <div v-for="group in preferredCategoryGroups" :key="group.parent" class="preferred-types-group">
+                <div class="preferred-types-group__title">{{ group.parent }}</div>
+                <el-checkbox-group v-model="preferredDraft" class="preferred-types-group__list">
+                  <el-checkbox v-for="item in group.items" :key="item.value" :value="item.value" class="preferred-types-group__item">
+                    <span>{{ item.label }}</span>
+                    <em v-if="frequentTypeSet.has(item.value)" class="preferred-types-group__badge">常选</em>
+                  </el-checkbox>
+                </el-checkbox-group>
+              </div>
+            </div>
+            <div class="preferred-types-panel__footer">
+              <el-button size="small" :disabled="preferredSaving" @click="preferredPopoverVisible = false">取消</el-button>
+              <el-button size="small" type="primary" :loading="preferredSaving" @click="savePreferredTypes">保存设置</el-button>
+            </div>
+          </div>
+        </el-popover>
+      </div>
     </div>
-    <div class="report-project-filter"><el-input v-model="projectFilter" placeholder="筛选项目名称或订单号" clearable aria-label="工作报告项目筛选" /><el-checkbox v-model="onlyLunch">仅看中午加班</el-checkbox><span>筛选只影响查看，保存仍包含全部工作记录。</span></div>
+    <div v-if="!planning&&!singleTask&&lunchChoice" class="lunch-report-tools">
+      <el-alert title="声明：本人确认午休期间实际开展了工作，且未因此顺延下午上班时间。" type="warning" :closable="false" />
+      <p class="lunch-report-instructions"><strong>填写说明：</strong>请如实填写12:00–13:30内的实际项目和工作时段，各项目时段不得重叠。</p>
+      <el-checkbox v-if="editable" :model-value="lunchConfirmed" @update:model-value="confirmLunch">我确认上述中午加班声明</el-checkbox>
+      <el-button v-if="editable" :disabled="!lunchConfirmed" @click="addLunch">新增中午加班行</el-button>
+    </div>
     <div class="report-editor__scroll" v-loading="loading">
       <table class="report-grid"><thead><tr><th class="index">序号</th><th class="types">任务/项目类型（可多选）</th><th class="order">订单号</th><th class="project">项目名称</th><th class="task">具体任务</th><th class="quantity">工作量</th><th class="unit">单位</th><th class="duration">{{planning?'预计需要时间':'耗时'}}</th><th class="action"></th></tr></thead>
       <tbody><tr v-for="(row,index) in model.rows" :key="reportRowKey(row)" v-show="matchesRow(row)" :data-report-row="index" :class="{'is-system':row.source_type==='system_event','is-child':parentRowKey(row),'is-lunch-overtime':row.display_metadata.lunch_overtime}">
         <td class="index"><strong>{{outline[index]}}</strong><el-tag v-if="row.display_metadata.lunch_overtime" type="warning" size="small">中午加班</el-tag><small v-if="parentRowKey(row)" class="child-label">└ 二级</small><small v-if="row.source_type==='system_event'" title="系统记录自动汇总">系统</small></td>
-        <td><span v-if="parentRowKey(row)" class="inherited">↳ 类型随上级</span><template v-else><el-form-item data-dialog-field-search-label="任务类型" :prop="`rows.${index}.display_metadata.report_types`" :rules="[{type:'array',required:!locked(row),min:1,message:'请选择类型',trigger:'change'}]"><el-cascader :show-all-levels="false" :model-value="row.display_metadata.report_types" :options="typeOptions" :props="{multiple:true,emitPath:false}" filterable collapse-tags collapse-tags-tooltip :disabled="locked(row)||(singleTask&&!planning)" :aria-label="`第${index+1}行任务类型`" :data-report-type-row="typeControlKey(row)" :popper-class="`report-type-options ${typeControlKey(row)}`" @update:model-value="updateTypes(row,$event)"></el-cascader></el-form-item><el-form-item v-if="row.display_metadata.report_types.includes('其他项目')" :prop="`rows.${index}.display_metadata.custom_project_type`" :rules="[{required:true,whitespace:true,message:'填写具体项目类型',trigger:'blur'}]"><el-input v-model="row.display_metadata.custom_project_type" placeholder="具体项目类型" :disabled="locked(row)||!canAddProjectCategory" maxlength="80" @input="changed" /></el-form-item><el-form-item v-for="parent in customParents(row)" :key="parent" :prop="`rows.${index}.display_metadata.custom_work_types.${parent}`" :rules="[{required:true,whitespace:true,message:'请输入具体'+parent,trigger:'blur'}]"><el-input v-model="row.display_metadata.custom_work_types[parent]" :placeholder="'请输入具体'+parent" :aria-label="'具体'+parent" :disabled="locked(row)" maxlength="80" @input="changed" /></el-form-item></template></td>
-        <td><el-form-item data-dialog-field-search-label="订单号" :prop="`rows.${index}.display_metadata.order_no`" :rules="[{required:!locked(row)&&requiresProjectIdentity(row),whitespace:true,message:'请填写订单号',trigger:'blur'}]"><ReportItemLink v-if="locked(row)&&row.display_metadata.order_no" :row="row" kind="project" :text="row.display_metadata.order_no" /><ReadonlyField v-else-if="parentRowKey(row)||(singleTask&&!planning)||row.display_metadata.project_id" :model-value="row.display_metadata.order_no || '随上级'" source="auto" /><el-input v-else v-model="row.display_metadata.order_no" :aria-label="`第${index+1}行订单号`" :disabled="locked(row)" maxlength="100" @input="orderInput(row)" @blur="checkOrder(row)" @change="checkOrder(row)" @paste="paste($event,index,0)" /><ReportItemLink v-if="!locked(row)&&row.display_metadata.order_no" :row="row" kind="project" :text="row.display_metadata.order_no" /></el-form-item></td>
-        <td><el-form-item data-dialog-field-search-label="项目名称" :prop="`rows.${index}.task_name`" :rules="[{required:!locked(row)&&requiresProjectIdentity(row),whitespace:true,message:'请填写项目名称',trigger:'blur'}]"><span v-if="parentRowKey(row)" class="inherited">↳ 项目随上级</span><ReportVocabularyClients v-else-if="isVocabulary(row)" :model-value="row.display_metadata.vocabulary_clients||[]" :fallback-text="row.task_name" :disabled="locked(row)" :label="`第${index+1}行词汇整理客户简称`" @change="setVocabularyClients(row,$event)" /><ReadonlyField v-else-if="row.display_metadata.project_id" :model-value="row.task_name" source="auto" /><el-input v-else v-model="row.task_name" data-screenshot-editor="own" type="textarea" :autosize="{minRows:2,maxRows:5}" :aria-label="`第${index+1}行项目名称`" :disabled="locked(row)" maxlength="255" @input="changed" @paste="paste($event,index,1)" /><ReportItemLink v-if="row.display_metadata.technical_task_id" :row="row" kind="task" :text="row.task_name || '查看各天具体进度'" /><el-button v-if="!locked(row)&&(!singleTask||planning)&&!parentRowKey(row)&&projectType(row)" type="primary" link @click="openProjectPicker(row)">选择项目</el-button></el-form-item></td>
-        <td><el-form-item data-dialog-field-search-label="具体任务" :prop="`rows.${index}.progress_content`" :rules="[{required:!locked(row),whitespace:true,message:'填写具体任务',trigger:'blur'}]"><ScreenshotText v-if="locked(row) && screenshotIds(row.progress_content).length" :text="row.progress_content" /><ReportItemLink v-else-if="locked(row)&&row.progress_content" :row="row" kind="task" :text="row.progress_content" /><LayoutTaskInput v-else-if="layoutDepartment&&!locked(row)" v-model="row.progress_content" v-model:choices="row.display_metadata.layout_task_choices" :presets="taskPresets" :label="`第${index+1}行具体任务`" @change="changed" @presets-change="emit('categories-change',$event)" /><el-input v-else autocomplete v-model="row.progress_content" type="textarea" :autosize="{minRows:2,maxRows:6}" :fetch-suggestions="suggest" :trigger-on-focus="true" :aria-label="`第${index+1}行具体任务`" :disabled="locked(row)" maxlength="10000" placeholder="填写具体内容" @input="changed" @change="remember(row.progress_content)" @select="remember(row.progress_content);changed()" @paste="paste($event,index,2)" /><ReportItemLink v-if="!locked(row)&&row.progress_content" :row="row" kind="task" text="查看任务" /></el-form-item><small v-if="row.display_metadata.source==='technical_development' && row.display_metadata.added_at" class="old-result">添加时间：{{formatBusinessDateTime(row.display_metadata.added_at)}}</small></td>
-        <td><el-form-item data-dialog-field-search-label="工作量" :prop="`rows.${index}.display_metadata.quantity`" :rules="[{required:!locked(row),validator:(_rule,value,done)=>locked(row)?done():quantityRule(_rule,value,done),trigger:'blur'}]"><el-input v-model="row.display_metadata.quantity" inputmode="decimal" :aria-label="`第${index+1}行工作量`" :disabled="locked(row)" @input="changed" @paste="paste($event,index,3)" /></el-form-item></td>
-        <td><el-form-item data-dialog-field-search-label="单位" :prop="`rows.${index}.display_metadata.quantity_unit`" :rules="[{validator:(_rule,value,done)=>done(!locked(row)&&(!planning||row.display_metadata.quantity!==''&&row.display_metadata.quantity!=null)&&!value?.trim()?new Error('请选择单位'):undefined),trigger:'change'}]"><el-select v-model="row.display_metadata.quantity_unit" filterable allow-create default-first-option clearable :aria-label="`第${index+1}行单位`" :disabled="locked(row)" placeholder="选择/输入" @change="changed"><el-option v-for="unit in units" :key="unit" :value="unit" :label="unit==='其他'?'其他（填写单位）':unit" /></el-select></el-form-item><el-form-item v-if="row.display_metadata.quantity_unit==='其他'" :prop="`rows.${index}.display_metadata.quantity_unit_other`" :rules="[{required:true,whitespace:true,message:'填写具体单位',trigger:'blur'}]"><el-input v-model="row.display_metadata.quantity_unit_other" placeholder="具体单位" :disabled="locked(row)" @input="changed" /></el-form-item></td>
-        <td><template v-if="row.display_metadata.lunch_overtime"><el-form-item label="午间开始" :prop="`rows.${index}.display_metadata.lunch_start`" :rules="[{required:true,message:'请选择午间开始时间',trigger:'change'}]"><el-time-picker v-model="row.display_metadata.lunch_start" format="HH:mm" value-format="HH:mm" :disabled="locked(row)" :aria-label="`第${index+1}行午间开始`" @change="lunchTimeChanged(row)" /></el-form-item><el-form-item label="午间结束" :prop="`rows.${index}.display_metadata.lunch_end`" :rules="[{required:true,validator:(_rule,_value,done)=>done(validLunch(row)?undefined:new Error('时段须在12:00–13:30内且结束晚于开始')),trigger:'change'}]"><el-time-picker v-model="row.display_metadata.lunch_end" format="HH:mm" value-format="HH:mm" :disabled="locked(row)" :aria-label="`第${index+1}行午间结束`" @change="lunchTimeChanged(row)" /></el-form-item><ReadonlyField :model-value="durationLabel(row.duration_minutes)" source="auto" /></template><el-form-item v-else data-dialog-field-search-label="耗时" :prop="`rows.${index}.duration_minutes`" :rules="[{required:!locked(row),validator:(_rule,value,done)=>done(!locked(row)&&!planning&&!(Number(value)>0)?new Error('请选择耗时'):undefined),trigger:'change'}]"><el-select v-model="row.duration_minutes" filterable :aria-label="`第${index+1}行耗时`" :disabled="locked(row)" @change="changed"><el-option :value="0" label="未填写" /><el-option v-if="row.duration_minutes && !durationOptions.includes(row.duration_minutes)" :value="row.duration_minutes" :label="`${durationLabel(row.duration_minutes)}（${row.duration_minutes}分钟）`" /><el-option v-for="minutes in durationOptions" :key="minutes" :value="minutes" :label="durationLabel(minutes)" /></el-select></el-form-item></td>
+        <td :class="{'editable-cell':!locked(row)&&!parentRowKey(row),'editable-cell--select':!locked(row)&&!parentRowKey(row)}" @click="focusCell($event,row)"><span v-if="parentRowKey(row)" class="inherited">↳ 类型随上级</span><template v-else><el-form-item data-dialog-field-search-label="任务类型" :prop="`rows.${index}.display_metadata.report_types`" :rules="[{type:'array',required:!locked(row),min:1,message:'请选择类型',trigger:'change'}]"><el-cascader :show-all-levels="false" :model-value="row.display_metadata.report_types" :options="typeOptions" :props="{multiple:true,emitPath:false}" filterable collapse-tags collapse-tags-tooltip placeholder="请选择类型" placement="bottom-start" :fallback-placements="['top-start']" :popper-options="typeCascaderPopperOptions" :disabled="locked(row)||(singleTask&&!planning)" :aria-label="`第${index+1}行任务类型`" :data-report-type-row="typeControlKey(row)" :popper-class="`report-type-options ${typeControlKey(row)}`" @update:model-value="updateTypes(row,$event)"></el-cascader></el-form-item><el-form-item v-if="row.display_metadata.report_types.includes('其他项目')" :prop="`rows.${index}.display_metadata.custom_project_type`" :rules="[{required:true,whitespace:true,message:'填写具体项目类型',trigger:'blur'}]"><el-input v-model="row.display_metadata.custom_project_type" placeholder="具体项目类型" :disabled="locked(row)||!canAddProjectCategory" maxlength="80" @input="changed" /></el-form-item><el-form-item v-for="parent in customParents(row)" :key="parent" :prop="`rows.${index}.display_metadata.custom_work_types.${parent}`" :rules="[{required:true,whitespace:true,message:'请输入具体'+parent,trigger:'blur'}]"><el-input v-model="row.display_metadata.custom_work_types[parent]" :placeholder="'请输入具体'+parent" :aria-label="'具体'+parent" :disabled="locked(row)" maxlength="80" @input="changed" /></el-form-item></template></td>
+        <td :class="{'editable-cell':!locked(row)&&!parentRowKey(row)&&!(singleTask&&!planning)&&!row.display_metadata.project_id,'editable-cell--text':!locked(row)&&!parentRowKey(row)&&!(singleTask&&!planning)&&!row.display_metadata.project_id}" @click="focusCell($event,row)"><el-form-item data-dialog-field-search-label="订单号" :prop="`rows.${index}.display_metadata.order_no`" :rules="[{required:!locked(row)&&requiresProjectIdentity(row),whitespace:true,message:'请填写订单号',trigger:'blur'}]"><ReportItemLink v-if="locked(row)&&row.display_metadata.order_no" :row="row" kind="project" :text="row.display_metadata.order_no" /><ReadonlyField v-else-if="parentRowKey(row)||(singleTask&&!planning)||row.display_metadata.project_id" :model-value="row.display_metadata.order_no || '随上级'" source="auto" /><el-input v-else v-model="row.display_metadata.order_no" placeholder="输入订单号" :aria-label="`第${index+1}行订单号`" :disabled="locked(row)" maxlength="100" @input="orderInput(row)" @blur="checkOrder(row)" @change="checkOrder(row)" @paste="paste($event,index,0)" /><ReportItemLink v-if="!locked(row)&&row.display_metadata.order_no" :row="row" kind="project" :text="row.display_metadata.order_no" /></el-form-item></td>
+        <td :class="{'editable-cell':!locked(row)&&!parentRowKey(row)&&!row.display_metadata.project_id,'editable-cell--text':!locked(row)&&!parentRowKey(row)&&!row.display_metadata.project_id}" @click="focusCell($event,row)"><el-form-item data-dialog-field-search-label="项目名称" :prop="`rows.${index}.task_name`" :rules="[{required:!locked(row)&&requiresProjectIdentity(row),whitespace:true,message:'请填写项目名称',trigger:'blur'}]"><span v-if="parentRowKey(row)" class="inherited">↳ 项目随上级</span><ReportVocabularyClients v-else-if="isVocabulary(row)" :model-value="row.display_metadata.vocabulary_clients||[]" :fallback-text="row.task_name" :disabled="locked(row)" :label="`第${index+1}行词汇整理客户简称`" @change="setVocabularyClients(row,$event)" /><ReadonlyField v-else-if="row.display_metadata.project_id" :model-value="row.task_name" source="auto" /><el-input v-else v-model="row.task_name" data-screenshot-editor="own" type="textarea" :autosize="{minRows:1,maxRows:5}" resize="none" placeholder="输入项目名称" :aria-label="`第${index+1}行项目名称`" :disabled="locked(row)" maxlength="255" @input="changed" @paste="paste($event,index,1)" /><ReportItemLink v-if="row.display_metadata.technical_task_id" :row="row" kind="task" :text="row.task_name || '查看各天具体进度'" /><el-button v-if="!locked(row)&&(!singleTask||planning)&&!parentRowKey(row)&&projectType(row)" type="primary" link @click="openProjectPicker(row)">选择项目</el-button></el-form-item></td>
+        <td :class="{'editable-cell':!locked(row),'editable-cell--text':!locked(row)}" @click="focusCell($event,row)" @keydown.capture="handleTaskKeydown($event,row)"><el-form-item data-dialog-field-search-label="具体任务" :prop="`rows.${index}.progress_content`" :rules="[{required:!locked(row),whitespace:true,message:'填写具体任务',trigger:'blur'}]"><ScreenshotText v-if="locked(row) && screenshotIds(row.progress_content).length" :text="row.progress_content" /><ReportItemLink v-else-if="locked(row)&&row.progress_content" :row="row" kind="task" :text="row.progress_content" /><LayoutTaskInput v-else-if="layoutDepartment&&!locked(row)" v-model="row.progress_content" v-model:choices="row.display_metadata.layout_task_choices" :presets="taskPresets" :label="`第${index+1}行具体任务`" @change="changed" @presets-change="emit('categories-change',$event)" /><el-input v-else autocomplete hide-screenshot-tools v-model="row.progress_content" type="textarea" :autosize="{minRows:1,maxRows:6}" resize="none" :fetch-suggestions="suggest" :trigger-on-focus="true" :aria-label="`第${index+1}行具体任务`" :disabled="locked(row)" maxlength="10000" placeholder="填写具体内容（支持换行、Ctrl+V 贴图）" @input="changed" @change="remember(row.progress_content)" @select="remember(row.progress_content);changed()" @paste="paste($event,index,2)" /><ReportItemLink v-if="!locked(row)&&row.progress_content" :row="row" kind="task" text="查看任务" /></el-form-item><small v-if="row.display_metadata.source==='technical_development' && row.display_metadata.added_at" class="old-result">添加时间：{{formatBusinessDateTime(row.display_metadata.added_at)}}</small></td>
+        <td :class="{'editable-cell':!locked(row),'editable-cell--text':!locked(row)}" @click="focusCell($event,row)"><el-form-item data-dialog-field-search-label="工作量" :prop="`rows.${index}.display_metadata.quantity`" :rules="[{required:!locked(row),validator:(_rule,value,done)=>locked(row)?done():quantityRule(_rule,value,done),trigger:'blur'}]"><el-input v-model="row.display_metadata.quantity" inputmode="decimal" placeholder="数量" :aria-label="`第${index+1}行工作量`" :disabled="locked(row)" @input="changed" @paste="paste($event,index,3)" /></el-form-item></td>
+        <td :class="{'editable-cell':!locked(row),'editable-cell--select':!locked(row)}" @click="focusCell($event,row)"><el-form-item data-dialog-field-search-label="单位" :prop="`rows.${index}.display_metadata.quantity_unit`" :rules="[{validator:(_rule,value,done)=>done(!locked(row)&&(!planning||row.display_metadata.quantity!==''&&row.display_metadata.quantity!=null)&&!value?.trim()?new Error('请选择单位'):undefined),trigger:'change'}]"><el-select v-model="row.display_metadata.quantity_unit" filterable allow-create default-first-option clearable :aria-label="`第${index+1}行单位`" :disabled="locked(row)" placeholder="选择/输入" @change="changed"><el-option v-for="unit in units" :key="unit" :value="unit" :label="unit==='其他'?'其他（填写单位）':unit" /></el-select></el-form-item><el-form-item v-if="row.display_metadata.quantity_unit==='其他'" :prop="`rows.${index}.display_metadata.quantity_unit_other`" :rules="[{required:true,whitespace:true,message:'填写具体单位',trigger:'blur'}]"><el-input v-model="row.display_metadata.quantity_unit_other" placeholder="具体单位" :disabled="locked(row)" @input="changed" /></el-form-item></td>
+        <td :class="{'editable-cell':!locked(row),'editable-cell--select':!locked(row)}" @click="focusCell($event,row)"><template v-if="row.display_metadata.lunch_overtime"><el-form-item label="午间开始" :prop="`rows.${index}.display_metadata.lunch_start`" :rules="[{required:true,message:'请选择午间开始时间',trigger:'change'}]"><el-time-picker v-model="row.display_metadata.lunch_start" format="HH:mm" value-format="HH:mm" :disabled="locked(row)" :aria-label="`第${index+1}行午间开始`" @change="lunchTimeChanged(row)" /></el-form-item><el-form-item label="午间结束" :prop="`rows.${index}.display_metadata.lunch_end`" :rules="[{required:true,validator:(_rule,_value,done)=>done(validLunch(row)?undefined:new Error('时段须在12:00–13:30内且结束晚于开始')),trigger:'change'}]"><el-time-picker v-model="row.display_metadata.lunch_end" format="HH:mm" value-format="HH:mm" :disabled="locked(row)" :aria-label="`第${index+1}行午间结束`" @change="lunchTimeChanged(row)" /></el-form-item><ReadonlyField :model-value="durationLabel(row.duration_minutes)" source="auto" /></template><el-form-item v-else data-dialog-field-search-label="耗时" :prop="`rows.${index}.duration_minutes`" :rules="[{required:!locked(row),validator:(_rule,value,done)=>done(!locked(row)&&!planning&&!(Number(value)>0)?new Error('请选择耗时'):undefined),trigger:'change'}]"><el-select v-model="row.duration_minutes" filterable placeholder="选择耗时" :aria-label="`第${index+1}行耗时`" :disabled="locked(row)" @change="changed"><el-option :value="0" label="未填写" /><el-option v-if="row.duration_minutes && !durationOptions.includes(row.duration_minutes)" :value="row.duration_minutes" :label="`${durationLabel(row.duration_minutes)}（${row.duration_minutes}分钟）`" /><el-option v-for="minutes in durationOptions" :key="minutes" :value="minutes" :label="durationLabel(minutes)" /></el-select></el-form-item></td>
         <td class="row-actions"><el-popover v-if="editable&&!singleTask&&!row.display_metadata.lunch_overtime" trigger="click" placement="left" :width="250"><div class="child-actions"><span>在本项目下新增二级工作行</span><el-input-number v-model="childCount" :min="1" :max="100" :precision="0" :aria-label="`第${index+1}行下级行数`" /><el-button type="primary" @click="addChildren(row,childCount)">生成下级</el-button></div><template #reference><el-button link type="primary" :aria-label="`第${index+1}行新增下级`">新增下级</el-button></template></el-popover><el-button v-if="editable&&!singleTask&&row.source_type==='manual'&&row.display_metadata?.source!=='consultation_handoff'" link type="danger" :aria-label="`删除第${index+1}行`" @click="remove(index)">删除</el-button></td>
       </tr><tr v-if="!model.rows.length"><td colspan="9" class="empty">暂无工作记录，点击“新增一行”填写。</td></tr></tbody></table>
     </div>
-    <footer><template v-if="editable&&!singleTask"><el-button @click="add()">＋ 新增一行</el-button><el-input-number v-model="addCount" :min="1" :max="100" :precision="0" :step="1" step-strictly aria-label="新增行数" /><el-button @click="add(addCount)">新增多行</el-button></template><span>合计 {{durationLabel(total)}}（{{total}}分钟）</span><small>Tab 切换单元格；支持从 Excel 粘贴文字；所有字段禁止截图。非项目工作、外勤工作和财务工作免填订单号和项目名称。</small></footer>
+    <footer><template v-if="editable&&!singleTask"><el-button @click="add()">＋ 新增一行</el-button><el-input-number v-model="addCount" :min="1" :max="100" :precision="0" :step="1" step-strictly aria-label="新增行数" /><el-button @click="add(addCount)">新增多行</el-button></template><span>合计 {{durationLabel(total)}}（{{total}}分钟）</span><small>点击单元格任意位置可直接填写；Tab 切换单元格；支持从 Excel 粘贴文字；具体任务支持 Ctrl+V 直接粘贴图片，其余字段仅限文字或数字。非项目工作、外勤工作和财务工作免填订单号和项目名称。</small></footer>
   </AppForm>
   <ReportProjectPicker v-model="projectPickerVisible" :project-type="pickerType" @selected="applyProject" />
   <DraggableFormDialog v-model="categoryVisible" title="新增自定义分类及内容" width="min(560px, calc(100vw - 32px))" append-to-body destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!categorySaving" :before-close="done=>{if(!categorySaving)done()}">
@@ -47,12 +91,13 @@ import ReportVocabularyClients from './ReportVocabularyClients.vue'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import ReportProjectPicker from '@/components/common/ReportProjectPicker.vue'
 import {reportRowKey,parentRowKey,reportOutline,syncReportChildren,nestDuplicateOrder,appendChildRows,ensureReportKeys} from '@/utils/workReportHierarchy'
-import {createDailyReportCategory,createDailyReportCategoryGroup} from '@/api/tasks'
+import {createDailyReportCategory,createDailyReportCategoryGroup,savePreferredReportTypes} from '@/api/tasks'
 import {matchesSearch} from '@/utils/searchMatching'
-import {durationLabel,durationOptions,newReportRow,normalizeReportRow,updateRowTypes,validQuantity,buildWorkTypeOptions,defaultWorkCategories,appendReportRows,blockReportImages,requiresProjectIdentity,categoryValue,isEmptyReportRow} from '@/utils/workReportForm'
-const props=defineProps({rows:{type:Array,default:()=>[]},singleTask:Boolean,planning:Boolean,editable:Boolean,loading:Boolean,layoutDepartment:Boolean,taskPresets:{type:Array,default:()=>[]},categories:{type:Object,default:()=>defaultWorkCategories},canAddProjectCategory:Boolean,categoryStorageReady:Boolean,history:{type:Array,default:()=>[]}})
+import {durationLabel,durationOptions,newReportRow,normalizeReportRow,updateRowTypes,validQuantity,buildWorkTypeOptions,buildPreferredWorkTypeOptions,defaultWorkCategories,appendReportRows,blockReportImages,requiresProjectIdentity,categoryValue,isEmptyReportRow} from '@/utils/workReportForm'
+const props=defineProps({rows:{type:Array,default:()=>[]},singleTask:Boolean,planning:Boolean,editable:Boolean,loading:Boolean,layoutDepartment:Boolean,taskPresets:{type:Array,default:()=>[]},categories:{type:Object,default:()=>defaultWorkCategories},preferredTypes:{type:Array,default:()=>[]},frequentTypes:{type:Array,default:()=>[]},canAddProjectCategory:Boolean,categoryStorageReady:Boolean,history:{type:Array,default:()=>[]}})
 const emit=defineEmits(['dirty-change','remember','categories-change'])
 const typePrefix = 'report-type-' + getCurrentInstance().uid + '-'
+const typeCascaderPopperOptions = { modifiers: [{ name: 'preventOverflow', options: { altAxis: true, padding: 12 } }] }
 const typeInteractions = new Map()
 function typeControlKey(row) { return typePrefix + reportRowKey(row) }
 function trackTypeInteraction(event) {
@@ -96,9 +141,56 @@ watch(projectPickerVisible,visible=>{if(!visible)pickerRow=null})
 const outline=computed(()=>reportOutline(model.rows))
 const localCategories=ref(props.categories)
 watch(()=>props.categories,value=>{localCategories.value=value})
-const typeOptions=computed(()=>[...buildWorkTypeOptions(localCategories.value,model.rows).map(group=>({...group,children:group.children.map(option=>({...option,disabled:option.value==='其他项目'&&!props.canAddProjectCategory&&!model.rows.some(row=>row.display_metadata.custom_project_type)}))})),...(props.editable?[{value:'__add_category__',label:'＋ 新增自定义分类'}]:[])])
+const localPreferredTypes=ref([...(props.preferredTypes||[])])
+watch(()=>props.preferredTypes,value=>{localPreferredTypes.value=[...(value||[])]})
+const showAllTypes=ref(false)
+const preferredPopoverVisible=ref(false)
+const preferredSaving=ref(false)
+const preferredDraft=ref([])
+const frequentTypeSet=computed(()=>new Set(props.frequentTypes||[]))
+const effectivePreferredTypes=computed(()=>localPreferredTypes.value.length?localPreferredTypes.value:(props.frequentTypes||[]))
+const hasPreferredTypes=computed(()=>effectivePreferredTypes.value.length>0)
+const usingPreferredTypes=computed(()=>hasPreferredTypes.value && !showAllTypes.value)
+const preferredCategoryGroups=computed(()=>{
+  const groups={...defaultWorkCategories,...localCategories.value}
+  return Object.entries(groups).map(([parent,names])=>({
+    parent,
+    items:names.filter(name=>name!=='其他项目').map(name=>({value:categoryValue(parent,name),label:name})),
+  })).filter(group=>group.items.length)
+})
+function openPreferredPopover(){preferredDraft.value=[...effectivePreferredTypes.value]}
+function applyFrequentToDraft(){preferredDraft.value=[...(props.frequentTypes||[])]}
+async function savePreferredTypes(){
+  if(preferredSaving.value)return
+  preferredSaving.value=true
+  try{
+    const data=await savePreferredReportTypes(preferredDraft.value)
+    localPreferredTypes.value=[...(data.preferred_report_types||[])]
+    emit('categories-change',data)
+    showAllTypes.value=false
+    preferredPopoverVisible.value=false
+    ElMessage.success(localPreferredTypes.value.length?`已保存 ${localPreferredTypes.value.length} 个常用类型`:'已清空常用类型，将显示全部分类')
+  }catch(error){
+    ElMessage.error(error?.detail||'保存常用类型失败')
+  }finally{
+    preferredSaving.value=false
+  }
+}
+const typeOptions=computed(()=>{
+  if(usingPreferredTypes.value){
+    return [
+      ...buildPreferredWorkTypeOptions(localCategories.value,model.rows,effectivePreferredTypes.value),
+      ...(props.editable?[{value:'__show_all_types__',label:'▸ 查看全部类型'},{value:'__add_category__',label:'＋ 新增自定义分类'}]:[])
+    ]
+  }
+  return [
+    ...buildWorkTypeOptions(localCategories.value,model.rows).map(group=>({...group,children:group.children.map(option=>({...option,disabled:option.value==='其他项目'&&!props.canAddProjectCategory&&!model.rows.some(row=>row.display_metadata.custom_project_type)}))})),
+    ...(props.editable&&hasPreferredTypes.value?[{value:'__only_preferred__',label:'◂ 返回我的常用类型'}]:[]),
+    ...(props.editable?[{value:'__add_category__',label:'＋ 新增自定义分类'}]:[])
+  ]
+})
 const categoryVisible=ref(false),categorySaving=ref(false),categoryForm=ref(),categoryData=reactive({name:'',content:''});let categoryTarget
-async function saveCategoryGroup(){if(categorySaving.value)return;try{await categoryForm.value.validate()}catch{return}categorySaving.value=true;try{const data=await createDailyReportCategoryGroup({...categoryData});localCategories.value=data.work_categories;emit('categories-change',data);if(model.rows.includes(categoryTarget)){updateRowTypes(categoryTarget,[...categoryTarget.display_metadata.report_types,categoryValue(categoryData.name.trim(),categoryData.content.trim())]);changed()}categoryVisible.value=false;ElMessage.success('自定义分类和内容已保存')}catch(error){ElMessage.error(error.detail||'保存自定义分类失败')}finally{categorySaving.value=false}}
+async function saveCategoryGroup(){if(categorySaving.value)return;try{await categoryForm.value.validate()}catch{return}categorySaving.value=true;try{const data=await createDailyReportCategoryGroup({...categoryData});localCategories.value=data.work_categories;const newVal=categoryValue(categoryData.name.trim(),categoryData.content.trim());if(localPreferredTypes.value.length&&!localPreferredTypes.value.includes(newVal)){try{const prefData=await savePreferredReportTypes([...localPreferredTypes.value,newVal]);localPreferredTypes.value=[...(prefData.preferred_report_types||[])];emit('categories-change',prefData)}catch{emit('categories-change',data)}}else{emit('categories-change',data)}if(model.rows.includes(categoryTarget)){updateRowTypes(categoryTarget,[...categoryTarget.display_metadata.report_types,newVal]);changed()}categoryVisible.value=false;ElMessage.success('自定义分类和内容已保存')}catch(error){ElMessage.error(error.detail||'保存自定义分类失败')}finally{categorySaving.value=false}}
 const units=['个','份','页','字','次','人','其他']
 watch(()=>props.rows,rows=>{model.rows=rows.map(row=>{const value=normalizeReportRow(row,{editable:props.editable});value.display_metadata.custom_work_types={...(value.display_metadata.custom_work_types||{})};return value});ensureReportKeys(model.rows);syncReportChildren(model.rows);lunchChoice.value=model.rows.some(row=>row.display_metadata.lunch_overtime);lunchConfirmed.value=lunchChoice.value&&model.rows.filter(row=>row.display_metadata.lunch_overtime).every(row=>row.display_metadata.lunch_overtime_confirmed===true);dirty.value=0},{immediate:true})
 const total=computed(()=>model.rows.reduce((sum,row)=>sum+(Number(row.duration_minutes)||0),0))
@@ -113,6 +205,8 @@ function lunchTimeChanged(row){row.duration_minutes=validLunch(row)?minute(row.d
 function customParents(row){return row.display_metadata.report_types.filter(value=>value.endsWith('::__custom__')).map(value=>value.split('::')[0])}
 function updateTypes(row,types){
   if(!model.rows.includes(row)||!typeInteractions.has(typeControlKey(row))||!Array.isArray(types))return
+  if(types.includes('__show_all_types__')){row.display_metadata.report_types=[...row.display_metadata.report_types];showAllTypes.value=true;return}
+  if(types.includes('__only_preferred__')){row.display_metadata.report_types=[...row.display_metadata.report_types];showAllTypes.value=false;return}
   if(types.includes('__add_category__')){row.display_metadata.report_types=[...row.display_metadata.report_types];if(!locked(row)){categoryTarget=row;categoryData.name='';categoryData.content='';categoryVisible.value=true}return}
   if(locked(row)||types.length===row.display_metadata.report_types.length&&types.every(value=>row.display_metadata.report_types.includes(value)))return
   const selected=types.filter(type=>searchableProjectTypes.includes(type))
@@ -124,8 +218,26 @@ function updateTypes(row,types){
   if(previous!==selected[0]){delete row.display_metadata.project_id;delete row.display_metadata.selected_project_type;delete row.display_metadata.selected_project_name;if(previous){row.display_metadata.order_no='';row.task_name=''}}
   form.value?.clearValidate();changed()
 }
-function remember(value){if(value?.trim() && !value.includes('screenshot://'))emit('remember',value.trim())}
-function suggest(query,callback){callback(props.history.filter(value=>matchesSearch(value,query)).slice(0,30).map(value=>({value})))}
+const autoTaskSuggestionPattern=/^(?:phone|wechat|wecom|email|qq|website|taobao|douyin|xiaohongshu|baidu|other)\s*-\s*.+\s*-\s*.+$/i
+function isUsableTaskSuggestion(value){const text=String(value||'').trim();return Boolean(text)&&!text.includes('screenshot://')&&!autoTaskSuggestionPattern.test(text)}
+function handleTaskKeydown(event, row) {
+  if (event.key !== 'Enter' || event.isComposing || locked(row)) return
+  const target = event.target
+  if (!(target instanceof HTMLTextAreaElement)) return
+  const hasModifier = event.shiftKey || event.ctrlKey || event.metaKey || event.altKey
+  if (!hasModifier && target.getAttribute('aria-activedescendant')) return
+  event.stopPropagation()
+  if (!event.shiftKey) {
+    event.preventDefault()
+    const start = target.selectionStart ?? target.value.length
+    const end = target.selectionEnd ?? start
+    target.value = `${target.value.slice(0, start)}\n${target.value.slice(end)}`
+    target.dispatchEvent(new Event('input', { bubbles: true }))
+    nextTick(() => { target.setSelectionRange(start + 1, start + 1) })
+  }
+}
+function remember(value){if(isUsableTaskSuggestion(value))emit('remember',value.trim())}
+function suggest(query,callback){callback(props.history.filter(value=>isUsableTaskSuggestion(value)&&matchesSearch(value,query)).slice(0,30).map(value=>({value})))}
 function quantityRule(_rule,value,done){done(props.planning&&(value===''||value==null)||value!==''&&value!=null&&validQuantity(value)?undefined:new Error('请填写非负数字工作量'))}
 function add(count=1){if(!props.editable)return;try{appendReportRows(model.rows,count);changed()}catch(error){ElMessage.warning(error.message)}}
 async function remove(index){const row=model.rows[index];if(!row||locked(row))return;if(model.rows.some(item=>parentRowKey(item)===reportRowKey(row))){ElMessage.warning('请先删除该项目的下级工作行');return}try{await ElMessageBox.confirm(`确定删除第${outline.value[index]}项工作记录吗？`,'确认删除',{type:'warning',confirmButtonText:'确认删除',cancelButtonText:'取消'})}catch{return}const current=model.rows.indexOf(row);if(current<0||locked(row))return;if(model.rows.some(item=>parentRowKey(item)===reportRowKey(row))){ElMessage.warning('请先删除该项目的下级工作行');return}model.rows.splice(current,1);changed()}
@@ -135,7 +247,7 @@ function checkOrder(row){clearTimeout(orderTimers.get(reportRowKey(row)));if(!mo
 onBeforeUnmount(()=>{clearTimeout(filterTimer);for(const timer of orderTimers.values())clearTimeout(timer)})
 function addChildren(row,count){try{appendChildRows(model.rows,row,count);changed();form.value?.clearValidate()}catch(error){ElMessage.warning(error.message)}}
 function paste(event,index,column){
-  if(!props.editable||blockReportImages(event))return
+  if(!props.editable||(column!==2&&blockReportImages(event)))return
   if(props.singleTask&&(event.clipboardData?.getData('text/plain')||'').includes('\t')){event.preventDefault();ElMessage.warning('请逐项填写当前任务');return}
   const text=event.clipboardData?.getData('text/plain')||'';if(!text.includes('\t'))return
   event.preventDefault()
@@ -150,6 +262,21 @@ function paste(event,index,column){
 }
 function getRows(){syncReportChildren(model.rows);return model.rows.map(row=>({...row,display_metadata:{...row.display_metadata}}))}
 async function validate(){const filled=model.rows.filter(row=>!isEmptyReportRow(row));if(filled.length!==model.rows.length){model.rows=filled;changed();await nextTick()}projectFilter.value='';appliedProjectFilter.value='';onlyLunch.value=false;if(lunchChoice.value&&!model.rows.some(row=>row.display_metadata.lunch_overtime)){ElMessage.error('请新增中午加班行并填写实际项目和时段');throw new Error('请填写中午加班')}if(model.rows.some(row=>row.display_metadata.lunch_overtime)&&!lunchConfirmed.value){ElMessage.error('请先确认中午确实加班且未顺延下午上班');throw new Error('请确认中午加班声明')}const lunchWindows=model.rows.filter(row=>row.display_metadata.lunch_overtime).map(row=>[minute(row.display_metadata.lunch_start),minute(row.display_metadata.lunch_end)]).sort((a,b)=>a[0]-b[0]);if(lunchWindows.some((row,index)=>index&&lunchWindows[index-1][1]>row[0])){ElMessage.error('中午加班时段不能重叠');throw new Error('中午加班时段重叠')}syncReportChildren(model.rows);await form.value.validate();for(const row of model.rows){if(props.canAddProjectCategory&&row.display_metadata.report_types.includes('其他项目')&&row.display_metadata.custom_project_type?.trim()!=='其他项目'){const name=row.display_metadata.custom_project_type.trim();try{const data=await createDailyReportCategory({parent:'项目工作',name});emit('categories-change',data);updateRowTypes(row,row.display_metadata.report_types.map(value=>value==='其他项目'?categoryValue('项目工作',name):value));delete row.display_metadata.custom_project_type}catch(error){ElMessage.error(error.detail||'保存自定义项目选项失败');throw error}}for(const parent of customParents(row)){const name=row.display_metadata.custom_work_types[parent].trim();let data;try{data=await createDailyReportCategory({parent,name})}catch(error){ElMessage.error(error.detail||'保存自定义工作选项失败');throw error}emit('categories-change',data);updateRowTypes(row,row.display_metadata.report_types.map(value=>value===`${parent}::__custom__`?categoryValue(parent,name):value))}delete row.display_metadata.custom_work_types}return true}
+function focusCell(event, row) {
+  if (locked(row) || !(event.currentTarget instanceof HTMLElement)) return
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest('a, button, input, textarea, select, .el-tag__close, .el-input__suffix, .el-select__wrapper, .el-cascader')) return
+  const cell = event.currentTarget
+  const selectTrigger = cell.querySelector('.el-select__wrapper:not(.is-disabled), .el-cascader:not(.is-disabled)')
+  if (selectTrigger instanceof HTMLElement) {
+    selectTrigger.click()
+    const input = selectTrigger.querySelector('input:not(:disabled):not([readonly])')
+    if (input instanceof HTMLElement) input.focus()
+    return
+  }
+  const field = cell.querySelector('textarea:not(:disabled):not([readonly]), input:not(:disabled):not([readonly]):not([type="hidden"])')
+  if (field instanceof HTMLElement) field.focus()
+}
 async function focusReportRow(index, selector = 'input[inputmode="decimal"]') {
   projectFilter.value = ''
   appliedProjectFilter.value = ''
@@ -165,12 +292,13 @@ async function focusReportRow(index, selector = 'input[inputmode="decimal"]') {
 defineExpose({getRows,validate,add,focusReportRow})
 </script>
 <style scoped>
-.report-editor__scroll{overflow:auto;max-height:65vh;border:1px solid #dbe3ec;border-radius:6px}.report-grid{border-collapse:collapse;width:100%;min-width:1320px;table-layout:fixed}.report-grid th{position:sticky;top:0;z-index:2;background:#f1f5f9;color:#334155;text-align:left;padding:10px 8px;font-size:13px}.report-grid td{border:1px solid #e2e8f0;padding:5px;vertical-align:top;background:white}.report-grid .index{width:48px;text-align:center}.types{width:205px}.order{width:142px}.project{width:250px}.task{width:340px}.quantity{width:85px}.unit{width:100px}.duration{width:130px}.action{width:95px}.index small{display:block;color:#64748b;font-size:10px}.report-grid :deep(.el-form-item){margin-bottom:0}.report-grid :deep(.el-form-item.is-error){padding-bottom:18px}.report-grid :deep(.el-input__wrapper){box-shadow:none;padding:3px 5px;background:white}.report-grid :deep(.el-textarea__inner){box-shadow:none;padding:5px;resize:vertical}.report-grid :deep(.el-input__wrapper.is-focus),.report-grid :deep(.el-textarea__inner:focus){box-shadow:0 0 0 2px #409eff inset}.report-grid :deep(.el-select),.report-grid :deep(.el-cascader),.report-grid :deep(.el-autocomplete){width:100%}.is-system td,.is-system :deep(.el-textarea__inner),.is-system :deep(.el-input__wrapper){background:#f1f5f9}.old-result{display:block;color:#64748b;white-space:pre-wrap;padding:4px}.empty{padding:28px!important;text-align:left;color:#64748b}footer{display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:10px 0}footer span{font-weight:600}footer small{color:#64748b}
+.report-editor__scroll{overflow:auto;max-height:65vh;border:1px solid #dbe3ec;border-radius:6px}.report-grid{border-collapse:collapse;width:100%;min-width:1320px;table-layout:fixed}.report-grid th{position:sticky;top:0;z-index:2;background:#f1f5f9;color:#334155;text-align:left;padding:10px 8px;font-size:13px}.report-grid td{border:1px solid #e2e8f0;padding:6px;vertical-align:top;background:white;transition:background-color .15s ease}.report-grid tbody tr:hover td:not(.index){background:#fafcff}.report-grid td.editable-cell{cursor:text}.report-grid td.editable-cell--select{cursor:pointer}.report-grid td.editable-cell:hover{background:#f5f9ff}.report-grid td.editable-cell:focus-within{background:#eff6ff}.report-grid .index{width:48px;text-align:center;vertical-align:middle}.types{width:205px}.order{width:142px}.project{width:250px}.task{width:340px}.quantity{width:85px}.unit{width:100px}.duration{width:130px}.action{width:95px}.index small{display:block;color:#64748b;font-size:10px}.report-grid :deep(.el-form-item){margin-bottom:0}.report-grid :deep(.el-form-item + .el-form-item){margin-top:6px}.report-grid :deep(.el-form-item.is-error){padding-bottom:18px}.report-grid :deep(.el-input__wrapper),.report-grid :deep(.el-select__wrapper){box-shadow:0 0 0 1px #dce4ee inset;border-radius:4px;padding:3px 7px;background:#ffffff;transition:box-shadow .15s ease,background-color .15s ease}.report-grid :deep(.el-textarea__inner){box-shadow:0 0 0 1px #dce4ee inset;border-radius:4px;min-height:36px!important;padding:8px;line-height:20px;box-sizing:border-box;background:#ffffff;resize:none;transition:box-shadow .15s ease,background-color .15s ease}.report-grid td.editable-cell:hover :deep(.el-input__wrapper),.report-grid td.editable-cell:hover :deep(.el-select__wrapper),.report-grid td.editable-cell:hover :deep(.el-textarea__inner){box-shadow:0 0 0 1px #93c5fd inset}.report-grid :deep(.el-input__wrapper.is-focus),.report-grid :deep(.el-select__wrapper.is-focused),.report-grid :deep(.el-textarea__inner:focus){box-shadow:0 0 0 2px #409eff inset}.report-grid :deep(.el-form-item.is-error .el-input__wrapper),.report-grid :deep(.el-form-item.is-error .el-select__wrapper),.report-grid :deep(.el-form-item.is-error .el-textarea__inner){box-shadow:0 0 0 1px var(--el-color-danger) inset}.report-grid :deep(.el-select),.report-grid :deep(.el-cascader),.report-grid :deep(.el-autocomplete){width:100%}.is-system td,.is-system :deep(.el-textarea__inner),.is-system :deep(.el-input__wrapper),.is-system :deep(.el-select__wrapper){background:#f1f5f9}.old-result{display:block;color:#64748b;white-space:pre-wrap;padding:4px}.empty{padding:28px!important;text-align:left;color:#64748b}footer{display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:10px 0}footer span{font-weight:600}footer small{color:#64748b}
 </style>
 
 <style scoped>.category-form{display:flex;flex-direction:column;gap:12px}.category-form small{color:#64748b}footer :deep(.el-input-number){width:130px}</style>
 
-<style scoped>.report-grid .is-child td{border-top-style:dashed;background:#eff6ff}.report-grid .is-child td:first-child{border-left:5px solid #409eff;padding-left:12px}.child-label{color:#2563eb!important;font-weight:600}.inherited{display:block;font-size:12px;color:#64748b;padding:12px 4px}.row-actions{white-space:normal}.row-actions .el-button{margin:3px 0}.child-actions{display:flex;flex-direction:column;gap:12px}</style>
+<style scoped>.report-grid .is-child td{border-top-style:dashed;background:#eff6ff}.report-grid .is-child td:first-child{border-left:5px solid #409eff;padding-left:12px}.child-label{color:#2563eb!important;font-weight:600}.inherited{display:block;font-size:12px;color:#64748b;padding:12px 4px}.row-actions{vertical-align:middle;white-space:normal}.row-actions .el-button{margin:3px 0}.child-actions{display:flex;flex-direction:column;gap:12px}</style>
 <style scoped>.report-grid :deep(.field-readonly .el-input__wrapper){background:#f1f5f9}</style>
+<style>.report-type-options .el-cascader-menu__wrap.el-scrollbar__wrap{height:min(220px,36vh)}</style>
 
-<style scoped>.lunch-report-tools,.report-project-filter{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.lunch-report-tools .el-alert{width:100%}.lunch-report-instructions{width:100%;margin:0;color:#64748b;font-size:14px;line-height:1.6}.report-project-filter .el-input{width:260px}.report-project-filter span{font-size:12px;color:#64748b}.report-grid .is-lunch-overtime td:first-child{border-left:5px solid #e6a23c}.report-grid .is-lunch-overtime .el-tag{white-space:normal;margin-top:6px}.report-grid :deep(.el-date-editor){width:100%}</style>
+<style scoped>.lunch-report-tools,.report-project-filter{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:8px 0}.lunch-report-inline{display:inline-flex;align-items:center;gap:8px;flex-wrap:nowrap}.lunch-report-inline__label{font-size:13px;color:#334155;white-space:nowrap}.lunch-report-inline :deep(.el-radio){margin-right:10px}.lunch-report-inline :deep(.el-radio:last-child){margin-right:0}.lunch-report-tools .el-alert{width:100%}.lunch-report-instructions{width:100%;margin:0;color:#64748b;font-size:14px;line-height:1.6}.report-project-filter .el-input{width:220px}.report-project-filter__hint{font-size:12px;color:#64748b}.report-type-preference-tools{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.preferred-types-panel{display:flex;flex-direction:column;gap:10px}.preferred-types-panel__header{display:flex;flex-direction:column;gap:4px}.preferred-types-panel__header strong{font-size:14px;color:#1e293b}.preferred-types-panel__header small{font-size:12px;color:#64748b;line-height:1.5}.preferred-types-panel__quick{display:flex;align-items:center;gap:10px;padding-bottom:6px;border-bottom:1px solid #e2e8f0}.preferred-types-panel__count{margin-left:auto;font-size:12px;color:#475569}.preferred-types-panel__body{max-height:min(380px,calc(100vh - 240px));overflow-y:auto;padding-right:4px;display:flex;flex-direction:column;gap:12px}.preferred-types-group__title{font-size:12px;font-weight:600;color:#334155;margin-bottom:6px}.preferred-types-group__list{display:flex;flex-wrap:wrap;gap:6px 14px}.preferred-types-group__item{margin-right:0!important;height:auto;line-height:1.4}.preferred-types-group__badge{font-style:normal;margin-left:4px;padding:0 5px;border-radius:9px;background:#eff6ff;color:#2563eb;font-size:11px}.preferred-types-panel__footer{display:flex;justify-content:flex-end;gap:8px;padding-top:8px;border-top:1px solid #e2e8f0}.report-grid .is-lunch-overtime td:first-child{border-left:5px solid #e6a23c}.report-grid .is-lunch-overtime .el-tag{white-space:normal;margin-top:6px}.report-grid :deep(.el-date-editor){width:100%}</style>

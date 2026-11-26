@@ -1568,8 +1568,7 @@ def save(db, user, project_id, payload, *, allow_incomplete=False):
         db.commit()
     except Exception:
         db.rollback()
-        db.info.pop('translation_monthly_tax_modes',None)
-        db.info.pop('translation_billing_tax_modes',None)
+        _clear_finance_session_cache(db)
         raise
     rates.invalidate_metadata(db)
     quantity_basis.invalidate(db)
@@ -2369,6 +2368,46 @@ def price_history(project_id:UUID,order_id:UUID|None=None,page:int=Query(1,ge=1)
     return audit.history(db,project_id,order_id,page)
 
 
+_FINANCE_SESSION_CACHE_KEYS = (
+    'translation_monthly_tax_projects',
+    'translation_monthly_tax_preloaded',
+    'translation_monthly_tax_modes',
+    'translation_billing_tax_modes',
+    'translation_finance_notes_cache',
+    'customer_statement_tax_preferences',
+    'settlement_workspace_payloads',
+    'sub_client_finance_preferences',
+)
+
+
+def _clear_finance_session_cache(db):
+    for key in _FINANCE_SESSION_CACHE_KEYS:
+        db.info.pop(key, None)
+    rates.invalidate_metadata(db)
+    quantity_basis.invalidate(db)
+
+
+def _run_with_lock_retry(db, action, *, attempts=3):
+    """仅重试数据库已中止的锁超时/死锁事务，避免短暂并发占用直接打断保存。"""
+    from time import sleep
+    for attempt in range(attempts):
+        try:
+            return action()
+        except OperationalError as error:
+            db.rollback()
+            _clear_finance_session_cache(db)
+            code = getattr(error.orig, 'pgcode', None) or getattr(error.orig, 'sqlstate', None)
+            if code not in {'55P03', '40P01'}:
+                raise
+            if attempt + 1 == attempts:
+                raise HTTPException(409, '数据库正在处理其他修改，当前填写已保留，请稍后重新保存') from error
+            sleep(0.15 * (attempt + 1))
+        except Exception:
+            db.rollback()
+            _clear_finance_session_cache(db)
+            raise
+
+
 @router.put('/project/{project_id}',dependencies=[Depends(require_permission('projects:write'))])
 def update(project_id:UUID,payload:PriceWrite,db:Session=Depends(get_db),user=Depends(get_current_user)):
     project=crud.get_translation_project(db,project_id)
@@ -2378,27 +2417,12 @@ def update(project_id:UUID,payload:PriceWrite,db:Session=Depends(get_db),user=De
         or (payload.pricing_mode=='fixed' and order_pricing_modes(db,project).get(order_key)=='fixed')
     ):
         raise HTTPException(422,'有子订单的订单只能选择子订单汇总或固定收费')
-    attempts=2 if payload.payment_draft is not None or payload.payment_confirmation is not None else 1
-    for attempt in range(attempts):
-        try:
-            _write_finance(db,user,project_id,payload)
-            if payload.document_consistency_review is not None:
-                save_document_consistency_review(db, user, project_id, payload.document_consistency_review)
-            db.commit()
-            break
-        except OperationalError as error:
-            db.rollback()
-            if getattr(error.orig,'pgcode',None)!='55P03':
-                raise
-            rates.invalidate_metadata(db)
-            quantity_basis.invalidate(db)
-            if attempt+1==attempts:
-                raise HTTPException(409,'数据库正在处理其他修改，当前填写已保留，请稍后重新保存') from error
-        except Exception:
-            db.rollback()
-            db.info.pop('translation_monthly_tax_modes',None)
-            db.info.pop('translation_billing_tax_modes',None)
-            raise
+    def commit_once():
+        _write_finance(db,user,project_id,payload)
+        if payload.document_consistency_review is not None:
+            save_document_consistency_review(db, user, project_id, payload.document_consistency_review)
+        db.commit()
+    _run_with_lock_retry(db, commit_once)
     rates.invalidate_metadata(db)
     quantity_basis.invalidate(db)
     return read(db,project_id)
@@ -2568,9 +2592,7 @@ def save_table_cell(db,user,project_id,payload):
 
 @router.patch('/project/{project_id}/table',dependencies=[Depends(require_permission('projects:write'))])
 def update_table(project_id:UUID,payload:TablePatch,db:Session=Depends(get_db),user=Depends(get_current_user)):
-    try:return save_table_cell(db,user,project_id,payload)
-    except Exception:
-        db.rollback();raise
+    return _run_with_lock_retry(db, lambda: save_table_cell(db, user, project_id, payload))
 
 @router.get('/statement-customer-groups/{client_id}/progress',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
 def get_statement_progress(client_id:UUID,billing_month:str=Query(pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),

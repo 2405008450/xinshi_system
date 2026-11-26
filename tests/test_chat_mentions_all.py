@@ -394,3 +394,67 @@ def test_mentions_filter_by_sender_and_aggregate_senders(chat_env):
     all_senders = list_mention_senders(db, receiver, mention_kind='all')
     assert all_senders['total'] == 1
     assert [row['user_id'] for row in all_senders['items']] == [str(sender.id)]
+
+
+def test_quoted_reply_clears_single_mention_red_dot_in_discussion_and_project_chats(chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    import discussion_chat_service as discussion_service
+    from routers.discussion_chat import MessageCreate
+    from discussion_chat_models import DiscussionMember
+    from annotation_models import AnnotationProject
+    from models import AnnotationChatMember, AppNotification, ChatDirectConversation, ChatDirectMember, ChatProjectMessage
+    from schemas import AnnotationProjectChatMessageCreate
+    import annotation_chat_service as annotation_service
+    import direct_chat_service
+    from routers.chat_sessions import summaries
+    from chat_mention_history import list_mentions
+
+    # 1. Discussion chat: quoting ids[1] clears ONLY ids[1] without advancing last_read_id
+    room = setup_discussion(db, [sender, receiver, outsider])
+    ids = [int(discussion_service.send(db, sender, room, MessageCreate(
+        content=f'请确认 {idx}', mentioned_user_ids=[receiver.id], client_message_id=uuid4(),
+    ))['id']) for idx in range(2)]
+    discussion_service.send(db, receiver, room, MessageCreate(
+        content='好的，已处理', reply_to_id=ids[1], client_message_id=uuid4(),
+    ))
+    row = next(r for r in discussion_service.catalog(db, receiver) if r['project_id'] == str(room))
+    assert row['mention_message_ids'] == [str(ids[0])]
+    assert row['mention_unread'] == 1
+    assert row['unread'] == 1
+    assert db.get(DiscussionMember, (room, receiver.id)).last_read_id == 0
+    items = {item['message_id']: item for item in list_mentions(db, receiver, project_type='discussion')['items']}
+    assert items[str(ids[0])]['unread'] and not items[str(ids[1])]['unread']
+
+    # 2. Annotation project chat: quoting messages[1] clears ONLY messages[1] + its notification
+    project = AnnotationProject(id=uuid4(), order_no='AP-QUOTE-READ', project_name='引用已读', created_by=sender.id)
+    db.add(project); db.flush()
+    db.add_all([AnnotationChatMember(project_id=project.id, user_id=u.id, following=True, last_read_sequence=0) for u in (sender, receiver)])
+    db.commit()
+    messages = [annotation_service.send_message(db, project.id, sender, AnnotationProjectChatMessageCreate(
+        content=f'请查看 {idx}', mentioned_user_ids=[receiver.id], client_message_id=uuid4(),
+    )) for idx in range(2)]
+    annotation_service.send_message(db, project.id, receiver, AnnotationProjectChatMessageCreate(
+        content='收到，我来跟进', reply_to_message_id=messages[1].id, client_message_id=uuid4(),
+    ))
+    stats = summaries(db, ChatProjectMessage.annotation_project_id, [project.id], {project.id: 0}, receiver.id)[project.id]
+    assert stats['mention_message_ids'] == [messages[0].id]
+    assert stats['mention_unread'] == 1
+    assert stats['unread'] == 1
+    assert db.get(AnnotationChatMember, (project.id, receiver.id)).last_read_sequence == 0
+    rows = {str(r['message_id']): r for r in list_mentions(db, receiver, project_type='annotation')['items']}
+    assert rows[str(messages[0].id)]['unread'] and not rows[str(messages[1].id)]['unread']
+
+    # 3. Direct chat: quoting dm clears red dot & notification
+    pair = ChatDirectConversation(id=uuid4(), user_low_id=min(sender.id, receiver.id), user_high_id=max(sender.id, receiver.id))
+    db.add(pair)
+    db.add_all([ChatDirectMember(conversation_id=pair.id, user_id=u.id, last_read_sequence=0) for u in (sender, receiver)])
+    db.commit()
+    dm = direct_chat_service.send_message(db, pair.id, sender, AnnotationProjectChatMessageCreate(
+        content='@receiver 私聊提醒', mentioned_user_ids=[receiver.id], client_message_id=uuid4(),
+    ))
+    direct_chat_service.send_message(db, pair.id, receiver, AnnotationProjectChatMessageCreate(
+        content='马上处理', reply_to_message_id=dm.id, client_message_id=uuid4(),
+    ))
+    dm_stats = summaries(db, ChatProjectMessage.direct_conversation_id, [pair.id], {pair.id: 0}, receiver.id)[pair.id]
+    assert dm_stats['mention_unread'] == 0 and dm_stats['unread'] == 0
+    assert db.query(AppNotification).filter_by(recipient_user_id=receiver.id, related_entity_id=pair.id, is_read=False).count() == 0

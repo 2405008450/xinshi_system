@@ -1,7 +1,7 @@
 <template>
   <div class="layout-task-input">
     <el-checkbox-group :model-value="choices" :aria-label="`${label}固定任务`" @update:model-value="setChoices"><el-checkbox v-for="option in options" :key="option" :value="option">{{option}}</el-checkbox></el-checkbox-group>
-    <el-input :model-value="extra" type="textarea" :autosize="{minRows:2,maxRows:6}" maxlength="10000" :aria-label="`${label}补充内容`" placeholder="可填写其他具体任务或补充说明，支持自由输入" @update:model-value="setExtra" />
+    <el-input :model-value="extra" hide-screenshot-tools type="textarea" :autosize="{minRows:2,maxRows:6}" maxlength="10000" :aria-label="`${label}补充内容`" placeholder="可填写其他具体任务或补充说明，支持 Ctrl+V 粘贴图片" @update:model-value="setExtra" />
     <div class="layout-task-add"><el-input v-model="newOption" maxlength="80" placeholder="输入自定义固定任务" :aria-label="`${label}新增固定选项`" @keyup.enter.prevent="addOption" /><el-button :loading="saving" :disabled="!newOption.trim()" @click="addOption">添加固定选项</el-button></div>
   </div>
 </template>

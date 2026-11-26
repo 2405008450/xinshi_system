@@ -93,3 +93,78 @@ def test_preserves_finalized_report_and_stale_editor(environment, monkeypatch, p
     db.commit()
     task_service.save_daily_report(db, actor, instant.date(), DailyReportSaveRequest(items=[]))
     assert any((item.display_metadata or {}).get('source') == capture.source(project_type) for item in existing.items)
+
+
+def test_recruitment_blank_project_name_falls_back_to_client_position_or_order_no(environment, monkeypatch):
+    from models import Client
+    db, (actor, _, _) = environment
+    monkeypatch.setattr(capture, 'now', lambda: datetime(2026, 11, 25, 10, tzinfo=BUSINESS_TIMEZONE))
+    monkeypatch.setattr(capture, 'publish_report_update', lambda *_: None)
+
+    client = Client(id=uuid4(), client_name='山东康迈机械有限公司', client_short_name='山东康迈机械')
+    db.add(client)
+    db.flush()
+
+    row_with_position = capture.model('recruitment')(
+        id=uuid4(), order_no='HP-261125-001', project_name=None,
+        client_id=client.id, position_title='西班牙语翻译', created_by=actor.id,
+    )
+    row_only_order = capture.model('recruitment')(
+        id=uuid4(), order_no='HP-261125-002', project_name='   ',
+        position_title=None, created_by=actor.id,
+    )
+    for row in (row_with_position, row_only_order):
+        db.add(row)
+        db.flush()
+        db.add(ProjectOperationAudit(
+            id=uuid4(), project_type='recruitment', project_id=row.id,
+            order_no=row.order_no, project_name=None, operation_type='create',
+            operation_source='project_form', actor_user_id=actor.id,
+            project_snapshot={'work_report_required': True, 'project_name': None},
+            occurred_at=datetime(2026, 11, 25, 10, tzinfo=BUSINESS_TIMEZONE),
+        ))
+    db.commit()
+
+    ctx1 = capture.capture_context(db, actor, row_with_position.id, 'recruitment')
+    assert ctx1['task_name'] == '山东康迈机械-西班牙语翻译'
+    ctx2 = capture.capture_context(db, actor, row_only_order.id, 'recruitment')
+    assert ctx2['task_name'] == 'HP-261125-002'
+
+    data1 = capture.ConsultationReportWrite(
+        order_no=row_with_position.order_no, task_name=ctx1['task_name'],
+        progress_content='客户来稿', quantity='1', quantity_unit='人', duration_minutes=60,
+    )
+    capture.submit(db, actor, row_with_position.id, data1, 'recruitment')
+    item = db.query(DailyReportItem).filter(DailyReportItem.source_id == row_with_position.id).one()
+    assert item.task_name == '山东康迈机械-西班牙语翻译'
+
+
+@pytest.mark.parametrize('project_type', ['translation', 'interpretation', 'annotation'])
+def test_other_project_types_blank_name_falls_back_to_order_no(environment, monkeypatch, project_type):
+    db, (actor, _, _) = environment
+    monkeypatch.setattr(capture, 'now', lambda: datetime(2026, 11, 25, 10, tzinfo=BUSINESS_TIMEZONE))
+    monkeypatch.setattr(capture, 'publish_report_update', lambda *_: None)
+
+    row = capture.model(project_type)(
+        id=uuid4(), order_no='ORD-' + uuid4().hex[:8], project_name=None, created_by=actor.id,
+    )
+    db.add(row)
+    db.flush()
+    db.add(ProjectOperationAudit(
+        id=uuid4(), project_type=project_type, project_id=row.id,
+        order_no=row.order_no, project_name=None, operation_type='create',
+        operation_source='project_form', actor_user_id=actor.id,
+        project_snapshot={'work_report_required': True},
+        occurred_at=datetime(2026, 11, 25, 10, tzinfo=BUSINESS_TIMEZONE),
+    ))
+    db.commit()
+
+    ctx = capture.capture_context(db, actor, row.id, project_type)
+    assert ctx['task_name'] == row.order_no
+    data = capture.ConsultationReportWrite(
+        order_no=row.order_no, task_name=ctx['task_name'],
+        progress_content='客户来稿', quantity='1', quantity_unit='项', duration_minutes=15,
+    )
+    capture.submit(db, actor, row.id, data, project_type)
+    item = db.query(DailyReportItem).filter(DailyReportItem.source_id == row.id).one()
+    assert item.task_name == row.order_no

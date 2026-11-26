@@ -276,6 +276,15 @@ def summaries(db, column, ids, baselines, user_id):
         column.in_(ids), Ack.message_id.is_(None), ChatProjectMessage.message_type == 'user',
         ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
         ChatProjectMessage.sequence_no > read_baselines.c.last_read_sequence)
+    replied_messages = db.query(ChatProjectMessage.reply_to_message_id.label('message_id')).filter(
+        column.in_(ids),
+        ChatProjectMessage.sender_user_id == user_id,
+        ChatProjectMessage.reply_to_message_id.is_not(None),
+        ChatProjectMessage.recalled_at.is_(None),
+    ).distinct().subquery()
+    unread_query = unread_query.outerjoin(
+        replied_messages, replied_messages.c.message_id == ChatProjectMessage.id,
+    ).filter(replied_messages.c.message_id.is_(None))
     if phase_one_ready(db):
         # 批量关联本人的已读通知，避免 OR 内相关子查询产生昂贵的 JIT 编译。
         read_notifications = db.query(Target.message_id).join(AppNotification,

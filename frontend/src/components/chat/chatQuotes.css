@@ -39,9 +39,54 @@
 
 .group-compose-reply,
 .discussion-chat__reply {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   max-height: 60px;
-  overflow: auto;
+  overflow: hidden;
   margin-bottom: 6px;
+}
+
+.chat-compose-reply__text {
+  flex: 1;
+  min-width: 0;
+  max-height: 48px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.chat-compose-reply__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -1px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.chat-compose-reply__close:hover:not(:disabled) {
+  background: #dbe5f1;
+  color: #1e293b;
+}
+
+.chat-compose-reply__close:focus-visible {
+  outline: 2px solid var(--color-primary, #334155);
+  outline-offset: 1px;
+}
+
+.chat-compose-reply__close:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
 
 .group-bubble:has(.group-reply),

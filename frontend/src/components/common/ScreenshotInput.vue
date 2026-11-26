@@ -1,5 +1,5 @@
 <template>
-  <div v-if="type==='textarea' || allowScreenshots" ref="root" class="app-screenshot-input" :data-screenshot-uploading="uploading" @beforeinput.capture="rememberSelection" @paste.capture="paste" @drop.capture="drop" @dragover.prevent>
+  <div v-if="(type==='textarea' || allowScreenshots) && !ownEditor" ref="root" class="app-screenshot-input" :data-screenshot-uploading="uploading" @beforeinput.capture="rememberSelection" @paste.capture="paste" @drop.capture="drop" @dragover.prevent>
     <component :is="autocomplete ? ElAutocomplete : BaseInput" ref="control" v-bind="$attrs" :type="type" :readonly="readonly || uploading" :maxlength="effectiveMax" :model-value="enabled?editorText:modelValue" @update:model-value="update" @input="inputChanged" @change="value=>$emit('change',outputValue(value))"><template v-for="(_,name) in $slots" #[name]="data"><slot :name="name" v-bind="data" /></template></component>
     <div v-if="enabled && !readonly && showScreenshotTools && !hideScreenshotTools" class="app-screenshot-tools">
       <label>
@@ -9,13 +9,13 @@
       <small>{{ allowInvoiceFiles ? '支持拖入截图、PDF 或 OFD，发票文件最大 10 MB' : chat ? '聊天截图保留30天' : '支持粘贴截图，长期保存' }}</small>
       <small v-if="uploadHelp" class="app-screenshot-upload-help">{{ uploadHelp }}</small>
     </div>
-    <small v-if="enabled && ids.length && !allowInvoiceFiles" class="app-screenshot-position">▧ 表示截图位置，以下为图文顺序预览。</small>
+    <small v-if="enabled && ids.length && !allowInvoiceFiles" class="app-screenshot-position">▧ 截图占位</small>
     <ScreenshotText v-if="enabled && ids.length" :text="String(modelValue||'')" :show-text="!allowInvoiceFiles" :removable="!readonly&&!uploading"
       :invoice-drag="allowInvoiceFiles" :invoice-order-no="invoiceOrderNo" @remove="remove" />
     <small v-if="allowInvoiceFiles && ids.length" class="invoice-drag-help">拖动附件到其他订单的发票上传区。{{desktopInvoiceDrag?'点击「准备拖出」后，可拖到桌面、微信或企微。':'可下载附件，再从下载文件夹拖到桌面、微信或企微。'}}</small>
     <span v-if="error" role="alert" class="app-screenshot-error">{{ error }}<button type="button" @click="error=''">×</button></span>
   </div>
-  <BaseInput v-else ref="control" v-bind="$attrs" :type="type" :model-value="modelValue" @update:model-value="value=>$emit('update:modelValue',value)" @input="value=>$emit('input',value)" @change="value=>$emit('change',value)"><template v-for="(_,name) in $slots" #[name]="data"><slot :name="name" v-bind="data" /></template></BaseInput>
+  <component :is="autocomplete ? ElAutocomplete : BaseInput" v-else ref="control" v-bind="$attrs" :type="type" :model-value="modelValue" @update:model-value="value=>$emit('update:modelValue',value)" @input="value=>$emit('input',value)" @change="value=>$emit('change',value)"><template v-for="(_,name) in $slots" #[name]="data"><slot :name="name" v-bind="data" /></template></component>
 </template>
 <script setup>
 import { computed,defineAsyncComponent,nextTick,onBeforeUnmount,onMounted,ref,useAttrs } from 'vue'
@@ -30,6 +30,7 @@ const props=defineProps({modelValue:[String,Number],type:{type:String,default:'t
 const desktopInvoiceDrag=Boolean(window.xinshiDesktop?.prepareInvoiceFile && window.xinshiDesktop?.dragStatementFile)
 const emit=defineEmits(['update:modelValue','input','change','uploading-change','attachment-added'])
 const attrs=useAttrs(),control=ref(),root=ref(),enabled=ref(true),chat=ref(false),uploading=ref(false),error=ref('')
+const ownEditor=computed(()=>attrs['data-screenshot-editor']==='own' && !props.allowScreenshots)
 const ids=computed(()=>screenshotIds(props.modelValue)),editorText=computed(()=>screenshotEditorText(props.modelValue)),readonly=computed(()=>attrs.disabled!==undefined&&attrs.disabled!==false||attrs.readonly!==undefined&&attrs.readonly!==false)
 const effectiveMax=computed(()=>enabled.value&&ids.value.length&&attrs.maxlength?Math.max(1,Number(attrs.maxlength)-(String(props.modelValue).length-editorText.value.length)):attrs.maxlength)
 let disposed=false
@@ -110,7 +111,12 @@ async function add(files) {
     complete(!error.value)
   }
 }
-function paste(event){if(!enabled.value||readonly.value)return;const files=Array.from(event.clipboardData?.files||[]).filter(file=>file.type.startsWith('image/'));if(files.length){event.preventDefault();event.stopPropagation();void add(files)}}
+function clipboardImageFiles(clipboardData){
+  const direct=Array.from(clipboardData?.files||[]).filter(file=>file.type?.startsWith('image/'))
+  if(direct.length)return direct
+  return Array.from(clipboardData?.items||[]).filter(item=>item.kind==='file'&&item.type?.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean)
+}
+function paste(event){if(!enabled.value||readonly.value)return;const files=clipboardImageFiles(event.clipboardData);if(files.length){event.preventDefault();event.stopPropagation();void add(files)}}
 async function drop(event) {
   if (!enabled.value) return
   const dropped = Array.from(event.dataTransfer?.files || [])
@@ -147,5 +153,5 @@ function choose(event){void add(Array.from(event.target.files||[]));event.target
 <style scoped>.invoice-drag-help{display:block;margin-top:6px;color:var(--el-text-color-secondary);line-height:1.5}</style>
 <style scoped>
 .app-screenshot-position { display:block; color:var(--el-text-color-secondary); margin-top:6px }
-.app-screenshot-input > :deep(.screenshot-text) { display:flex; max-height:220px; overflow:auto; padding:6px; border:1px solid var(--el-border-color-lighter); border-radius:4px }
+.app-screenshot-input > :deep(.screenshot-text) { display:flex; align-items:flex-start; max-height:220px; overflow:auto; padding:6px; border:1px solid var(--el-border-color-lighter); border-radius:4px }
 </style>

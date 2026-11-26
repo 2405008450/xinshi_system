@@ -155,8 +155,9 @@ def catalog(db, user, *, recent_only=False, room_ids=None):
         maxima = db.query(Message.room_id, func.max(Message.id).label('last_id')).filter(Message.room_id.in_(ids)).group_by(Message.room_id).subquery()
         latest = {str(row.room_id): row for row in db.query(Message).join(maxima, Message.id == maxima.c.last_id)}
         baselines = [and_(Message.room_id == UUID(row['id']), Message.id > (members[row['id']].last_read_id if row['id'] in members else 0)) for row in rooms]
+        from chat_receipt_read import received as is_received
         unread = {str(room): count for room, count in db.query(Message.room_id, func.count(Message.id)).filter(
-            or_(*baselines), Message.sender_id != user.id, Message.recalled_at.is_(None)).group_by(Message.room_id)} if baselines else {}
+            or_(*baselines), Message.sender_id != user.id, Message.recalled_at.is_(None), ~is_received(db, Message, user.id, discussion=True)).group_by(Message.room_id)} if baselines else {}
     from chat_receipt_read import received
     from discussion_mentions import ready as mentions_ready
     from discussion_chat_models import DiscussionMention
@@ -251,6 +252,7 @@ def send(db, user, room_id, payload):
     row = db.query(Message).filter_by(room_id=room_id, sender_id=user.id, client_message_id=payload.client_message_id).first()
     if row:
         return serialize(db, row, user)
+    reply = None
     if payload.reply_to_id is not None:
         reply = db.get(Message, payload.reply_to_id)
         if not reply or reply.room_id != room_id or reply.recalled_at:
@@ -269,10 +271,18 @@ def send(db, user, room_id, payload):
     ))
     notified = {notification.recipient_user_id for notification in notifications}
     members_changed = any(person.id not in members for person in people)
+    reply_settled = False
+    if reply is not None and reply.sender_id != user.id:
+        from chat_receipt_read import settle_received
+        settle_received(db, reply, user.id, discussion=True)
+        reply_settled = True
     from project_chat_crud import commit_chat_notifications
     commit_chat_notifications(db, notifications)
     db.refresh(row)
     publish(db, room, notified | {user.id}, members_changed=members_changed, kind='message')
+    if reply_settled:
+        from chat_receipt_read import notify_settled
+        notify_settled(user.id)
     return serialize(db, row, user)
 
 
