@@ -1,6 +1,6 @@
 """笔译项目客户联系人，独立于客户档案中的旧联系方式。"""
 from sqlalchemy import Column, DateTime, ForeignKey, String, Uuid, inspect
-from models import Base
+from models import Base, Client, SubClient
 from annotation_progress_time import business_now
 
 
@@ -38,7 +38,11 @@ def save(db, project, contact_name, actor_id=None):
         raise ValueError('客户联系人数据表尚未初始化')
     row = db.get(TranslationProjectContact, project.id)
     changed = row is None or row.contact_name != name
-    client = project.sub_client or project.client
+    client = (
+        db.get(SubClient, project.sub_client_id)
+        if project.sub_client_id
+        else (db.get(Client, project.client_id) if project.client_id else None)
+    ) or project.sub_client or project.client
     if client:
         from client_contact_people import ensure
         ensure(db, client, name, reactivate=changed)

@@ -198,6 +198,7 @@ def replace(db, owner, names):
     owner.client_manager=names[0]
     owner.contact_names=names
     owner.updated_at=business_now().replace(tzinfo=None)
+    db.flush()
 
 
 def ensure(db, owner, name, *, reactivate=True):

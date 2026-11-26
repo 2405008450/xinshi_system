@@ -150,3 +150,78 @@ def test_job_title_is_per_contact_and_older_payloads_preserve_it(environment):
     db.expire_all()
     attach(db, clients=[owner])
     assert [(person['name'], person.get('job_title')) for person in owner.contact_people] == [('乙', '法务'), ('甲', None)]
+
+
+@pytest.mark.parametrize('is_sub', [False, True])
+def test_translation_project_create_and_update_new_contact_without_autoflush(environment, is_sub):
+    import crud
+    from sqlalchemy import event
+    from client_contact_people import owner_rows
+    from project_client_contact_details import contact_details
+    from schemas import TranslationProjectCreate, TranslationProjectUpdate
+
+    db, (actor, _, _) = environment
+    db.autoflush = False
+    db.info['client_contacts_visible'] = True
+
+    def fill_uuid_ids(session, *_):
+        for row in session.new:
+            if hasattr(row, 'id') and row.id is None:
+                row.id = uuid4()
+
+    event.listen(db, 'before_flush', fill_uuid_ids)
+    parent = Client(id=uuid4(), client_code='TP-CONTACT-P', client_name='笔译客户', client_short_name='笔译客户')
+    db.add(parent)
+    db.flush()
+    owner = (
+        SubClient(
+            id=uuid4(),
+            parent_client_id=parent.id,
+            sub_client_code='TP-CONTACT-S',
+            client_name='笔译子客户',
+            client_short_name='笔译子客户',
+        )
+        if is_sub
+        else parent
+    )
+    if is_sub:
+        db.add(owner)
+        db.flush()
+
+    created = crud.create_translation_project(
+        db,
+        TranslationProjectCreate(
+            project_name='字幕翻译.docx',
+            source_file_name='字幕翻译.docx',
+            client_id=parent.id,
+            sub_client_id=owner.id if is_sub else None,
+            contact_name='xuanen',
+            client_contact_version='new',
+            client_contact_method='微信：xuanen',
+            client_contact_description='新建项目时直接录入',
+            created_by=actor.id,
+        ),
+        order_no=f"TP-261126-9{'1' if is_sub else '0'}1",
+    )
+    assert created.contact_name == 'xuanen'
+    assert [row.contact_name for row in owner_rows(db, owner)] == ['xuanen']
+
+    updated = crud.update_translation_project(
+        db,
+        created.id,
+        TranslationProjectUpdate(
+            contact_name='孙小温',
+            client_contact_version='new',
+            client_contact_method='电话：13800000000',
+            client_contact_description='编辑项目时直接录入',
+        ),
+        actor_user_id=actor.id,
+    )
+    assert updated.contact_name == '孙小温'
+    db.expire_all()
+    owner = db.get(SubClient if is_sub else Client, owner.id)
+    saved = {item['name']: item for item in contact_details(db, owner)}
+    assert set(saved.keys()) == {'xuanen', '孙小温'}
+    assert saved['xuanen']['contact_method'] == '微信：xuanen'
+    assert saved['孙小温']['contact_method'] == '电话：13800000000'
+    assert saved['孙小温']['description'] == '编辑项目时直接录入'
