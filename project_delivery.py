@@ -12,7 +12,6 @@ from routers.auth import get_current_user, require_any_permission
 from annotation_progress_time import business_now
 
 LABELS={'interpretation':'口译','annotation':'标注','recruitment':'招聘'}
-INTERPRETATION_DEFAULT_MENTION_USERNAMES = {'zixia', 'kuangjiao'}
 ROOTS={'interpretation':'dcb1f917-6000-4000-8000-000000000004','annotation':'dcb1f917-6000-4000-8000-000000000002','recruitment':'dcb1f917-6000-4000-8000-000000000005'}
 URGENT='（紧急）项目预告知：'
 WARNING=URGENT+'相关资料可能尚未完善，请后续补充确认。'
@@ -60,6 +59,39 @@ def aliases(db):
     return result
 
 
+def interpretation_chat_body(body):
+    # 标题已包含订单、客户及项目名称；每项只移除首个自动生成行，保留后文人工内容。
+    redundant={'项目类型','订单号','项目名称','客户简称','口译类型'}
+    result=[]
+    for line in body.splitlines(keepends=True):
+        label=line.partition('：')[0]
+        if label in redundant:
+            redundant.remove(label)
+            continue
+        result.append(line)
+    return ''.join(result)
+
+
+def interpretation_editor_extras(db,project,existing_body=''):
+    from interpretation_interpreter_requirements import attach as attach_requirements
+    from interpretation_client_selection import attach as attach_selection
+    attach_requirements(db,[project]);attach_selection(db,[project])
+    from interpretation_interpreter_requirements import requirement_lines
+    values={key:getattr(project,key,None) for key in ['interpreter_height_requirement','interpreter_appearance_requirement','interpreter_dress_requirement','interpreter_requirements']}
+    existing_labels={line.partition('：')[0] for line in existing_body.splitlines() if '：' in line}
+    lines=[line for line in requirement_lines(values) if line.partition('：')[0] not in existing_labels]
+    if project.interpreter_assignments:
+        lines.append('译员安排：')
+        ratings={'very_satisfied':'非常满意','satisfied':'满意','basically_satisfied':'基本满意','dissatisfied':'不满意','very_dissatisfied':'非常不满意'}
+        for index,item in enumerate(project.interpreter_assignments,1):
+            name=item.translator_name or '未命名译员'
+            lines.append(f'译员{index}：{name}'+('（客户选定）' if item.client_selected else ''))
+            if item.customer_rating:lines.append('客户评价：'+ratings.get(item.customer_rating,item.customer_rating))
+            if item.evaluation_note:lines.append('评价/备注：'+item.evaluation_note)
+    if project.social_post_request:lines.extend(['需求发布：',project.social_post_request])
+    return '\n'.join(lines)
+
+
 def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,audience=()):
     require_ready(db)
     if module not in LABELS:raise HTTPException(422,'不支持的项目类型')
@@ -86,6 +118,10 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
     contact=str(_project_source(module,project).get('manager_contact') or '').strip()
     if contact:
         subject=subject.replace(contact,'[联系方式受限]');body=body.replace(contact,'[联系方式受限]')
+    if module=='interpretation':
+        body=interpretation_chat_body(body)
+        extra=interpretation_editor_extras(db,project,body)
+        if extra:body+='\n\n'+(extra.replace(contact,'[联系方式受限]') if contact else extra)
     at=business_now();day=at.date();label=LABELS[module]
     if db.get_bind().dialect.name=='postgresql':
         db.execute(text('SELECT pg_advisory_xact_lock(:key)'),{'key':int(day.strftime('%Y%m%d'))+{'interpretation':82000000,'annotation':83000000,'recruitment':84000000}[module]})
@@ -111,10 +147,8 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
     message=DiscussionMessage(room_id=room_id,sender_id=actor.id,sender_name=actor.full_name or actor.username,client_message_id=request_key,content=subject+'\n\n'+body)
     db.add(message);db.flush()
     if module=='interpretation':
-        target_ids = {
-            str(person.id) for person in members
-            if person.username.casefold() in INTERPRETATION_DEFAULT_MENTION_USERNAMES
-        }
+        from interpretation_settings import mention_ids
+        target_ids=mention_ids(db,members)
     else:
         # 标注、招聘不依赖邮件组或邮箱是否已配置。
         target_ids={str(project.client_manager_id)} if project.client_manager_id else set()

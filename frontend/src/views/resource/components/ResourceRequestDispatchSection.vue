@@ -6,10 +6,11 @@
     </el-form-item>
     <p class="request-dispatch__defaults">默认接收人：{{ loading ? '加载中…' : defaultNames || '未设置' }}</p>
     <div v-if="enabled" class="request-dispatch__body">
-      <div class="request-dispatch__quick"><el-button v-for="p in kind==='circle' ? defaultPeople : []" :key="p.id" size="small" :disabled="disabled || sending || loading" @click="ids=[p.id]">仅选 {{ p.name }}</el-button><el-button size="small" :disabled="disabled || sending || loading" @click="loadDefaults">恢复默认名单</el-button></div>
-      <el-select v-model="ids" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="kind==='circle' ? 2 : 3" :placeholder="postingDispatchKinds.includes(kind) ? '选择全公司人员（可多选）' : (sourceType==='interpretation' && kind==='circle' ? '选择口译项目部人员（可多选）' : '选择标注项目部人员（可多选）')" :disabled="disabled || sending" :loading="loading"><el-option v-for="p in people" :key="p.id" :value="p.id" :label="p.name" /></el-select>
+      <div class="request-dispatch__quick"><el-button v-if="kind!=='development'" size="small" :disabled="disabled || sending || loading" @click="ids=people.map(p=>p.id)">通知全体</el-button><el-button size="small" :disabled="disabled || sending || loading" @click="loadDefaults">恢复默认名单</el-button></div>
+      <el-select v-model="ids" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="kind==='circle' ? 2 : 3" :placeholder="kind==='development' ? '选择标注项目部人员（可多选）' : '选择全公司人员（可多选）'" :disabled="disabled || sending" :loading="loading"><el-option v-for="p in people" :key="p.id" :value="p.id" :label="p.name" /></el-select>
       <el-button type="primary" :loading="sending" :disabled="disabled || !ids.length || loading || historyLoading || records.length >= 5" @click="send">{{ records.length >= 5 ? '已达到5次上限' : records.length ? '再次发送'+label : '发送'+label }}</el-button>
-      <p>接收人可在会话左侧“通知”中查看完整需求并反馈“已收到”“已处理”。</p>
+      <p v-if="kind==='wechat_public'">先通知指定执行人，填写“公众号执行说明”后自动通知全体；全体可反馈“已收到”“已执行”。</p>
+      <p v-else>接收人可在会话左侧“通知”中查看完整需求并反馈“已收到”“已执行”。</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
     </div>
     <el-alert v-if="error && !enabled" :title="error" type="error" :closable="false" />
@@ -29,7 +30,7 @@ const emit=defineEmits(['update:modelValue','busy','sent','cancel'])
 const note=computed({get:()=>props.modelValue,set:value=>emit('update:modelValue',value)})
 const enabled=ref(false),ids=ref([]),people=ref([]),defaultIds=ref([]),loading=ref(false),sending=ref(false),error=ref('')
 const defaultPeople=computed(()=>defaultIds.value.map(id=>people.value.find(p=>p.id===id)).filter(Boolean))
-const defaultNames=computed(()=>defaultPeople.value.map(p=>p.name).join('、'))
+const defaultNames=computed(()=>people.value.length && defaultIds.value.length===people.value.length ? `全体（${people.value.length}人）` : defaultPeople.value.map(p=>p.name).join('、'))
 let retryKey='',retrySignature=''
 let defaultsSequence=0
 async function cancel(){

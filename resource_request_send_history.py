@@ -54,6 +54,9 @@ def history(db, request_id):
             continue
         targets = [row for row in recipients if row.dispatch_id == batch.id]
         result[batch.kind].append(dict(id=str(batch.id), number=len(result[batch.kind]) + 1, sender_name=names.get(batch.sender_id, '历史人员'), sent_at=stamp(batch.created_at), recipients=[names.get(row.user_id, '历史人员') for row in targets], received_count=sum(bool(row.received_at) for row in targets), processed_count=sum(bool(row.processed_at) for row in targets)))
+        if batch.kind == 'wechat_public':
+            from resource_request_public_execution import broadcast_summary
+            result[batch.kind][-1]['broadcast'] = broadcast_summary(db,batch)
     for log in logs:
         batch = next((b for b in batches if b.kind == 'development' and b.snapshot.get('send_log_id') == str(log.id)), None)
         targets = [r for r in recipients if batch and r.dispatch_id == batch.id]

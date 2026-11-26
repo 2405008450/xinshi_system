@@ -2,7 +2,7 @@
   <div class="execution-replies">
     <div v-for="item in rows" :key="item.id" class="execution-reply">
       <strong>{{ item.name }} · {{ formatTime(item.createdAt) }}</strong>
-      <p>执行平台：{{ item.platforms.map(p=>(p.parentName ? p.parentName+' / ' : '')+p.name).join('、') }}</p>
+      <p v-if="item.platforms?.length">执行平台：{{ item.platforms.map(p=>(p.parentName ? p.parentName+' / ' : '')+p.name).join('、') }}</p>
       <ScreenshotText :text="item.content || '未填写补充说明'" />
     </div>
   </div>

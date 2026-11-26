@@ -21,9 +21,9 @@ def test_release_template_uses_fields_and_retains_fixed_submission_text():
     assert first=='深圳南山区中日商务陪同口译项目（信实深圳翻译公司）'
     assert content.splitlines()[1]==''
     for text in ['需求人数：2人','项目语言：中文（简体） ↔ 日语','项目时间：2026年12月09日 09:00—18:00','项目地点：深圳市',
-                 '口译领域：软件','工作内容：陪同客户参加商务会议','居住在深圳市及周边地区','XXXXXXXXX优先考虑',
+                 '领域/行业/产品：软件','工作内容：陪同客户参加商务会议','居住在深圳市及周边地区','XXXXXXXXX优先考虑',
                  '🙏投递格式：','🌹咨询联系','👉hr4@xinshifanyi.com.cn','微信17324319719//Geeksbin',
-                 '零误差','+2026年12月9日深圳南山区中日商务陪同口译项目（信实深圳翻译公司招募）']:
+                 '零误差','深耕口译领域十余载','+2026年12月9日深圳南山区中日商务陪同口译项目（信实深圳翻译公司招募）']:
         assert text in content
     assert '项目地点：中国' not in content and '南山区会议中心' not in content
     assert content.index('项目时间：') < content.index('项目地点：')
@@ -34,7 +34,7 @@ def test_project_name_only_uses_city_from_structured_locations():
     from interpretation_service import build_interpretation_project_name
     draft=payload()
     name=build_interpretation_project_name(draft,['中文 ↔ 日语'])
-    assert '深圳市' in name
+    assert '深圳市，中文 ↔ 日语' in name
     assert '中国' not in name and '广东省' not in name and '南山区会议中心' not in name
 
 
@@ -128,11 +128,10 @@ def test_oral_circle_and_post_dispatch_use_same_history_and_oral_candidates(envi
     db.commit()
     options=catalog(db,sender,'circle','interpretation')
     assert str(oral_person.id) in {person['id'] for person in options['users']}
-    assert str(annotation_person.id) not in {person['id'] for person in options['users']}
+    assert str(annotation_person.id) in {person['id'] for person in options['users']}
     import pytest
     from fastapi import HTTPException
-    with pytest.raises(HTTPException):
-        service.send(db,sender,request.id,service.DispatchWrite(kind='circle',user_ids=[annotation_person.id],idempotency_key=str(uuid4())))
+    assert {str(p.id) for p in [sender,annotation_person,oral_person]}==set(options['user_ids'])
     result=service.send(db,sender,request.id,service.DispatchWrite(kind='circle',user_ids=[oral_person.id],idempotency_key=str(uuid4())))
     assert result['snapshot']['request_content']['dispatch_notes']['circle']=='请发圈'
     assert result['snapshot']['request_content']['versions'][0]['content']=='口译发布正文'

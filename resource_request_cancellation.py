@@ -14,6 +14,9 @@ def cancel_batches(db, request_id, kind, actor_id):
         raise HTTPException(422, '不支持的取消类型')
     # 调用方先锁定需求，所有发送、取消和执行回执遵循同一把需求锁。
     originals = db.query(Batch).filter_by(request_id=request_id, kind=kind).order_by(Batch.created_at, Batch.id).all()
+    if kind == 'wechat_public':
+        from resource_request_public_execution import broadcast
+        originals += [row for original in list(originals) if (row := broadcast(db, original))]
     count = 0
     for original in originals:
         if cancellation(db, original.id):

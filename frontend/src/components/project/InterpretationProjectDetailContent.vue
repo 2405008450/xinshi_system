@@ -21,7 +21,7 @@
                   <el-descriptions-item label="客户预算" :span="2"><InlineTextField :model-value="row.customerBudget" :editable="editable" label="客户预算" multiline :maxlength="500" :save-field="(value) => saveField('customerBudget', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="客户咨询时间">{{ formatDateTime(row.customerConsultationTime) }}</el-descriptions-item>
                   <el-descriptions-item label="客户确认时间">{{ formatDateTime(row.customerConfirmationTime) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译领域" :span="2"><InlineTextField :model-value="row.interpretationDomain" :editable="editable" label="口译领域" required multiline :save-field="(value) => saveField('interpretationDomain', value)" @conflict="emit('conflict')" /></el-descriptions-item>
+                  <el-descriptions-item label="领域/行业/产品" :span="2"><InlineTextField :model-value="row.interpretationDomain" :editable="editable" label="领域/行业/产品" required multiline :save-field="(value) => saveField('interpretationDomain', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="总需求人数">{{ textValue(row.requiredInterpreterCount) }}</el-descriptions-item>
                   <el-descriptions-item label="译员性别">{{ textValue(row.requiredInterpreterGender) }}</el-descriptions-item>
                   <el-descriptions-item label="口译水平">{{ textValue(row.requiredInterpretationLevel) }}</el-descriptions-item>

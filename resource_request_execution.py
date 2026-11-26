@@ -41,6 +41,8 @@ def send(db,user,batch_id,payload):
     candidate=db.get(Batch,batch_id)
     if candidate:lock_request(db,candidate.request_id)
     batch,recipient=access(db,user,batch_id,True)
+    if batch.kind=='wechat_public' and batch.snapshot.get('public_execution_workflow'):
+        raise HTTPException(422,'请填写公众号执行说明，完成后系统通知全体')
     assert_active(db,batch)
     ids=set(payload.platform_ids)
     old=db.query(Reply).filter_by(idempotency_key=payload.idempotency_key).first()

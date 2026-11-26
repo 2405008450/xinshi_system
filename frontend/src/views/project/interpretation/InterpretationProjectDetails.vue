@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>口译项目管理</span>
         <div class="header-actions">
+          <el-button v-if="!deleteMode" @click="interpretationSettingsVisible=true">口译设置</el-button>
           <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="interpretation" :build-filters="buildFilters" />
           <TableColumnSettings settings-key="interpretation-projects"
@@ -346,7 +347,7 @@
                 <ClientNameGuidance create-on-save />
 </el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户来源" prop="clientSource"><el-input v-model="form.clientSource" maxlength="500" placeholder="请输入客户来源（选填）" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
-            <el-form-item label="口译领域" prop="interpretationDomain"><el-input v-model="form.interpretationDomain" type="textarea" :autosize="{minRows:1,maxRows:4}" placeholder="请输入口译领域，如商务、医疗、法律等" /></el-form-item>
+            <el-form-item label="领域/行业/产品" prop="interpretationDomain" data-dialog-field-search-aliases="口译领域 领域 行业 产品"><el-input v-model="form.interpretationDomain" type="textarea" :autosize="{minRows:1,maxRows:4}" placeholder="请输入领域/行业/产品，如商务、医疗、法律等" /></el-form-item>
             <el-form-item label="项目路径" prop="filePath"><PathInput v-model="form.filePath" placeholder="请输入项目路径" @open="openPathValue(form.filePath)" @copy="copyPathValue(form.filePath)" /></el-form-item>
             <div class="interpretation-task-remarks">
               <el-form-item label="工作内容" prop="taskDescription" label-position="top" label-width="auto">
@@ -457,6 +458,7 @@
               <div class="interpreter-workspace">
                 <section class="form-section interpreter-workspace__region" data-dialog-field-search-group data-dialog-field-search-group-title="译员要求">
                   <h3>译员要求</h3>
+                  <el-form-item label="口译方向" data-dialog-field-search-aliases="项目信息同步口译方向"><ReadonlyField :model-value="requirementDirectionsText" source="auto" tooltip="从项目信息实时同步，请在项目信息中修改口译方向" placeholder="请先在项目信息填写口译方向" /></el-form-item>
 <el-row :gutter="16">
               <el-col :xs="24" :md="24"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="24"><el-form-item label="口译水平"><el-select v-model="form.requiredInterpretationLevel" clearable placeholder="请选择" style="width: 100%"><el-option label="初级" value="初级" /><el-option label="中级" value="中级" /><el-option label="高级" value="高级" /></el-select></el-form-item></el-col>
@@ -469,6 +471,10 @@
                 <el-col :xs="24" :md="24"><el-form-item label="着装要求"><el-input v-model="form.interpreterDressRequirement" /></el-form-item></el-col>
               </el-row>
             </div>
+                  <details ref="additionalRequirementsRef" class="additional-interpreter-requirements" data-dialog-field-search-group data-dialog-field-search-group-title="其他译员要求">
+                    <summary>其他译员要求（带车、证件、资料、面试等）</summary>
+                  <el-form-item v-for="field in interpreterRequirementFields" :key="field.key" :label="field.label" :prop="`interpreterRequirements.${field.key}`"><el-input v-model="form.interpreterRequirements[field.key]" type="textarea" :autosize="{minRows:1,maxRows:4}" maxlength="5000" :placeholder="field.placeholder" /></el-form-item>
+                  </details>
                             </section>
                 <section class="form-section interpreter-workspace__region" data-dialog-field-search-group data-dialog-field-search-group-title="译员安排">
                   <h3>译员安排</h3>
@@ -485,7 +491,7 @@
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="客户评价"><el-select v-model="item.customerRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
-                <el-col :xs="24"><el-form-item label="评价备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" /></el-form-item></el-col>
+                <el-col :xs="24"><details class="interpreter-evaluation-note"><summary>评价/备注</summary><el-form-item :prop="`interpreterAssignments.${index}.evaluationNote`" label-width="0" :data-dialog-field-search-label="`译员 ${index+1} 评价/备注`" data-dialog-field-search-aliases="评价备注 评价 备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" :aria-label="`译员 ${index+1} 评价/备注`" /></el-form-item></details></el-col>
               </el-row>
             </div>
             <el-button class="interpreter-add-button" :icon="Plus" @click="addInterpreter">增加译员</el-button>
@@ -556,10 +562,16 @@
     <ConsultationWorkReportDialog v-if="pendingReportId && !submitLoading" :key="pendingReportId" :project-id="pendingReportId" project-type="interpretation" @saved="completeReport" />
   </el-card>
   <ResourceRequestEditor v-if="resourceRequestSource" editor-only :source-request="resourceRequestSource" @requests-changed="loadResourceRequestStatuses" @editor-closed="resourceRequestSource=null;loadResourceRequestStatuses()" />
+  <InterpretationSettingsDialog v-model="interpretationSettingsVisible" :can-write="canWrite" />
   <ProjectStatisticsDialog v-model="statisticsVisible" module="interpretation" />
 </template>
 
 <script setup>
+import InterpretationSettingsDialog from './InterpretationSettingsDialog.vue'
+const interpretationSettingsVisible=ref(false)
+
+import {interpreterRequirementFields,emptyInterpreterRequirements,interpreterRequirementDirections} from '@/utils/interpreterRequirements'
+
 import {generateInterpretationDemandRelease} from '@/api/interpretationProjects'
 import {createRequestUuid} from '@/utils/idempotency'
 
@@ -685,6 +697,7 @@ const {
   fieldSearchKeyword,
   fetchFieldSuggestions,
   locateDialogField,
+  locateDialogFieldByLabel,
   clearFieldSearch,
 } = useDialogFieldSearch(dialogBodyRef)
 const tableData = ref([])
@@ -769,7 +782,7 @@ const tableColumns = [
   { key: 'customerBudget', label: '客户预算', minWidth: 120 },
   { key: 'customerConsultationTime', label: '客户咨询时间', minWidth: 150 },
   { key: 'customerConfirmationTime', label: '客户确认时间', minWidth: 150 },
-  { key: 'interpretationDomain', label: '口译领域', minWidth: 120 },
+  { key: 'interpretationDomain', label: '领域/行业/产品', minWidth: 120 },
   { key: 'requiredInterpreterCount', label: '总需求人数', width: 105 },
   { key: 'requiredInterpreterGender', label: '译员性别', width: 90 },
   { key: 'requiredInterpretationLevel', label: '口译水平', width: 90 },
@@ -841,7 +854,7 @@ const interpretationFilterFields = [
   { key: 'customerBudget', label: '客户预算', type: 'text' },
   { key: 'customerConsultationTime', label: '客户咨询时间', type: 'date-range', wide: true },
   { key: 'customerConfirmationTime', label: '客户确认时间', type: 'date-range', wide: true },
-  { key: 'interpretationDomain', label: '口译领域', type: 'text' },
+  { key: 'interpretationDomain', label: '领域/行业/产品', type: 'text' },
   { key: 'requiredInterpreterCount', label: '总需求人数', type: 'number-range', wide: true, min: 0 },
   { key: 'requiredInterpreterGender', label: '译员性别要求', type: 'text' },
   { key: 'requiredInterpretationLevel', label: '口译级别要求', type: 'text' },
@@ -878,7 +891,7 @@ const defaultForm = () => ({
   clientId: '', subClientId: '', parentClientShortName: '', subClientName: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
-  requiredInterpreterGender: '', requiredInterpretationLevel: '',
+  requiredInterpreterGender: '', requiredInterpretationLevel: '', interpreterRequirements:emptyInterpreterRequirements(),
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
   interpretationDomain: '', filePath: '', quotationPath: '', contractPath: '',
@@ -891,6 +904,8 @@ const normalizeScheduleRanges = (ranges, locations=[], directions=[]) => (ranges
   languageDirections:(item.languageDirections?.length?item.languageDirections:directions.length?directions:[emptyLanguageDirection()]).map(direction=>({languageIds:[...(direction.languageIds?.length?direction.languageIds:[direction.sourceLanguageId||'',direction.targetLanguageId||''])],requiredCount:direction.requiredCount??null})),
 }))
 const form = reactive(defaultForm())
+const additionalRequirementsRef=ref(null)
+const requirementDirectionsText=computed(()=>interpreterRequirementDirections(form.languageDirections,languages.value))
 const groupDirectionTotal = item => item.languageDirections.reduce((total,direction)=>total+(Number(direction.requiredCount)||0),0)
 const syncScheduleSummary = () => {
   form.locations=[...new Set(form.timeRanges.flatMap(item=>normalizeInterpretationLocations(item.locationDetails,item.locations||[]).map(interpretationLocationText)).map(value=>value.trim()).filter(Boolean))]
@@ -920,7 +935,7 @@ const { beginDraft, pauseDraft, clearDraft, startFreshDraft } = useFormDraft({
   createDefault: defaultForm,
   formRef,
   applyDraft: (draft) => {
-    Object.assign(form, defaultForm(), draft, {timeRanges:normalizeScheduleRanges(draft.timeRanges,draft.locations,draft.languageDirections)})
+    Object.assign(form, defaultForm(), draft, {interpreterRequirements:{...emptyInterpreterRequirements(),...(draft.interpreterRequirements||{})},timeRanges:normalizeScheduleRanges(draft.timeRanges,draft.locations,draft.languageDirections)})
     nameManuallyEdited.value = Boolean(draft.projectName)
     demandReleaseManuallyEdited.value=Boolean(draft.socialPostRequest)
   },
@@ -957,7 +972,7 @@ const rules = {
   clientFullName: [{ required: true, validator: requiredTextValidator('请输入客户全称'), trigger: ['blur','change'] }],
   projectName: [{ validator: requiredTextValidator('请输入项目名称'), trigger: ['blur', 'change'] }],
   projectTypes: [{ type: 'array', required: true, min: 1, message: '请至少选择一个项目类型', trigger: 'change' }],
-  interpretationDomain: [{required:true,validator:requiredTextValidator('请输入口译领域'),trigger:['blur','change']}],
+  interpretationDomain: [{required:true,validator:requiredTextValidator('请输入领域/行业/产品'),trigger:['blur','change']}],
   filePath: [{required:true,validator:requiredTextValidator('请输入项目路径'),trigger:['blur','change']}],
   taskDescription: [{ validator: requiredTextValidator('请输入工作内容'), trigger: ['blur', 'change'] }],
   clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
@@ -1273,7 +1288,7 @@ async function generateDemandRelease(automatic=false){
   if(automatic&&demandReleaseManuallyEdited.value)return
   const payload=demandReleasePayload()
   if(!canGenerateDemandRelease(payload)){
-    if(!automatic){ElMessage.warning('请先填写项目名称、时间、地点、口译方向及人数、口译领域和工作内容');await locateDialogField(!payload.taskDescription?'工作内容':!payload.interpretationDomain?'口译领域':'项目名称')}
+    if(!automatic){ElMessage.warning('请先填写项目名称、时间、地点、口译方向及人数、领域/行业/产品和工作内容');await locateDialogFieldByLabel(!payload.taskDescription?'工作内容':!payload.interpretationDomain?'领域/行业/产品':'项目名称')}
     return
   }
   demandReleaseController?.abort();const controller=demandReleaseController=new AbortController();const sequence=++demandReleaseSequence
@@ -1327,6 +1342,7 @@ const buildPayload = () => {
     interpreterHeightRequirement: form.interpreterHeightRequirement?.trim() || null,
     interpreterAppearanceRequirement: form.interpreterAppearanceRequirement?.trim() || null,
     interpreterDressRequirement: form.interpreterDressRequirement?.trim() || null,
+    interpreterRequirements:{...form.interpreterRequirements},
     customerConsultationTime: form.customerConsultationTime || null,
     customerConfirmationTime: form.customerConfirmationTime || null,
     interpretationDomain: form.interpretationDomain?.trim() || null,
@@ -1372,6 +1388,7 @@ const assignForm = (detail) => {
     interpreterHeightRequirement: detail.interpreterHeightRequirement || '',
     interpreterAppearanceRequirement: detail.interpreterAppearanceRequirement || '',
     interpreterDressRequirement: detail.interpreterDressRequirement || '',
+    interpreterRequirements:{...emptyInterpreterRequirements(),...(detail.interpreterRequirements||{})},
     locations: detail.locations?.length ? detail.locations.slice() : [''],
     customerConsultationTime: detail.customerConsultationTime || '', customerConfirmationTime: detail.customerConfirmationTime || '',
     timeRanges: normalizeScheduleRanges(detail.timeRanges,detail.locations,detail.languageDirections),
@@ -1440,8 +1457,8 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')
     clearDraft()
     dialogVisible.value = false
-    prepareDelivery(emergency,sendChat)
-    if(sendChat&&!sendAfterSave)await sendConversation(saved?.id||form.id,emergency)
+    prepareDelivery(emergency,wasNew&&sendChat)
+    if(!wasNew || (sendChat&&!sendAfterSave))await sendConversation(saved?.id||form.id,emergency,wasNew?'':saved?.updatedAt||'')
     if (sendAfterSave) {
       const savedId = saved?.id || form.id
       const consultationId = saved?.consultationId || form.consultationId || ''
@@ -1612,7 +1629,7 @@ watch(
 )
 onBeforeUnmount(() => { clearTimeout(demandReleaseTimer);demandReleaseController?.abort();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!deleting.value&&!dialogVisible.value)void fetchData()}})
-watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value='project'}})
+watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value='project';if(additionalRequirementsRef.value)additionalRequirementsRef.value.open=false}})
 </script>
 
 <style scoped>
@@ -1777,3 +1794,7 @@ watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value=
 </style>
 
 <style scoped>.interpreter-assignment-heading{display:inline-flex;align-items:center;gap:14px;flex-wrap:wrap}.interpreter-assignment-heading .el-checkbox{height:auto}</style>
+
+<style scoped>.interpreter-evaluation-note{width:100%;margin:10px 0}.interpreter-evaluation-note summary{cursor:pointer;color:var(--el-color-primary);margin-bottom:10px}</style>
+
+<style scoped>.additional-interpreter-requirements{margin:12px 0}.additional-interpreter-requirements>summary{cursor:pointer;color:var(--el-color-primary);margin-bottom:14px;line-height:1.6}</style>

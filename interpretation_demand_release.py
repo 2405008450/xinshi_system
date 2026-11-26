@@ -31,7 +31,7 @@ class DemandReleaseRequest(InterpretationNamePreviewRequest):
     @field_validator('project_name','interpretation_domain','task_description')
     @classmethod
     def required_text(cls, value):
-        if not value.strip():raise ValueError('请填写项目名称、口译领域和工作内容')
+        if not value.strip():raise ValueError('请填写项目名称、领域/行业/产品和工作内容')
         return value.strip()
 
 
@@ -79,7 +79,7 @@ def build_release(payload, directions, office):
 {staffing}
 项目时间：{'；'.join(times)}
 项目地点：{city}
-口译领域：{payload.interpretation_domain}
+领域/行业/产品：{payload.interpretation_domain}
 工作内容：{payload.task_description}
 应聘要求：{languages}口译流利，临场应变能力强。XXXXXXXXX优先考虑；居住在{city}及周边地区的优先考虑。
 

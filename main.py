@@ -336,6 +336,8 @@ app.include_router(geography_catalog_router)
 from customer_statement_workspace import router as customer_statement_workspace_router
 app.include_router(customer_statement_workspace_router)
 app.include_router(interpretation_projects.router)
+from interpretation_settings import router as interpretation_settings_router
+app.include_router(interpretation_settings_router)
 from interpretation_demand_release import router as interpretation_demand_release_router
 app.include_router(interpretation_demand_release_router)
 from routers import annotation_materials

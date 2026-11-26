@@ -292,6 +292,7 @@ class ClientProjectManagerResponse(BaseModel):
 
 
 class ClientResponse(ClientBase):
+    registration_source: str = "历史数据（未记录）"
     project_managers: list[ClientProjectManagerResponse] = Field(default_factory=list)
     detailed_address: Optional[str] = Field(default=None, max_length=5000)
     full_address: Optional[str] = None

@@ -8,6 +8,7 @@
             <p v-if="!arrangementMode">统一跟踪标注、招聘、口译、笔译及其他资源请求</p>
           </div>
           <div class="header-actions">
+            <el-button v-if="!deleteMode" @click="demandSettingsVisible=true">需求发送设置</el-button>
             <el-button v-if="!deleteMode" @click="openNotes">需求说明</el-button>
             <TableColumnSettings settings-key="resource-requests"
               v-model="selectedColumnKeys"
@@ -130,6 +131,7 @@
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="arrangementMode ? [5, 10, 20, 50] : [10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next" @size-change="pageSizeChanged" @current-change="pageChanged" />
     </component>
 
+    <ResourceDemandSettings v-model="demandSettingsVisible" />
     <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" append-to-body :show-close="!editorBusy" :before-close="beforeEditorClose" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
@@ -221,7 +223,7 @@
         <template v-if="['annotation','interpretation'].includes(form.sourceType)">
           <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.circle" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="circle" label="发圈需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.circle" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
           <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.post" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="post" label="发帖需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.post" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
-          <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.wechatPublic" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="wechat_public" label="公众号需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.wechatPublic" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.wechatPublic" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="wechat_public" label="发圈（+公众号）需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.wechatPublic" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
           <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.xiaohongshu" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="xiaohongshu" label="小红书需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.xiaohongshu" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
         </template>
         <el-alert v-if="sendHistory.error.value" :title="sendHistory.error.value" type="error" :closable="false"><el-button link @click="sendHistory.refresh">重新加载发送记录</el-button></el-alert>
@@ -312,6 +314,8 @@ import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationPr
 const editorLayoutKey = ref(0)
 import { mergeTaskVersions } from '@/utils/resourceRequestVersions'
 import ResourceRequestDispatchSection from './components/ResourceRequestDispatchSection.vue'
+import ResourceDemandSettings from './components/ResourceDemandSettings.vue'
+const demandSettingsVisible=ref(false)
 const projectManagers=ref([]),collapseLanguages=ref(false),dispatchBusy=ref(false)
 const canSendDemand=row=>baseCanSendDemand(row)||row.demandStatus==='confirmed'||Boolean(row.partialRequested && row.demandStatus==='confirmed' && !row.partialSequence)
 function removeRequestItem(index){if(collapseLanguages.value)form.partialRequested=true;form.items.splice(index,1)}

@@ -14,9 +14,9 @@ def test_initial_rules_dynamic_hr_and_custom_defaults(environment,monkeypatch):
     admin.username='williamzhao';receiver.full_name='王露'
     db.add_all([annotation,hr]);db.flush()
     db.add_all([DepartmentMember(department_id=annotation.id,user_id=receiver.id),DepartmentMember(department_id=hr.id,user_id=admin.id),DepartmentMember(department_id=hr.id,user_id=other.id)]);db.commit()
-    assert service.catalog(db,admin,'circle')['user_ids']==[str(receiver.id)]
+    assert set(service.catalog(db,admin,'circle')['user_ids'])=={str(p.id) for p in [admin,receiver,other]}
     assert service.catalog(db,admin,'post')['user_ids']==[str(other.id)]
-    # 发帖可以选择全公司人员，发圈不能选标注部门以外人员。
+    # 发圈和发帖均可选择全公司在用账号。
     saved=service.save(db,admin,'post',service.DefaultWrite(user_ids=[receiver.id],revision=0))
     assert saved['user_ids']==[str(receiver.id)]
     with pytest.raises(HTTPException) as stale:service.save(db,admin,'post',service.DefaultWrite(user_ids=[],revision=0))
@@ -25,6 +25,6 @@ def test_initial_rules_dynamic_hr_and_custom_defaults(environment,monkeypatch):
     assert cleared['user_ids']==[] and not cleared['rule_based']
     restored=service.save(db,admin,'post',service.DefaultWrite(user_ids=None,revision=cleared['revision']))
     assert restored['user_ids']==[str(other.id)] and restored['rule_based']
-    with pytest.raises(HTTPException):service.save(db,admin,'circle',service.DefaultWrite(user_ids=[other.id],revision=0))
+    assert service.save(db,admin,'circle',service.DefaultWrite(user_ids=[other.id],revision=0))['user_ids']==[str(other.id)]
     with pytest.raises(HTTPException) as denied:service.save(db,receiver,'post',service.DefaultWrite(user_ids=[],revision=restored['revision']))
     assert denied.value.status_code==403

@@ -56,7 +56,7 @@ def test_name_uses_same_day_period_all_locations_directions_and_types():
     )
 
     assert build_interpretation_project_name(payload, ["朝鲜语 ↔ 中文（简体）"]) == (
-        "2026年8月2日上午东莞、深圳朝鲜语 ↔ 中文（简体）"
+        "2026年8月2日上午东莞、深圳，朝鲜语 ↔ 中文（简体）"
         "陪同口译；会议交传口译项目"
     )
 

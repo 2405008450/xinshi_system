@@ -186,7 +186,29 @@ class InterpretationInterpreterResponse(InterpretationInterpreterInput):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InterpreterRequirementsInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    bring_vehicle: str = Field(default='', max_length=5000)
+    driving: str = Field(default='', max_length=5000)
+    driving_license: str = Field(default='', max_length=5000)
+    certificates: str = Field(default='', max_length=5000)
+    photos: str = Field(default='', max_length=5000)
+    audio: str = Field(default='', max_length=5000)
+    video: str = Field(default='', max_length=5000)
+    interview: str = Field(default='', max_length=5000)
+    guide_licenses: str = Field(default='', max_length=5000)
+    passport: str = Field(default='', max_length=5000)
+    visa: str = Field(default='', max_length=5000)
+    hong_kong_macau_permit: str = Field(default='', max_length=5000)
+
+    @field_validator('*', mode='before')
+    @classmethod
+    def trim_requirement(cls,value):
+        return str(value or '').strip()
+
+
 class InterpretationProjectWrite(BaseModel):
+    interpreter_requirements: Optional[InterpreterRequirementsInput] = None
     client_source: Optional[str] = Field(default=None, max_length=500)
     finance_draft: InterpretationProjectFinanceDraft | None = None
     client_manager_id: Optional[UUID] = None
@@ -431,6 +453,7 @@ class InterpretationProjectListResponse(BaseModel):
 
 
 class InterpretationProjectDetailResponse(InterpretationProjectListResponse):
+    interpreter_requirements: InterpreterRequirementsInput = Field(default_factory=InterpreterRequirementsInput)
     client_source: Optional[str] = Field(default=None, max_length=500)
     consultation_id: Optional[UUID] = None
     language_directions: list[InterpretationLanguageDirectionResponse] = Field(default_factory=list)

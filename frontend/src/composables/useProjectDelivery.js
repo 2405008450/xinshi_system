@@ -8,9 +8,9 @@ export function useProjectDelivery(module){
   const mailAlsoChat=ref(false),emergencyNotice=ref(false),chatAudience=ref([]),mailChatAudience=ref([])
   const requests=new Map()
   function prepareDelivery(emergency=false,chat=false){emergencyNotice.value=emergency;mailAlsoChat.value=chat;mailChatAudience.value=[...chatAudience.value]}
-  async function sendConversation(projectId,emergency=false){
+  async function sendConversation(projectId,emergency=false,revision=''){
     if(!projectId){ElMessage.error('项目已保存，但未返回项目编号，暂不能发送会话');return false}
-    const owner=localStorage.getItem('user_id'),key=`${owner}:${projectId}:${emergency}`
+    const owner=localStorage.getItem('user_id'),key=`${owner}:${projectId}:${emergency}:${revision}`
     if(!requests.has(key))requests.set(key,newNumberWindowId())
     try{
       await api.post(`/project-delivery/${module}/${projectId}/chat`,{request_key:requests.get(key),emergency_notice:emergency,audience:[...chatAudience.value]})

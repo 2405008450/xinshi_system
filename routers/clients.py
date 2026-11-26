@@ -18,6 +18,7 @@ from crud import (
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
 from routers.auth import get_current_user, require_module_access, require_permission, user_has_permission
 from models import Client, SubClient
+from client_registration_source import ClientRegistrationSource
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import ClientOptionResponse, PageResponse, resolve_page_total
 

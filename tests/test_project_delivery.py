@@ -81,7 +81,9 @@ def test_interpretation_chat_uses_saved_remarks_near_top_without_contact(deliver
     service.send(db, users[0], 'interpretation', project.id, uuid4())
     content = db.query(DiscussionMessage).one().content
     body = content.split('\n\n', 1)[1]
-    assert body.splitlines()[3] == '补充说明：会话中的重点补充说明'
+    assert body.splitlines()[0] == '补充说明：会话中的重点补充说明'
+    for label in ['项目类型','订单号','项目名称','客户简称','口译类型']:
+        assert not any(line.startswith(label+'：') for line in body.splitlines())
     assert content.count('会话中的重点补充说明') == 1
     assert '13800001234' not in content
     assert '客户经理联系方式' not in content
@@ -232,3 +234,9 @@ def test_routes_require_write_permission():
     app=FastAPI();app.include_router(router)
     response=TestClient(app).post(f'/project-delivery/recruitment/{uuid4()}/chat',json={'request_key':str(uuid4())})
     assert response.status_code in (401,403)
+
+
+def test_interpretation_chat_removes_only_generated_duplicate_lines():
+    from project_delivery import interpretation_chat_body
+    body='项目类型：口译\n订单号：IP-01\n项目名称：项目\n补充说明：保留\n客户简称：客户\n口译类型：现场口译\n工作内容：现场支持\n项目名称：用户填写的说明\n地点：深圳、广州'
+    assert interpretation_chat_body(body)=='补充说明：保留\n工作内容：现场支持\n项目名称：用户填写的说明\n地点：深圳、广州'

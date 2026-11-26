@@ -433,7 +433,7 @@ def send_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]
     elif row.demand_status == 'confirmed':
         # 兼容旧客户端的重复请求；新入口每次显式发送使用独立幂等标识。
         return get_resource_request(db, row.id)
-    if ids and not ids <= {p.id for p in eligible(db)}:
+    if ids and not ids <= {p.id for p in eligible(db,'development')}:
         raise HTTPException(422, '部分人员已不在标注项目部或已停用，请重新选择')
     from resource_request_send_history import assert_limit, snapshot
     assert_limit(db, row.id, 'development')

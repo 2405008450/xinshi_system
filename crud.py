@@ -328,6 +328,8 @@ def get_client(db: Session, client_id: UUID) -> Optional[Client]:
         from client_cooperation_auto import attach_clients as attach_cooperation
         attach_cooperation(db,[client])
         attach_contact_people(db,clients=[client])
+        from client_registration_source import attach as attach_registration
+        attach_registration(db, [client])
     return client
 
 
@@ -556,6 +558,8 @@ def get_clients(
     from client_cooperation_auto import attach_clients as attach_cooperation
     attach_cooperation(db,clients)
     attach_contact_people(db,clients=clients)
+    from client_registration_source import attach as attach_registration
+    attach_registration(db, clients)
     return clients
 
 
@@ -619,6 +623,8 @@ def create_client(
     db_client = Client(idempotency_key=idempotency_key, **data)
     db.add(db_client)
     db.flush()
+    from client_registration_source import record as record_registration
+    record_registration(db, db_client.id, "clients")
     from translation_customer_type import save_client
     save_client(db, db_client, client.customer_type)
     if client.contact_names is not None:
@@ -1579,6 +1585,7 @@ def _resolve_or_create_project_client(
     client_code: Optional[str] = None,
     client_name: Optional[str] = None,
     manager_contact: Optional[str] = None,
+    *, registration_source: str = "translation",
 ) -> tuple[Optional[UUID], Optional[UUID], bool]:
     """按简称/编号关联已有客户；简称不存在时创建一条待完善的母客户记录。"""
     if not getattr(db,'info',{}).get('client_contacts_visible',True):manager_contact=None
@@ -1640,6 +1647,8 @@ def _resolve_or_create_project_client(
     )
     db.add(client)
     db.flush()
+    from client_registration_source import record as record_registration
+    record_registration(db, client.id, registration_source)
     return client.id, None, True
 
 
@@ -3732,6 +3741,7 @@ def create_consultation(
             consultation.client_short_name,
             consultation.client_code,
             consultation.client_name,
+            registration_source="consultation",
         )
         consultation_data['client_id'] = client_id
 
@@ -3790,6 +3800,7 @@ def update_consultation(
             consultation_update.client_short_name,
             consultation_update.client_code,
             consultation_update.client_name,
+            registration_source="consultation",
         )
         if client_id:
             update_data['client_id'] = client_id

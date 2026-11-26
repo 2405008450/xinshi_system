@@ -1,8 +1,9 @@
-import { customerManagementAccess } from '@/utils/customerManagementHelp'
+import { customerManagementAccess, customerManagementHelpSections } from '@/utils/customerManagementHelp'
 
-export const translationHelpUpdatedAt = '2026-11-24'
+export const translationHelpUpdatedAt = '2026-11-26'
 
 export const translationHelpSections = [
+  ...customerManagementHelpSections.filter(section => ['customer-registration-source', 'customer-name-history'].includes(section.id)).map(section => ({ ...section, group: '先看这里：登记与补充' })),
   {
     id:'client-contact-details',group:'先看这里：登记与补充',title:'客户联系人与详细信息',
     paragraphs:[

@@ -56,3 +56,5 @@ export const deleteResourceRequest = (id) => api.delete(`/resource-requests/${id
 
 export const getDispatchChannels = id => api.get(`/resource-request-dispatches/${id}/channels`)
 export const sendDispatchExecution = (id,data) => api.post(`/resource-request-dispatches/${id}/execution`,data).then(res=>convert(res,camel))
+
+export const sendPublicDispatchExecution = (id,data) => api.post(`/resource-request-dispatches/${id}/public-execution`,data).then(res=>convert(res,camel))

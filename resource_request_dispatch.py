@@ -76,6 +76,8 @@ def send(db, user, request_id, payload):
     db.flush()
     from resource_request_send_history import snapshot as request_snapshot
     snapshot = request_snapshot(db, request_id)
+    if payload.kind == 'wechat_public':
+        snapshot = {**snapshot, 'public_execution_workflow': True}
     batch = Batch(request_id=request_id, sender_id=user.id, kind=payload.kind, idempotency_key=payload.idempotency_key, snapshot=snapshot)
     db.add(batch); db.flush()
     db.add_all([Recipient(dispatch_id=batch.id, user_id=uid) for uid in ids])
@@ -98,7 +100,9 @@ def detail(db, user, batch_id):
     from resource_request_cancellation import summary
     cancelled = summary(db, batch)
     kind = batch.snapshot.get('cancelled_kind') if batch.kind == 'cancellation' else batch.kind
+    from resource_request_public_execution import broadcast_summary
     return dict(id=str(batch.id), kind=kind, label=LABELS.get(kind, '需求') + (' · 取消通知' if batch.kind == 'cancellation' else ''), snapshot=batch.snapshot, execution_replies=replies(db,[batch.id]) if batch.kind in POSTING_KINDS else [], is_sender=batch.sender_id==user.id,
+        public_execution=bool(batch.kind=='wechat_public' and batch.snapshot.get('public_execution_workflow')), broadcast=broadcast_summary(db,batch),
         is_cancellation=batch.kind=='cancellation', cancellation=cancelled,
         can_respond=recipient is not None and (batch.kind=='cancellation' or not cancelled), created_at=stamp(batch.created_at), recipients=[dict(user_id=str(r.user_id), name=users[r.user_id].full_name or users[r.user_id].username, received_at=stamp(r.received_at), processed_at=stamp(r.processed_at)) for r in db.query(Recipient).filter_by(dispatch_id=batch.id)])
 
@@ -133,7 +137,7 @@ def receipt(db, user, batch_id, status):
         if status=='processed' and not recipient.received_at:
             raise HTTPException(409, '请先点击已收到，再确认已处理')
         setattr(recipient, field, now())
-        publish(db, [batch.sender_id], f'{user.full_name or user.username} · {"已收到" if status=="received" else "已处理"} · {LABELS[batch.kind]}', batch)
+        publish(db, [batch.sender_id], f'{user.full_name or user.username} · {"已收到" if status=="received" else "已执行"} · {LABELS[batch.kind]}', batch)
         commit(db)
     return detail(db, user, batch_id)
 
