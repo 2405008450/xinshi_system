@@ -25,7 +25,8 @@ def received(db, message, user_id, discussion=False):
 
 def settle_received(db, message, user_id, discussion=False):
     from models import AppNotification
-    from chat_time import now, BUSINESS_TIMEZONE
+    from chat_time import BUSINESS_TIMEZONE
+    from chat_message_notifications import mark_notifications_read
     if not inspect(db.connection()).has_table(AppNotification.__tablename__):
         return False
     if discussion:
@@ -63,12 +64,7 @@ def settle_received(db, message, user_id, discussion=False):
             AppNotification.recipient_user_id == user_id,
             AppNotification.is_read.is_not(True),
         )
-    settled = False
-    for row in query.all():
-        row.is_read = True
-        row.read_at = now().replace(tzinfo=None)
-        settled = True
-    return settled
+    return mark_notifications_read(query) > 0
 
 
 def notify_settled(user_id):

@@ -65,7 +65,12 @@ def settle_notifications(db, kind, conversation_id, *, user_id=None, sequence=No
         targets = db.query(ChatMentionNotificationTarget.notification_id).join(ChatProjectMessage).filter(column == conversation_id)
         targets = targets.filter(ChatProjectMessage.id == message.id) if message is not None else targets.filter(ChatProjectMessage.sequence_no <= sequence)
         query = query.filter(AppNotification.id.in_(targets))
-    for row in query.all():
-        row.is_read = True
-        row.read_at = now().replace(tzinfo=None)
+    mark_notifications_read(query)
+
+
+def mark_notifications_read(query):
+    return query.update(
+        {AppNotification.is_read: True, AppNotification.read_at: now().replace(tzinfo=None)},
+        synchronize_session='fetch',
+    )
 

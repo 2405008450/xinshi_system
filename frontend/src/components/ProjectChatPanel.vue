@@ -589,6 +589,7 @@ const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, s
 import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
+import { sendWithAutoRetry } from '@/utils/chatOutbox'
 import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1602,7 +1603,9 @@ const handleSend = async () => {
     const fingerprint = JSON.stringify(payload)
     if (fingerprint !== sendFingerprint) { sendRequestId = newChatRequestId(); sendFingerprint = fingerprint }
     draft.persistNow()
-    await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
+    const { projectId, projectType } = props
+    const request = { ...payload, clientMessageId: sendRequestId }
+    await sendWithAutoRetry(() => createProjectChatMessage(projectId, request, projectType))
     if (generation !== composerGeneration) return
     if (payload.replyToMessageId) {
       seenMentions.value = [...new Set([...seenMentions.value, payload.replyToMessageId])]

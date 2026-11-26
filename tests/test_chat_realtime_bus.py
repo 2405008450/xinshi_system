@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import socket
 import subprocess
@@ -145,6 +146,40 @@ def setup_rooms(db, users):
         ('translation', translation.id, f'/project-chat/{translation.id}'),
         ('discussion', discussion.id, f'/chat/discussions/{discussion.id}'),
     ]
+
+
+def test_chat_send_lock_timeout_and_cross_backend_retry(environment, tmp_path):
+    from discussion_chat_models import DiscussionMessage
+    from models import AppNotification
+    from routers.auth import create_user_access_token
+
+    db, users, engine = environment
+    _, room, path = next(room for room in setup_rooms(db, users) if room[0] == 'discussion')
+    schema = db.execute(text('select current_schema()')).scalar_one()
+    headers = {'Authorization': 'Bearer ' + create_user_access_token(users[0])}
+    payload = {'client_message_id': str(uuid4()), 'content': '锁释放后重试发送'}
+    settings = dict(
+        CHAT_REALTIME_REDIS_URL='', CHAT_STORAGE_MODE='local', LOCAL_SCHEMA_MIGRATIONS_ENABLED='false',
+        VAPID_PUBLIC_KEY='', VAPID_PRIVATE_KEY='', VAPID_SUBJECT='',
+    )
+    with backend(schema, 'sender-cloud', tmp_path, settings) as cloud, backend(schema, 'sender-lan', tmp_path, settings) as lan:
+        with engine.begin() as blocker:
+            blocker.execute(text('SELECT pg_advisory_xact_lock(:room)'), {'room': room.int & ((1 << 63) - 1)})
+            blocked = cloud[1].post(f'{path}/messages', headers=headers, json=payload, timeout=8)
+            assert blocked.status_code == 503, blocked.text
+            assert blocked.headers['Retry-After'] == '1'
+            assert db.query(DiscussionMessage).filter_by(room_id=room).count() == 0
+
+        def retry(client):
+            response = client.post(f'{path}/messages', headers=headers, json=payload, timeout=8)
+            assert response.status_code == 201, response.text
+            return response.json()['id']
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            message_ids = list(pool.map(retry, [lan[1], cloud[1]]))
+        assert message_ids[0] == message_ids[1]
+        assert db.query(DiscussionMessage).filter_by(room_id=room).count() == 1
+        assert db.query(AppNotification).filter_by(related_entity_id=room, notification_type='discussion_chat').count() == 1
 
 
 def test_chat_relay_across_two_local_backends_and_catchup(environment, tmp_path):

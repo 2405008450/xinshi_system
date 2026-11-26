@@ -35,8 +35,11 @@ def group(db, user, room_id):
 
 def recipients(db,user,room_id,payload,*,room):
     explicit=set(getattr(payload,'mentioned_user_ids',[]) or [])-{user.id}
+    mention_all = bool(getattr(payload, 'mention_all', False))
+    if not explicit and not mention_all:
+        return [], set()
     members={uid for uid, in db.query(Member.user_id).filter_by(room_id=room_id)}
-    requested=explicit|(members-{user.id} if getattr(payload,'mention_all',False) else set())
+    requested=explicit|(members-{user.id} if mention_all else set())
     people=eligible_users(db,room,requested) if requested else []
     if not explicit.issubset({person.id for person in people}):raise HTTPException(422,'被提及的用户不存在、已停用或没有会话权限')
     return people,members
@@ -47,17 +50,18 @@ def create(db,user,message,payload,people,members):
     if not ready(db):raise HTTPException(503,'讨论提及表尚未初始化')
     from crud import create_notifications_for_users
     from chat_time import now
-    notifications=create_notifications_for_users(db,[person.id for person in people],title='讨论提及提醒',content=f'{message.sender_name} 在讨论中 @了你，点击查看消息',notification_type='discussion_chat_mention',related_project_type='discussion',related_entity_id=message.room_id,commit=False)
+    notifications=create_notifications_for_users(db,[person.id for person in people],title='讨论提及提醒',content=f'{message.sender_name} 在讨论中 @了你，点击查看消息',notification_type='discussion_chat_mention',related_project_type='discussion',related_entity_id=message.room_id,commit=False,created_at=now().replace(tzinfo=None),batch=True)
     by_user={notice.recipient_user_id:notice for notice in notifications}
+    new_members = sorted({person.id for person in people} - members)
+    if new_members:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
+        rows = [dict(room_id=message.room_id, user_id=uid, last_read_id=max(0, message.id - 1),
+                     pinned=False, starred=False) for uid in new_members]
+        db.execute(insert_member(Member).values(rows).on_conflict_do_nothing())
     for person in people:
-        if person.id not in members:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-            insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
-            db.execute(insert_member(Member).values(room_id=message.room_id, user_id=person.id,
-                last_read_id=max(0, message.id - 1), pinned=False, starred=False).on_conflict_do_nothing())
         notice=by_user.get(person.id)
-        if notice:notice.created_at=now().replace(tzinfo=None)
         db.add(Mention(message_id=message.id,user_id=person.id,user_name=person.full_name or person.username,is_all=bool(getattr(payload,'mention_all',False) and person.id in members),notification_id=notice.id if notice else None))
     return notifications
 

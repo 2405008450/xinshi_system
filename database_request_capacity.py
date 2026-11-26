@@ -10,11 +10,16 @@ from database import engine_options
 from performance_monitoring import current_metrics
 
 
-class DatabaseRequestCapacityMiddleware:
-    message_create_path = re.compile(
-        r'/(?:chat/(?:direct|discussions)|project-chat(?:/annotation)?)/[^/]+/messages'
-    )
+_MESSAGE_CREATE_PATH = re.compile(
+    r'/(?:chat/(?:direct|discussions)|project-chat(?:/annotation)?)/[^/]+/messages'
+)
 
+
+def is_chat_message_send(method, path):
+    return method == 'POST' and _MESSAGE_CREATE_PATH.fullmatch(path.rstrip('/')) is not None
+
+
+class DatabaseRequestCapacityMiddleware:
     def __init__(self, app, limit=None, transfer_limit=0, queue_timeout=None,
                  chat_send_reserve=0, chat_catalog_limit=0):
         self.app = app
@@ -51,7 +56,7 @@ class DatabaseRequestCapacityMiddleware:
         path = scope.get('path', '').rstrip('/')
         method = scope.get('method')
         is_catalog = method == 'GET' and path in {'/chat/sessions', '/chat/sessions/history'}
-        is_send = method == 'POST' and self.message_create_path.fullmatch(path)
+        is_send = is_chat_message_send(method, path)
         if path in auth_paths:
             capacities = [self.auth_capacity]
         elif self.is_transfer(scope):

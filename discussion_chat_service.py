@@ -247,19 +247,25 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', f
 
 def send(db, user, room_id, payload):
     room = require_room(db, user, room_id)
-    if db.get_bind().dialect.name == 'postgresql':
-        db.execute(text('SELECT pg_advisory_xact_lock(:room)'), {'room': room_id.int & ((1 << 63) - 1)})
-    row = db.query(Message).filter_by(room_id=room_id, sender_id=user.id, client_message_id=payload.client_message_id).first()
+    existing = db.query(Message).filter_by(room_id=room_id, sender_id=user.id, client_message_id=payload.client_message_id)
+    row = existing.first()
     if row:
         return serialize(db, row, user)
+    from discussion_chat_files import validate_files
+    validate_files(db, user, room_id, payload.content)
+    if db.get_bind().dialect.name == 'postgresql':
+        # 热门群有竞争时尽早归还连接。重试仍需在会话锁内判断幂等。
+        db.execute(text("SET LOCAL lock_timeout = '1500ms'"))
+        db.execute(text('SELECT pg_advisory_xact_lock(:room)'), {'room': room_id.int & ((1 << 63) - 1)})
+        row = existing.first()
+        if row:
+            return serialize(db, row, user)
     reply = None
     if payload.reply_to_id is not None:
         reply = db.get(Message, payload.reply_to_id)
         if not reply or reply.room_id != room_id or reply.recalled_at:
             raise HTTPException(422, '引用消息不属于当前讨论或已撤回')
     from discussion_mentions import recipients,create as create_mentions
-    from discussion_chat_files import validate_files
-    validate_files(db, user, room_id, payload.content)
     people,members=recipients(db,user,room_id,payload,room=room)
     row = Message(room_id=room_id, sender_id=user.id, sender_name=user.full_name or user.username,
         client_message_id=payload.client_message_id, content=payload.content, reply_to_id=payload.reply_to_id)

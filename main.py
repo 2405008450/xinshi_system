@@ -232,11 +232,18 @@ async def unexpected_exception_handler(request: Request, exc: Exception):
 
 from sqlalchemy.exc import OperationalError, TimeoutError as DatabasePoolTimeoutError
 from database_capacity import capacity_response
+from database_request_capacity import DatabaseRequestCapacityMiddleware, is_chat_message_send
 
 
 @app.exception_handler(OperationalError)
 @app.exception_handler(DatabasePoolTimeoutError)
 async def database_connection_error_handler(request: Request, exc: Exception):
+    if isinstance(exc, OperationalError) and is_chat_message_send(request.method, request.url.path):
+        sqlstate = getattr(exc.orig, 'pgcode', None) or getattr(exc.orig, 'sqlstate', None)
+        if sqlstate in {'55P03', '40P01'}:
+            logger.warning('聊天发送事务锁冲突：%s', sqlstate)
+            return JSONResponse(status_code=503, content={'detail': '会话正在处理其他消息，请稍后重试。'},
+                                headers={'Retry-After': '1'})
     response=capacity_response(exc)
     if response is not None:
         logger.warning('数据库连接名额已满：%s %s',request.method,request.url.path)
@@ -257,7 +264,6 @@ from routers import editor_screenshots
 app.include_router(editor_screenshots.router)
 app.add_middleware(EditorScreenshotMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
-from database_request_capacity import DatabaseRequestCapacityMiddleware
 app.add_middleware(DatabaseRequestCapacityMiddleware, transfer_limit=4, chat_send_reserve=4, chat_catalog_limit=4)
 
 

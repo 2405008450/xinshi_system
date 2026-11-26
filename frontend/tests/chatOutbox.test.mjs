@@ -82,6 +82,19 @@ test('sendWithAutoRetry 在瞬断后自动静默重试并在业务错误时立�
   assert.equal(forbiddenAttempts, 1)
 })
 
+test('锁冲突按 Retry-After 错峰重试，并复用待发送消息', async () => {
+  const payload = { clientMessageId: 'same-message' }
+  const attempts = []
+  const delays = []
+  await sendWithAutoRetry(async () => {
+    attempts.push(payload)
+    if (attempts.length === 1) throw { response: { status: 503, headers: { 'retry-after': '2' } } }
+  }, { random: () => 0.5, sleep: async ms => { delays.push(ms) } })
+  assert.deepEqual(attempts, [payload, payload])
+  assert.equal(attempts[0], attempts[1])
+  assert.deepEqual(delays, [2250])
+})
+
 test('存在在途消息时注册 beforeunload 拦截，全部完成后自动解除', () => {
   const listeners = new Map()
   const prevWindow = globalThis.window

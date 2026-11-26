@@ -172,6 +172,7 @@ export async function sendWithAutoRetry(task, {
   delays = DEFAULT_RETRY_DELAYS,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   shouldRetry = isRetryableSendError,
+  random = Math.random,
 } = {}) {
   let attempt = 0
   while (true) {
@@ -181,7 +182,10 @@ export async function sendWithAutoRetry(task, {
       if (attempt >= delays.length || !shouldRetry(error)) {
         throw error
       }
-      const waitMs = delays[attempt]
+      const seconds = Number(error.response?.headers?.['retry-after'])
+      const waitMs = Number.isFinite(seconds) && seconds > 0
+        ? Math.max(delays[attempt], seconds * 1000) + Math.floor(random() * 500)
+        : delays[attempt]
       attempt += 1
       await sleep(waitMs)
     }
