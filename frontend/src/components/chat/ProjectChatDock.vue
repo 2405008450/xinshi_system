@@ -275,6 +275,7 @@ const {
   toggleWorkspaceMaximize,
   setLayout,
   selectSession,
+  setManualUnread,
   minimizeWorkspace,
   restoreWorkspace,
   ensurePreferences,
@@ -387,7 +388,7 @@ const sessions = computed(() => {
   }
   const counts = new Map(annotationMentionCounts.value.map(item => [String(item.projectId), item.count]))
   // 先保持现有目录范围，再补充个人提及信息；历史提及不能把未关注项目带入目录。
-  return filterClosedSessions(rows.map(row => ({ ...row, mentionHistoryCount: row.mentionHistoryCount ?? (row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0) })), state.closedSessionKeys)
+  return filterClosedSessions(rows.map(row => ({ ...row, manualUnread: Boolean(state.manualUnreadKeys?.includes(row.key)), mentionHistoryCount: row.mentionHistoryCount ?? (row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0) })), state.closedSessionKeys)
 })
 function closeSessionGroup(session) {
   closeSessionEntry(session)
@@ -414,7 +415,32 @@ onBeforeUnmount(() => {
   window.removeEventListener('chat-conversation-access-denied', onChatAccessDenied)
 })
 async function updatePreference({ session, data }) {
-  try { await chatRequest(session.projectType === 'discussion' ? `discussions/${session.projectId}/preferences` : `sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }
+  if (data?.markUnread) {
+    setManualUnread(session, true)
+    ElMessage.success('已标为未读，可在“未读”筛选中快速定位')
+    return
+  }
+  if (data?.markRead) {
+    setManualUnread(session, false)
+    if (!(Number(session.unread) > 0 || Number(session.mentionUnread) > 0)) {
+      ElMessage.success('已标为已读')
+      return
+    }
+  }
+  try {
+    const result = await chatRequest(session.projectType === 'discussion' ? `discussions/${session.projectId}/preferences` : `sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data })
+    const key = session.key || `${session.projectType}:${session.projectId}`
+    state.windows.filter(row => (row.conversationKey || row.key) === key).forEach(item => {
+      if (typeof result?.pinned === 'boolean') item.pinned = result.pinned
+      else if (typeof data?.pinned === 'boolean') item.pinned = data.pinned
+      if (typeof result?.starred === 'boolean') item.starred = result.starred
+      else if (typeof data?.starred === 'boolean') item.starred = data.starred
+    })
+    await refreshFollowed()
+    if (typeof data?.pinned === 'boolean') ElMessage.success(data.pinned ? '已置顶会话' : '已取消置顶')
+    else if (typeof data?.starred === 'boolean') ElMessage.success(data.starred ? '已加入收藏夹' : '已取消收藏')
+    else if (data?.markRead) ElMessage.success('已标为已读')
+  }
   catch (e) { ElMessage.error(e.detail || e.message || '更新会话偏好失败') }
 }
 function categoriesChanged(change) {

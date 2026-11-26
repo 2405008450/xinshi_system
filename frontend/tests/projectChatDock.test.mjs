@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { parse, compileScript } from '@vue/compiler-sfc'
-import { filterClosedSessions, sessionListKey, mentionUnreadCount } from '../src/utils/chatSessionList.js'
+import { filterClosedSessions, sessionListKey, mentionUnreadCount, sessionUnreadSignal } from '../src/utils/chatSessionList.js'
 import { chatTileLayout } from '../src/utils/chatTiling.js'
 
 const dock = readFileSync(new URL('../src/components/chat/ProjectChatDock.vue', import.meta.url), 'utf8')
@@ -796,4 +796,55 @@ test('移除最近关闭记录或清空全部不会删除会话，刷新后也�
  assert.equal(cleared.state.recentClosedSessions.length,0)
  assert.equal(cleared.state.closedSessionKeys.length,55)
  cleared.restoreClosedSession(rows[0]);assert.equal(cleared.state.windows.length,1)
+})
+
+test('讨论群聊等所有会话均支持置顶、收藏、右键菜单及顶部快捷操作', () => {
+  assert.match(workspace, /@contextmenu="handleSessionContextMenu\(\$event, session\)"/)
+  assert.match(workspace, /chat-session-context-popover/)
+  assert.match(workspace, /runSessionPreference\(sessionMenuSession, \{ pinned: !sessionMenuSession\.pinned \}\)/)
+  assert.match(workspace, /runSessionPreference\(sessionMenuSession, \{ starred: !sessionMenuSession\.starred \}\)/)
+  assert.match(workspace, /sessionMenuSession\.projectType === 'discussion'/)
+  assert.match(workspace, /:aria-label="activeSession\.pinned \? '取消置顶会话' : '置顶会话'"/)
+  assert.match(workspace, /:aria-label="activeSession\.starred \? '取消收藏会话' : '收藏会话'"/)
+})
+
+test('收藏夹支持展示并操作收藏的讨论群聊与各类会话', async () => {
+  assert.match(favorites, /收藏的会话/)
+  assert.match(favorites, /starredSessions/)
+  const handler = favorites.slice(favorites.indexOf('async function updateStarredPreference'), favorites.indexOf('function orderLabel'))
+  const calls = [], messages = []
+  const context = {
+    busyKey: { value: '' },
+    chatRequest: async (...args) => calls.push(args),
+    refresh: async () => calls.push('refresh'),
+    ElMessage: { success: text => messages.push(text), error: text => messages.push(text) },
+  }
+  await runInNewContext(handler + ';toggleStarredPin({ key: "discussion:r1", kind: "discussion", projectId: "r1", title: "TP-261126-018", pinned: false })', context)
+  assert.equal(calls[0][0], 'discussions/r1/preferences')
+  assert.equal(calls[0][1].data.pinned, true)
+  assert.equal(calls[1], 'refresh')
+  assert.equal(messages.at(-1), '已置顶会话')
+  await runInNewContext(handler + ';removeStarredSession({ key: "translation:p1", kind: "translation", projectId: "p1", title: "笔译群", starred: true })', context)
+  assert.equal(calls[2][0], 'sessions/translation/p1/preferences')
+  assert.equal(calls[2][1].data.starred, false)
+  assert.equal(messages.at(-1), '已从收藏夹移除「笔译群」')
+})
+
+test('会话支持标为未读并按用户持久化，重新点开或标为已读后自动清除', () => {
+  const { dock: instance, storage } = createDockHarness()
+  const session = { key: 'discussion:room-1', projectId: 'room-1', projectType: 'discussion', title: 'TP-261126-018' }
+  instance.setManualUnread(session, true)
+  assert.deepEqual([...instance.state.manualUnreadKeys], ['discussion:room-1'])
+  const restored = createDockHarness(storage).dock
+  restored.ensurePreferences()
+  assert.deepEqual([...restored.state.manualUnreadKeys], ['discussion:room-1'])
+  restored.openChat(session)
+  assert.deepEqual([...restored.state.manualUnreadKeys], [])
+  restored.setManualUnread(session, true)
+  assert.deepEqual([...restored.state.manualUnreadKeys], ['discussion:room-1'])
+  restored.selectSession(session.key)
+  assert.deepEqual([...restored.state.manualUnreadKeys], [])
+  assert.match(workspace, /hasSessionUnread\(sessionMenuSession\) \? '标为已读' : '标为未读'/)
+  assert.match(workspace, /:aria-label="hasSessionUnread\(activeSession\) \? '标为已读' : '标为未读'"/)
+  assert.deepEqual(sessionUnreadSignal({ unread: 0, mentionUnread: 0, manualUnread: true }), { mentions: 0, ordinary: true })
 })

@@ -83,6 +83,7 @@ import { subscribe } from '@/utils/realtimeSocket'
 import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
+import { loadOutboxMessages, markOutboxInFlight, removeOutboxMessage, sendWithAutoRetry, unmarkOutboxInFlight, upsertOutboxMessage } from '@/utils/chatOutbox'
 const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, targetMessageId: { type: String, default: '' } })
 const TechnicalTaskDialog = defineAsyncComponent(() => import('@/views/technology/TechnicalDevelopment.vue'))
 const taskDraft = ref(null)
@@ -95,6 +96,7 @@ function createDevelopmentTask(message, excerpt) {
 }
 const currentUserId = localStorage.getItem('user_id') || ''
 const currentUserName = localStorage.getItem('user_name') || localStorage.getItem('username') || '我'
+const outboxScope = () => ({ userId: currentUserId, projectType: 'discussion', projectId: String(props.projectId || '') })
 const { refresh: refreshSessions } = useAnnotationFollowed()
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
@@ -142,6 +144,11 @@ const compareDiscussionMessages = (a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : B
 const lastRealMessageId = () => [...messages.value].reverse().find(row => !isOptimisticMessage(row))?.id
 const firstRealMessageId = () => messages.value.find(row => !isOptimisticMessage(row))?.id
 const merge = (rows, options = {}) => {
+  const scope = outboxScope()
+  for (const row of rows) {
+    const cid = row?.clientMessageId || row?.client_message_id
+    if (cid && !isOptimisticMessage(row)) removeOutboxMessage(scope, cid)
+  }
   messages.value = mergeWithOptimistic(messages.value, rows, {
     replaceTempId: options.replaceTempId || '',
     compareReal: compareDiscussionMessages,
@@ -150,6 +157,11 @@ const merge = (rows, options = {}) => {
   if (replyTo.value && map.get(replyTo.value.id)?.recalledAt) replyTo.value = null
   if (editingMessageId.value && map.get(editingMessageId.value)?.recalledAt) { editingMessageId.value = ''; editingError.value = '' }
 }
+watch(storageReady, ready => {
+  if (!ready || keyword.value || favoritesOnly.value) return
+  const pending = loadOutboxMessages(outboxScope()).filter(item => !messages.value.some(row => !isOptimisticMessage(row) && (row.clientMessageId || row.client_message_id) === item.clientMessageId))
+  if (pending.length) merge(pending)
+})
 async function markRead() {
   const last = lastRealMessageId()
   if (reading || !canRefresh() || !document.hasFocus() || !storageReady.value || keyword.value || !last || BigInt(last) <= BigInt(readVersion)) return
@@ -220,10 +232,19 @@ function updateOptimisticMessage(tempId, patch) {
 async function deliverOptimisticMessage(tempMessage) {
   const payload = tempMessage.optimisticPayload
   if (!payload) return
+  const scope = outboxScope()
+  const roomName = props.roomTitle || ''
+  const sendingCopy = { ...tempMessage, optimisticStatus: 'sending', optimisticError: '' }
   updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'sending', optimisticError: '' })
+  upsertOutboxMessage(scope, sendingCopy)
+  markOutboxInFlight(tempMessage.clientMessageId)
   try {
-    const row = await chatRequest(`${base}/messages`, { method: 'post', data: payload })
-    if (disposed) return
+    const row = await sendWithAutoRetry(() => chatRequest(`${base}/messages`, { method: 'post', data: payload }))
+    removeOutboxMessage(scope, tempMessage.id)
+    if (disposed) {
+      if (payload.replyToId) void refreshSessions()
+      return
+    }
     if (payload.replyToId) void refreshSessions()
     if (keyword.value) {
       keyword.value = ''
@@ -234,8 +255,14 @@ async function deliverOptimisticMessage(tempMessage) {
       if (follow) await goBottom()
     }
   } catch (e) {
-    if (disposed) return
-    updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: e.message || '发送失败，请重试' })
+    const errText = e.message || '发送失败，请重试'
+    upsertOutboxMessage(scope, { ...tempMessage, optimisticStatus: 'failed', optimisticError: errText })
+    if (!disposed) {
+      updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: errText })
+    }
+    ElMessage.error(roomName ? `「${roomName}」有消息发送失败，请重试` : `消息发送失败，请重试：${errText}`)
+  } finally {
+    unmarkOutboxInFlight(tempMessage.clientMessageId)
   }
 }
 function retryOptimisticMessage(message) {
@@ -244,6 +271,7 @@ function retryOptimisticMessage(message) {
 }
 function removeOptimisticMessage(message) {
   if (!message || !isOptimisticMessage(message)) return
+  removeOutboxMessage(outboxScope(), message.id)
   messages.value = messages.value.filter(item => item.id !== message.id)
 }
 async function send() {

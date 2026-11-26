@@ -39,7 +39,7 @@ export function mentionUnreadCount(sessions) {
 
 export function sessionUnreadSignal(session) {
   const mentions = Math.max(0, Number(session.mentionUnread) || 0)
-  return { mentions, ordinary: (Number(session.unread) || 0) > mentions }
+  return { mentions, ordinary: (Number(session.unread) || 0) > mentions || !!session.manualUnread }
 }
 
 export function firstUnreadMentionSession(sessions) {
@@ -81,6 +81,7 @@ export function groupSessionList(sessions, activeKey) {
       ...selected,
       catalogKeys: catalog.map(row => row.key),
       unread: variants.reduce((sum, row) => sum + (Number(row.unread) || 0), 0),
+      manualUnread: variants.some(row => !!row.manualUnread),
       mentionUnread: variants.reduce((sum, row) => sum + (Number(row.mentionUnread) || 0), 0),
       mentionAllUnread: variants.reduce((sum, row) => sum + (Number(row.mentionAllUnread) || 0), 0),
       variants,

@@ -21,6 +21,7 @@ let zSequence = DOCK_Z_BASE
 const state = reactive({
   windows: [],
   closedSessionKeys: [],
+  manualUnreadKeys: [],
   recentClosedSessions: [],
   recentClosedHistoryInitialized: false,
   layout: 'float',
@@ -76,6 +77,7 @@ const persistPreferences = () => {
       workspaceSize: state.workspaceSize,
       sizeByType: { ...sizePreference },
       closedSessionKeys: [...state.closedSessionKeys],
+      manualUnreadKeys: [...state.manualUnreadKeys],
       protectedDiscussionKeys: [...protectedDiscussionKeys],
       recentClosedSessions: state.recentClosedSessions,
       recentClosedHistoryInitialized: state.recentClosedHistoryInitialized,
@@ -93,6 +95,8 @@ const ensurePreferences = () => {
     protectedDiscussionKeys = new Set((saved.protectedDiscussionKeys || []).filter(key => typeof key === 'string' && key.startsWith('discussion:')))
     state.closedSessionKeys = Array.isArray(saved.closedSessionKeys)
       ? [...new Set(saved.closedSessionKeys.filter(key => typeof key === 'string' && (/^(annotation|translation|direct):.+$/.test(key) || protectedDiscussionKeys.has(key))))] : []
+    state.manualUnreadKeys = Array.isArray(saved.manualUnreadKeys)
+      ? [...new Set(saved.manualUnreadKeys.filter(key => typeof key === 'string' && /^(annotation|translation|direct|discussion):.+$/.test(key)))] : []
     state.recentClosedSessions = Array.isArray(saved.recentClosedSessions) ? saved.recentClosedSessions.filter(item =>
       item && typeof item.key === 'string' && (/^(annotation|translation|direct):.+$/.test(item.key) || protectedDiscussionKeys.has(item.key)) && typeof item.projectId === 'string') : []
     state.recentClosedHistoryInitialized = saved.recentClosedHistoryInitialized ?? Array.isArray(saved.recentClosedSessions)
@@ -288,6 +292,9 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
   const conversationKey = `${projectType}:${projectId}`
   const key = allowDuplicate ? `${conversationKey}:copy-${++duplicateSequence}` : conversationKey
   state.recentClosedSessions = state.recentClosedSessions.filter(item => !(item.sessionKeys || [item.key]).includes(conversationKey))
+  if (state.manualUnreadKeys.includes(conversationKey)) {
+    state.manualUnreadKeys = state.manualUnreadKeys.filter(item => item !== conversationKey)
+  }
   if (state.closedSessionKeys.includes(conversationKey)) {
     state.closedSessionKeys = state.closedSessionKeys.filter(item => item !== conversationKey)
     persistPreferences()
@@ -601,10 +608,32 @@ const closeChat = (key, { session, recordRecent = true } = {}) => {
   }
 }
 
+const setManualUnread = (sessionOrKey, unread) => {
+  ensurePreferences()
+  const primaryKey = typeof sessionOrKey === 'string'
+    ? sessionOrKey
+    : (sessionOrKey?.conversationKey || sessionOrKey?.key || (sessionOrKey?.projectType && sessionOrKey?.projectId ? `${sessionOrKey.projectType}:${sessionOrKey.projectId}` : ''))
+  if (!primaryKey || !/^(annotation|translation|direct|discussion):.+$/.test(primaryKey)) return
+  if (unread) {
+    if (!state.manualUnreadKeys.includes(primaryKey)) {
+      state.manualUnreadKeys = [...state.manualUnreadKeys, primaryKey]
+      persistPreferences()
+    }
+    return
+  }
+  const removeKeys = new Set(typeof sessionOrKey === 'object' && Array.isArray(sessionOrKey?.catalogKeys) ? [...sessionOrKey.catalogKeys, primaryKey] : [primaryKey])
+  const next = state.manualUnreadKeys.filter(key => !removeKeys.has(key))
+  if (next.length !== state.manualUnreadKeys.length) {
+    state.manualUnreadKeys = next
+    persistPreferences()
+  }
+}
+
 const closeSessionEntry = (session) => {
   ensurePreferences()
   if (session.projectType === 'discussion' && !session.deletionProtected) return
   const keys = session.catalogKeys || [session.key]
+  setManualUnread(session, false)
   rememberClosedSession(session, keys)
   for (const key of keys) {
     const windows = state.windows.filter(item => (item.conversationKey || item.key) === key)
@@ -691,6 +720,7 @@ const restoreWorkspace = () => {
 const selectSession = (key) => {
   const chatWindow = state.windows.find(item => item.key === key) || state.windows.find(item => item.conversationKey === key)
   if (!chatWindow) return
+  setManualUnread(chatWindow.conversationKey || chatWindow.key, false)
   chatWindow.minimized = false
   chatWindow.unread = 0
   state.workspaceMinimized = false
@@ -743,6 +773,7 @@ export const useProjectChatDock = () => ({
   openChat,
   closeChat,
   closeSessionEntry,
+  setManualUnread,
   restoreClosedSession,
   syncClosedSessionCatalog,
   removeClosedHistory,

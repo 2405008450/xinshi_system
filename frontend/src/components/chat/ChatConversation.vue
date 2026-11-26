@@ -59,6 +59,7 @@ import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
 import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
+import { loadOutboxMessages, markOutboxInFlight, removeOutboxMessage, sendWithAutoRetry, unmarkOutboxInFlight, upsertOutboxMessage } from '@/utils/chatOutbox'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
@@ -99,6 +100,7 @@ const request = (...args) => (isDirect.value ? directChatRequest : annotationCha
 const emit = defineEmits(['add-to-progress', 'unread'])
 const currentUserId = localStorage.getItem('user_id') || ''
 const currentUserName = localStorage.getItem('user_name') || localStorage.getItem('username') || '我'
+const outboxScope = () => ({ userId: currentUserId, projectType: props.projectType, projectId: String(props.projectId || '') })
 const recallDrafts = useRecalledMessageDrafts(computed(() => [props.projectType, props.projectId]))
 // 局域网 HTTP 下 randomUUID 可能不可用，getRandomValues 仍可生成标准 UUID。
 const newMessageId = () => {
@@ -224,6 +226,11 @@ function compareChatMessages(a, b) {
   return String(a.id).localeCompare(String(b.id))
 }
 function merge(rows, options = {}) {
+  const scope = outboxScope()
+  for (const row of rows) {
+    const cid = row?.clientMessageId || row?.client_message_id
+    if (cid && !isOptimisticMessage(row)) removeOutboxMessage(scope, cid)
+  }
   messages.value = mergeWithOptimistic(messages.value, rows, {
     replaceTempId: options.replaceTempId || '',
     compareReal: compareChatMessages,
@@ -257,7 +264,8 @@ async function search() {
   try {
     const data = await request(props.projectId, 'timeline', { signal: searchController.signal })
     if (version !== generation || disposed) return
-    messages.value = []; visibleMessages.clear(); merge(data.items); hasEarlier.value = data.hasMore
+    const pendingOutbox = loadOutboxMessages(outboxScope())
+    messages.value = []; visibleMessages.clear(); merge([...pendingOutbox, ...data.items]); hasEarlier.value = data.hasMore
     syncedSequence = data.items.at(-1)?.sequenceNo || 0
     markFresh()
     await bottom()
@@ -549,15 +557,24 @@ function updateOptimisticMessage(tempId, patch) {
 async function deliverOptimisticMessage(tempMessage) {
   const payload = tempMessage.optimisticPayload
   if (!payload) return
+  const scope = outboxScope()
+  const sessionTitle = session.value?.title || ''
+  const sendingCopy = { ...tempMessage, optimisticStatus: 'sending', optimisticError: '' }
   updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'sending', optimisticError: '' })
+  upsertOutboxMessage(scope, sendingCopy)
+  markOutboxInFlight(tempMessage.clientMessageId)
   try {
-    const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
-    if (disposed) return
+    const message = await sendWithAutoRetry(() => createProjectChatMessage(scope.projectId, payload, scope.projectType))
+    removeOutboxMessage(scope, tempMessage.id)
+    if (disposed) {
+      void refreshSessions({ projectType: scope.projectType, projectId: scope.projectId })
+      return
+    }
     if (payload.replyToMessageId) {
       seenMentions.value = [...new Set([...seenMentions.value, payload.replyToMessageId])]
       void refreshSessions()
     } else {
-      void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
+      void refreshSessions({ projectType: scope.projectType, projectId: scope.projectId })
     }
     if (viewingHistory.value) {
       await search()
@@ -571,8 +588,14 @@ async function deliverOptimisticMessage(tempMessage) {
       void groupRefresh.schedule()
     }
   } catch (e) {
-    if (disposed) return
-    updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: detail(e) })
+    const errText = detail(e)
+    upsertOutboxMessage(scope, { ...tempMessage, optimisticStatus: 'failed', optimisticError: errText })
+    if (!disposed) {
+      updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: errText })
+    }
+    ElMessage.error(sessionTitle ? `「${sessionTitle}」有消息发送失败，请重试` : `消息发送失败，请重试：${errText}`)
+  } finally {
+    unmarkOutboxInFlight(tempMessage.clientMessageId)
   }
 }
 function retryOptimisticMessage(message) {
@@ -581,6 +604,7 @@ function retryOptimisticMessage(message) {
 }
 function removeOptimisticMessage(message) {
   if (!message || !isOptimisticMessage(message)) return
+  removeOutboxMessage(outboxScope(), message.id)
   messages.value = messages.value.filter(item => item.id !== message.id)
 }
 async function send() {

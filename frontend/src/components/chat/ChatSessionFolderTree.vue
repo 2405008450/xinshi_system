@@ -37,9 +37,13 @@
           </span>
         </div>
         <div v-if="expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
-          <template v-for="(child, childIndex) in visibleChildren(root.id)" :key="child.id">
+          <template v-for="(child, childIndex) in displayedChildren(root.id)" :key="child.id">
           <el-button v-if="child.isTechnicalEntry" link class="chat-technical-entry" @click="technicalPicker.open()">技术需求</el-button>
-          <div v-else class="chat-folder-tree__row" :data-folder-row="child.id" :class="{ 'is-active': selected === child.id, 'is-subgroup': child.id === annotationStatusGroupId, 'is-nested': child.parentKey !== root.id, 'is-stripe': childIndex % 2 === 1, 'drop-before': dropTarget === child.id && dropSide === 'before', 'drop-after': dropTarget === child.id && dropSide === 'after' }" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent="dragOver($event, child.id)" @drop.stop.prevent="drop(child.id)" @dragend="endDrag">
+          <button v-else-if="child.isArchiveToggle" type="button" class="chat-folder-tree__archive-toggle" :aria-expanded="archivedExpanded.has(root.id)" title="超过 30 天且无活跃会话的日期已自动折叠；历史群聊可在「全部」或搜索中查看" @click="toggleArchived(root.id)">
+            <el-icon><ArrowDown v-if="archivedExpanded.has(root.id)" /><ArrowRight v-else /></el-icon>
+            <span>历史日期（{{ child.count }} 个已归档）</span>
+          </button>
+          <div v-else class="chat-folder-tree__row" :data-folder-row="child.id" :class="{ 'is-active': selected === child.id, 'is-subgroup': child.id === annotationStatusGroupId, 'is-nested': child.parentKey !== root.id, 'is-archived': child.isArchivedDate, 'is-stripe': childIndex % 2 === 1, 'drop-before': dropTarget === child.id && dropSide === 'before', 'drop-after': dropTarget === child.id && dropSide === 'after' }" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent="dragOver($event, child.id)" @drop.stop.prevent="drop(child.id)" @dragend="endDrag">
             <button v-if="children(child.id).length" type="button" class="chat-folder-tree__toggle" :aria-expanded="expanded.has(child.id)" :aria-label="`${expanded.has(child.id) ? '收起' : '展开'}${child.name}`" @click="toggle(child.id)"><el-icon><ArrowDown v-if="expanded.has(child.id)" /><ArrowRight v-else /></el-icon></button><span v-if="!child.builtin && !child.fixedTop" class="chat-folder-tree__grip" :draggable="!editing && !child.builtin" @pointerdown="beginPointerDrag($event,child.id)" role="button" tabindex="0" :aria-label="`拖动调整${child.name}顺序`" title="拖动调整顺序，Alt+↑/↓ 微调" @keydown.alt.up.prevent="moveBy(child.id,-1)" @keydown.alt.down.prevent="moveBy(child.id,1)">⠿</span>
             <button type="button" class="chat-folder-tree__name" :data-folder-id="child.id" :title="child.name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.statusIcon" aria-hidden="true"><component :is="statusIcons[child.statusIcon]" /></el-icon><el-icon v-else-if="child.ruleKey === 'project-status'" aria-hidden="true"><Folder /></el-icon><el-icon v-else-if="child.conversationIcon" aria-hidden="true"><component :is="statusIcons[child.conversationIcon]" /></el-icon><el-icon v-else-if="child.isConversation"><ChatDotRound /></el-icon><span class="chat-folder-tree__label">{{ child.name }}</span><span class="chat-folder-tree__badges"><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b><small v-if="!child.isConversation" class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small></span></button>
             <span v-if="categories.canManage && !child.builtin" class="chat-folder-tree__row-actions" @click.stop>
@@ -72,6 +76,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { FolderOpened, ChatDotRound, Close, Edit, FolderAdd, Plus, Loading, Clock, CircleClose, CircleCheck, Document, Folder, Grid, UserFilled, Promotion, School, MoreFilled } from '@element-plus/icons-vue'
 import { useChatSessionCategories } from '@/composables/useChatSessionCategories'
 import { annotationFolderEntries, annotationFolderId, annotationStatusGroupId, createSessionFolderIndex, resourceFolderId, sessionFolderNodes, placeCompanyConversations } from '@/utils/chatSessionFolders'
+import { partitionArchivedDateFolders } from '@/utils/chatDateFolderArchive'
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
@@ -212,6 +217,29 @@ const childrenMap = computed(() => {
 })
 const children = id => childrenMap.value.get(id) || []
 const visibleChildren = id => annotationFolderEntries(children(id), id).flatMap(row => [row, ...(expanded.value.has(row.id) ? children(row.id) : [])])
+const archivedExpanded = ref(new Set())
+function toggleArchived(rootId) {
+  const next = new Set(archivedExpanded.value)
+  next.has(rootId) ? next.delete(rootId) : next.add(rootId)
+  archivedExpanded.value = next
+}
+function partitionChildren(rootId) {
+  return partitionArchivedDateFolders(visibleChildren(rootId), {
+    getCount: id => folderStats.value.counts.get(id) || 0,
+    getMentionCount: id => folderStats.value.mentionUnreads.get(id) || 0,
+    hasChildren: id => children(id).length > 0,
+    selectedId: props.selected,
+    editingId: editing.value?.id || '',
+    editingParentKey: editing.value?.parentKey || '',
+  })
+}
+function displayedChildren(rootId) {
+  const { activeRows, archivedRows } = partitionChildren(rootId)
+  if (!archivedRows.length) return activeRows
+  const toggleRow = { id: `archived-dates:${rootId}`, isArchiveToggle: true, count: archivedRows.length }
+  if (!archivedExpanded.value.has(rootId)) return [...activeRows, toggleRow]
+  return [...activeRows, toggleRow, ...archivedRows.map(row => ({ ...row, isArchivedDate: true }))]
+}
 const activeRootId = computed(() => {
   let row = nodes.value.find(item => item.id === props.selected)
   while (row?.parentKey) {
@@ -221,7 +249,7 @@ const activeRootId = computed(() => {
   }
   return row?.id || ''
 })
-const subFolders = computed(() => (activeRootId.value ? visibleChildren(activeRootId.value) : []))
+const subFolders = computed(() => (activeRootId.value ? partitionChildren(activeRootId.value).activeRows : []))
 const folderStats = computed(() => createSessionFolderIndex(props.sessions, nodes.value))
 const count = id => folderStats.value.counts.get(id) || 0
 const expanded = ref(new Set(Array.isArray(saved.expanded) ? saved.expanded : []))
@@ -342,6 +370,10 @@ async function save(name) {
 .chat-folder-tree__row.drop-before{box-shadow:inset 0 2px var(--color-primary)}
 .chat-folder-tree__row.drop-after{box-shadow:inset 0 -2px var(--color-primary)}
 .chat-folder-tree__children .chat-folder-tree__row.is-nested{margin-left:14px;padding-left:4px}
+.chat-folder-tree__children .chat-folder-tree__row.is-archived{opacity:.78}
+.chat-folder-tree__archive-toggle{display:flex;align-items:center;gap:5px;width:100%;margin:4px 0 2px;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:#64748b;font-size:11.5px;cursor:pointer;text-align:left;transition:background-color .12s ease,color .12s ease}
+.chat-folder-tree__archive-toggle:hover{background:#eef3f8;color:#334155}
+.chat-folder-tree__archive-toggle .el-icon{font-size:12px}
 .chat-folder-tree__children .chat-folder-tree__row.is-stripe{background:transparent}
 .chat-folder-tree__row:not(.is-active):hover,.chat-folder-tree__row:not(.is-active):has(:focus-visible){background:#eef3f8;border-color:#d8e2ee}
 .chat-folder-tree__branch>.chat-folder-tree__row:not(.is-active):hover,.chat-folder-tree__branch>.chat-folder-tree__row:not(.is-active):has(:focus-visible){border-left-color:var(--folder-tint,#64748b)}
