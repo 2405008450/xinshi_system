@@ -115,7 +115,8 @@ def require_room(db, user, room_id, *, storage=True):
 def publish(db, room=None, recipients=None, *, members_changed=False, kind=None):
     event = {'type': 'chat_sessions_changed'}
     if room is None:
-        recipients = [uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))]
+        if recipients is None:
+            recipients = [uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))]
     else:
         event.update(projectType='discussion', projectId=str(room['id']), membersChanged=members_changed)
         if kind:
@@ -320,28 +321,32 @@ def edit(db, user, room_id, message_id, payload):
 
 def preferences(db, user, room_id, payload):
     room = require_room(db, user, room_id)
-    if db.get_bind().dialect.name == 'postgresql':
-        from sqlalchemy.dialects.postgresql import insert
-    else:
-        from sqlalchemy.dialects.sqlite import insert
-    db.execute(insert(Member).values(room_id=room_id, user_id=user.id, last_read_id=0, pinned=False, starred=False).on_conflict_do_nothing())
-    row = db.query(Member).filter_by(room_id=room_id, user_id=user.id).with_for_update().first()
-    for field in ('pinned', 'starred'):
-        if getattr(payload, field) is not None:
-            setattr(row, field, getattr(payload, field))
+    user_id = user.id
+    member = db.query(Member).filter_by(room_id=room_id, user_id=user_id)
+    read_to = None
     if payload.read_message_id is not None:
         message = db.get(Message, payload.read_message_id)
         if not message or message.room_id != room_id:
             raise HTTPException(422, '阅读消息不属于当前讨论')
-        row.last_read_id = max(row.last_read_id, message.id)
+        read_to = message.id
     elif payload.mark_read:
-        row.last_read_id = max(row.last_read_id, db.query(func.max(Message.id)).filter_by(room_id=room_id).scalar() or 0)
-    from chat_message_notifications import settle_notifications
-    settle_notifications(db, 'discussion', room_id, user_id=user.id, sequence=row.last_read_id)
-    user_id = user.id
+        read_to = db.query(func.max(Message.id)).filter_by(room_id=room_id).scalar() or 0
+    if read_to is not None:
+        # 通知写入可能等待行锁，完成后再锁定成员并提交阅读游标。
+        previous = member.with_entities(Member.last_read_id).scalar() or 0
+        from chat_message_notifications import settle_notifications
+        settle_notifications(db, 'discussion', room_id, user_id=user_id, sequence=max(previous, read_to))
+
+    row = member.populate_existing().with_for_update().first()
+    if not row:
+        raise HTTPException(404, '会话不存在或你不是该会话参与人')
+    for field in ('pinned', 'starred'):
+        if getattr(payload, field) is not None:
+            setattr(row, field, getattr(payload, field))
+    if read_to is not None:
+        row.last_read_id = max(row.last_read_id, read_to)
+    result = dict(last_read_id=str(row.last_read_id), pinned=row.pinned, starred=row.starred)
     db.commit()
-    if payload.pinned is None and payload.starred is None:
-        publish(db, room, {user_id}, kind='read')
-    else:
-        publish(db, recipients={user_id})
-    return dict(last_read_id=str(row.last_read_id), pinned=row.pinned, starred=row.starred)
+    kind = 'read' if payload.pinned is None and payload.starred is None else 'state'
+    publish(db, room, {user_id}, kind=kind)
+    return result

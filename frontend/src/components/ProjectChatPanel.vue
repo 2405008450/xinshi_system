@@ -1,7 +1,12 @@
 <template>
   <div ref="interactionRoot" :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode, 'project-chat-panel--search-side': searchOpen && historyPlacement === 'side' }]">
+    <ChatInitialLoad v-if="accessPending || (conversationMode && projectId && !timelineReady)" :error="conversationLoadError" :loading="messagesLoading" @retry="loadMessages" />
+    <template v-else>
     <el-empty v-if="!projectId" description="请先选择项目" :image-size="compact ? 56 : 72" />
     <div v-else class="project-chat-panel__main">
+      <el-alert v-if="conversationLoadError && !messagesLoading" :title="conversationLoadError" type="error" :closable="false">
+        <el-button link @click="loadMessages">重试</el-button>
+      </el-alert>
       <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="chat-toolbar" :class="{ 'chat-toolbar--header': toolbarTarget }">
         <div class="chat-toolbar__title">
           <span v-if="!conversationMode">项目沟通</span>
@@ -562,6 +567,7 @@
     <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
     <ChatMessageReferences ref="references" :project-id="projectId" :project-type="projectType" @locate="locateMessage" />
     <ChatMessageContextMenu ref="messageMenuRef" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
+    </template>
   </div>
 </template>
 
@@ -571,6 +577,7 @@ import { Close } from '@element-plus/icons-vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import ChatRecalledMessage from './chat/ChatRecalledMessage.vue'
 import ChatMessageInlineEditor from './chat/ChatMessageInlineEditor.vue'
+import ChatInitialLoad from './chat/ChatInitialLoad.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import { mentionAudience } from '@/utils/mentionAudience'
@@ -631,6 +638,7 @@ const props = defineProps({
   projectId: { type: [String, Number], default: '' },
   projectType: { type: String, default: 'translation' },
   active: { type: Boolean, default: false },
+  accessPending: Boolean,
   drawerMode: { type: Boolean, default: false },
   textOnly: { type: Boolean, default: false },
   alwaysEnabled: { type: Boolean, default: false },
@@ -648,6 +656,8 @@ const settings = reactive({ enabled: false, canManage: false })
 const settingsLoading = ref(false)
 const toggleLoading = ref(false)
 const messagesLoading = ref(false)
+const conversationLoadError = ref('')
+const timelineReady = ref(false)
 const chatListRef = ref(null)
 const composerInputRef = ref(null)
 const richComposerRef = ref(null)
@@ -1063,6 +1073,7 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
   }
   const version = ++conversationLoadVersion
   messagesLoading.value = true
+  conversationLoadError.value = ''
   const markFresh = messageFreshness.begin()
   try {
     const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
@@ -1071,6 +1082,7 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
     if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     // 后端按时间倒序返回，会话视图反转为正序展示。
     messages.value = (Array.isArray(res?.items) ? res.items : []).slice().reverse()
+    timelineReady.value = true
     pagination.total = Number(res?.total || 0)
     viewingHistory.value = false
     historyHasOlder.value = false
@@ -1085,7 +1097,7 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
     if (version !== conversationLoadVersion) return
     messages.value = []
     pagination.total = 0
-    ElMessage.error(getLocalizedErrorMessage(error, '加载沟通记录失败'))
+    conversationLoadError.value = getLocalizedErrorMessage(error, '加载沟通记录失败')
   } finally {
     if (version === conversationLoadVersion) { messagesLoading.value = false; scheduleRead() }
   }
@@ -1403,6 +1415,8 @@ defineExpose({ toggleFilters, openSearch, locateMessage, locate: locateMessage }
 const resetChatState = () => {
   ++conversationLoadVersion
   messagesLoading.value = false
+  conversationLoadError.value = ''
+  timelineReady.value = false
   messageFreshness.invalidate()
   memberFreshness.invalidate()
   ++userOptionsVersion

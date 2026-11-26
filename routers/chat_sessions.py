@@ -528,28 +528,35 @@ class PreferenceRequest(BaseModel):
 @router.put('/sessions/{kind}/{project_id}/preferences')
 def preferences(kind: str, project_id: UUID, payload: PreferenceRequest, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     ready = phase_one_ready(db)
+    updates_read = payload.mark_read or payload.read_message_id is not None
     if not ready and (kind != 'annotation' or payload.pinned is not None or payload.starred is not None):
         require_phase_one(db)
     if kind == 'direct':
-        direct.require_project(db, project_id, user, lock=True)
-        member = db.get(ChatDirectMember, (project_id, user.id))
+        direct.require_project(db, project_id, user, lock=updates_read)
+        member_model = ChatDirectMember
         column = ChatProjectMessage.direct_conversation_id
     elif kind == 'annotation':
-        annotation.require_project(db, project_id, user, lock=True)
-        member = annotation.add_member(db, project_id, user.id)
+        annotation.require_project(db, project_id, user, lock=updates_read)
+        member_model = AnnotationChatMember
         column = ChatProjectMessage.annotation_project_id
     elif kind == 'translation':
         from chat_access_service import require_member
         require_member(db, 'translation', project_id, user)
         if not user_has_permission(db, user.id, 'projects:read'):
             raise HTTPException(403, '没有项目查看权限')
-        if not db.query(TranslationProject).filter_by(id=project_id).with_for_update().first():
+        project_query = db.query(TranslationProject).filter_by(id=project_id)
+        if updates_read:
+            project_query = project_query.with_for_update()
+        if not project_query.first():
             raise HTTPException(404, '项目不存在')
-        db.execute(insert(ChatProjectMemberPref).values(project_id=project_id, user_id=user.id).on_conflict_do_nothing())
-        member = db.get(ChatProjectMemberPref, (project_id, user.id), populate_existing=True)
+        member_model = ChatProjectMemberPref
         column = ChatProjectMessage.project_id
     else:
         raise HTTPException(400, '不支持的会话类型')
+    user_id = user.id
+    member = db.get(member_model, (project_id, user_id), with_for_update=not updates_read)
+    if member is None:
+        raise HTTPException(404, '会话不存在或你不是该会话参与人')
     for field in ('pinned', 'starred'):
         value = getattr(payload, field)
         if value is not None:
@@ -561,14 +568,16 @@ def preferences(kind: str, project_id: UUID, payload: PreferenceRequest, db: Ses
         if not message:
             raise HTTPException(404, '消息不属于当前会话')
         member.last_read_sequence = max(member.last_read_sequence, message.sequence_no)
-    from chat_message_notifications import settle_notifications
-    settle_notifications(db, kind, project_id, user_id=user.id, sequence=member.last_read_sequence)
+    if updates_read:
+        from chat_message_notifications import settle_notifications
+        settle_notifications(db, kind, project_id, user_id=user_id, sequence=member.last_read_sequence)
+    result = {'pinned': bool(ready and member.pinned), 'starred': bool(ready and member.starred),
+              'last_read_sequence': member.last_read_sequence}
     db.commit()
-    event = {'type': 'chat_sessions_changed'}
-    if payload.read_message_id and not payload.mark_read and payload.pinned is None and payload.starred is None:
-        event.update(projectType=kind, projectId=str(project_id), kind='read')
-    broadcast_to_users([user.id], event)
-    return {'pinned': bool(ready and member.pinned), 'starred': bool(ready and member.starred), 'last_read_sequence': member.last_read_sequence}
+    event = {'type': 'chat_sessions_changed', 'projectType': kind, 'projectId': str(project_id),
+             'kind': 'read' if updates_read and payload.pinned is None and payload.starred is None else 'state'}
+    broadcast_to_users([user_id], event)
+    return result
 
 
 @router.get('/mentions/{notification_id}/target')

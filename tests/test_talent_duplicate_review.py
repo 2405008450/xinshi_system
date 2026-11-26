@@ -1619,3 +1619,59 @@ def test_contact_rule_preserves_existing_language_roles_and_source_remark_varian
     assert verify_success(db.get_bind(),result)['archive_targets'] is True
     undo(db,UUID(result['id']),ACTOR)
     assert count_talents(db)==2
+
+
+def test_review_lock_trigger_only_covers_direct_talent_tables_and_does_not_block_notifications(db):
+    from models import AppNotification, AppUser
+
+    def locked_tables(conn):
+        rows = conn.execute(text("""
+            SELECT c.relname
+            FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            WHERE t.tgname = 'trg_talent_review_lock'
+              AND NOT t.tgisinternal
+              AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
+        """)).fetchall()
+        return {name for (name,) in rows}
+
+    migration = (Path(__file__).resolve().parents[1] / "data/migrations/20261126_narrow_talent_review_lock_triggers.sql").read_text(encoding="utf-8")
+    db.rollback()
+    with db.get_bind().connect() as conn:
+        tables = locked_tables(conn)
+        assert "translator" in tables
+        assert "resource_capability" in tables
+        assert "translation_project" in tables
+        assert "app_notification" not in tables
+        assert "chat_project_message" not in tables
+        assert "annotation_chat_member" not in tables
+        # 模拟旧库在 app_notification 和 resource_person 上存在遗留触发器，执行收敛迁移后应被清除。
+        conn.execute(text("CREATE TRIGGER trg_talent_review_lock BEFORE INSERT OR UPDATE OR DELETE ON app_notification FOR EACH STATEMENT EXECUTE FUNCTION lock_talent_duplicate_writes()"))
+        conn.execute(text("CREATE TRIGGER trg_talent_review_lock BEFORE INSERT OR UPDATE OR DELETE ON resource_person FOR EACH STATEMENT EXECUTE FUNCTION lock_talent_duplicate_writes()"))
+        conn.commit()
+        assert "app_notification" in locked_tables(conn)
+        conn.execute(text(migration))
+        conn.commit()
+        narrowed = locked_tables(conn)
+        assert "app_notification" not in narrowed
+        assert "resource_person" not in narrowed
+        assert "translator" in narrowed
+        assert "translation_project" in narrowed
+
+    recipient = AppUser(id=uuid4(), username="notif_qa_" + uuid4().hex[:6], password_hash="synthetic", is_active=True)
+    db.add(recipient)
+    db.commit()
+    with Session(db.get_bind()) as holder:
+        holder.execute(text("SELECT pg_advisory_xact_lock(724092401)"))
+        with Session(db.get_bind()) as writer:
+            writer.execute(text("SET LOCAL lock_timeout = '500ms'"))
+            writer.add(AppNotification(
+                id=uuid4(),
+                recipient_user_id=recipient.id,
+                title="讨论新消息",
+                content="锁收敛后不应被人才核重锁阻塞",
+                notification_type="discussion_chat",
+            ))
+            writer.commit()
+        holder.rollback()
+    assert db.query(AppNotification).filter_by(recipient_user_id=recipient.id).count() == 1

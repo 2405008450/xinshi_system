@@ -120,3 +120,11 @@ test('存在在途消息时注册 beforeunload 拦截，全部完成后自动解
     globalThis.window = prevWindow
   }
 })
+
+test('讨论与群聊发送失败提示保留具体错误原因', async () => {
+  const { readFileSync } = await import('node:fs')
+  const discussionSource = readFileSync(new URL('../src/components/chat/DiscussionConversation.vue', import.meta.url), 'utf8')
+  const chatSource = readFileSync(new URL('../src/components/chat/ChatConversation.vue', import.meta.url), 'utf8')
+  assert.match(discussionSource, /ElMessage\.error\(roomName \? `「\$\{roomName\}」有消息发送失败：\$\{errText\}` : `消息发送失败：\$\{errText\}`\)/)
+  assert.match(chatSource, /ElMessage\.error\(sessionTitle \? `「\$\{sessionTitle\}」有消息发送失败：\$\{errText\}` : `消息发送失败：\$\{errText\}`\)/)
+})

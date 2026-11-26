@@ -82,7 +82,7 @@
       <div :class="{ 'chat-tile-grid': tiled }" :style="tiled ? tileGridStyle : undefined" @keydown.capture="cycleComposer">
       <section
         v-for="chatWindow in state.windows"
-        v-show="(chatWindow.accessConfirmed !== false || chatWindow.projectType === 'discussion') && isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (['topics','summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(workspacePane) || (workspaceNarrow && sidebarOpen)))"
+        v-show="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (['topics','summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(workspacePane) || (workspaceNarrow && sidebarOpen)))"
         :key="chatWindow.key"
         :data-chat-key="chatWindow.key"
         class="project-chat-window"
@@ -143,7 +143,7 @@
             :is="chatWindow.projectType === 'discussion' ? DiscussionConversation : chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
-            v-bind="chatWindow.projectType === 'discussion' ? { accessPending: chatWindow.accessConfirmed === false } : {}"
+            :access-pending="chatWindow.accessConfirmed === false"
             :room-title="chatWindow.title"
             :target-message-id="chatWindow.targetMessageId"
             :project-type="chatWindow.projectType"

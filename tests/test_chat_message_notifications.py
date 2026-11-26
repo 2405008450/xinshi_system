@@ -162,6 +162,12 @@ def test_notify_discussion_members_read_and_recall(notify_env, monkeypatch):
     })]
     notice = db.query(AppNotification).one()
     assert notice.notification_type == 'discussion_chat' and notice.recipient_user_id == users[1].id
+    service.preferences(db, users[1], room, PreferenceWrite(pinned=True))
+    assert broadcasts[-1] == ({users[1].id}, {
+        'type': 'chat_sessions_changed', 'projectType': 'discussion',
+        'projectId': str(room), 'membersChanged': False, 'kind': 'state',
+    })
+    assert not notice.is_read
     service.preferences(db, users[1], room, PreferenceWrite(read_message_id=int(first['id'])))
     assert notice.is_read
     second = service.send(db, users[0], room, MessageCreate(content='新消息', client_message_id=uuid4()))

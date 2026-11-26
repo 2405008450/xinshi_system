@@ -132,13 +132,38 @@ CREATE TRIGGER trg_resource_person_name_duplicates AFTER INSERT OR DELETE OR UPD
     FOR EACH STATEMENT EXECUTE FUNCTION refresh_resource_person_name_duplicates();
 
 DO $$ DECLARE relation regclass; table_name text; fk record; BEGIN
-    -- 真实业务关联及下游明细写入也参与串行化，历史外键保持原值。
+    -- 仅对直接外键指向 resource_person 或 translator 的业务表及直属明细表加锁，
+    -- 避免递归外键误锁 app_notification、chat_*、财务与审批等下游无关表。
     FOR relation IN
-        WITH RECURSIVE linked(oid) AS (
-            SELECT 'resource_person'::regclass::oid
-            UNION
-            SELECT c.conrelid FROM pg_constraint c JOIN linked p ON c.confrelid=p.oid WHERE c.contype='f'
-        ) SELECT oid::regclass FROM linked
+        SELECT DISTINCT t.tgrelid::regclass
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE t.tgname = 'trg_talent_review_lock'
+          AND NOT t.tgisinternal
+          AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
+          AND (
+              c.oid = 'resource_person'::regclass
+              OR NOT EXISTS (
+                  SELECT 1
+                  FROM pg_constraint con
+                  JOIN pg_class p ON p.oid = con.confrelid
+                  WHERE con.contype = 'f'
+                    AND con.conrelid = c.oid
+                    AND con.connamespace = c.relnamespace
+                    AND p.relname IN ('resource_person', 'translator')
+              )
+          )
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS trg_talent_review_lock ON %s', relation);
+    END LOOP;
+    FOR relation IN
+        SELECT DISTINCT c.conrelid::regclass
+        FROM pg_constraint c
+        JOIN pg_class p ON p.oid = c.confrelid
+        WHERE c.contype = 'f'
+          AND p.relname IN ('resource_person', 'translator')
+          AND c.conrelid <> 'resource_person'::regclass
+          AND c.connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
     LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS trg_talent_review_lock ON %s', relation);
         EXECUTE format('CREATE TRIGGER trg_talent_review_lock BEFORE INSERT OR UPDATE OR DELETE ON %s FOR EACH STATEMENT EXECUTE FUNCTION lock_talent_duplicate_writes()', relation);

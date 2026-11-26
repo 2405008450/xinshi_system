@@ -182,6 +182,109 @@ def test_chat_send_lock_timeout_and_cross_backend_retry(environment, tmp_path):
         assert db.query(AppNotification).filter_by(related_entity_id=room, notification_type='discussion_chat').count() == 1
 
 
+def test_chat_pin_and_star_ignore_notification_locks(environment, tmp_path):
+    from discussion_chat_models import DiscussionMember
+    from models import AppNotification, ChatDirectMember
+    from routers.auth import create_user_access_token
+
+    db, users, engine = environment
+    rooms = {kind: (room, path) for kind, room, path in setup_rooms(db, users)}
+    schema = db.execute(text('select current_schema()')).scalar_one()
+    sender, reader = [{'Authorization': 'Bearer ' + create_user_access_token(user)} for user in users[:2]]
+    settings = dict(
+        CHAT_REALTIME_REDIS_URL='', CHAT_STORAGE_MODE='local', LOCAL_SCHEMA_MIGRATIONS_ENABLED='false',
+        DB_LOCK_TIMEOUT_MS='250', VAPID_PUBLIC_KEY='', VAPID_PRIVATE_KEY='', VAPID_SUBJECT='',
+    )
+    with backend(schema, 'preferences', tmp_path, settings) as (_, client):
+        for kind, model in [('discussion', DiscussionMember), ('direct', ChatDirectMember)]:
+            room, path = rooms[kind]
+            sent = client.post(f'{path}/messages', headers=sender, json={
+                'client_message_id': str(uuid4()), 'content': '测试置顶时通知正在被锁住',
+            })
+            assert sent.status_code == 201, sent.text
+            message = sent.json()
+            notice = db.query(AppNotification).filter_by(related_entity_id=room, recipient_user_id=users[1].id).one()
+            member = db.get(model, (room, users[1].id))
+            if kind == 'discussion':
+                member.last_read_id = int(message['id'])
+                preference_path = f'{path}/preferences'
+            else:
+                member.last_read_sequence = message['sequence_no']
+                preference_path = f'/chat/sessions/{kind}/{room}/preferences'
+            db.commit()
+
+            with engine.begin() as blocker:
+                blocker.execute(text('SELECT id FROM app_notification WHERE id = :id FOR UPDATE'), {'id': notice.id})
+                for field, enabled in [('pinned', True), ('starred', True), ('pinned', False)]:
+                    response = client.put(preference_path, headers=reader, json={field: enabled})
+                    assert response.status_code == 200, response.text
+                    assert response.json()[field] is enabled
+                db.refresh(notice)
+                assert not notice.is_read
+                response = client.put(preference_path, headers=reader, json={'read_message_id': message['id']})
+                assert response.status_code == 503, response.text
+                assert response.headers['Retry-After'] == '1'
+
+            response = client.put(preference_path, headers=reader, json={'read_message_id': message['id']})
+            assert response.status_code == 200, response.text
+            db.refresh(notice)
+            assert notice.is_read
+            assert response.json()['starred'] is True and response.json()['pinned'] is False
+
+
+def test_chat_pin_succeeds_during_concurrent_read_and_project_locks(environment, tmp_path):
+    from models import AppNotification
+    from routers.auth import create_user_access_token
+
+    db, users, engine = environment
+    rooms = {kind: (room, path) for kind, room, path in setup_rooms(db, users)}
+    discussion, path = rooms['discussion']
+    schema = db.execute(text('select current_schema()')).scalar_one()
+    sender, reader = [{'Authorization': 'Bearer ' + create_user_access_token(user)} for user in users[:2]]
+    settings = dict(CHAT_REALTIME_REDIS_URL='', CHAT_STORAGE_MODE='local', LOCAL_SCHEMA_MIGRATIONS_ENABLED='false',
+                    VAPID_PUBLIC_KEY='', VAPID_PRIVATE_KEY='', VAPID_SUBJECT='')
+    pin_settings = dict(settings, DB_LOCK_TIMEOUT_MS='350')
+    read_settings = dict(settings, DB_LOCK_TIMEOUT_MS='8000')
+    with (backend(schema, 'pin', tmp_path, pin_settings) as (_, writer),
+          backend(schema, 'reader', tmp_path, read_settings) as (_, read_client),
+          ThreadPoolExecutor(max_workers=1) as pool):
+        response = writer.post(f'{path}/messages', headers=sender, json={
+            'client_message_id': str(uuid4()), 'content': '并发已读时的置顶测试',
+        })
+        assert response.status_code == 201, response.text
+        message_id = response.json()['id']
+        notification_id = db.query(AppNotification.id).filter_by(
+            related_entity_id=discussion, recipient_user_id=users[1].id,
+        ).scalar()
+        preference_path = f'{path}/preferences'
+        with engine.begin() as blocker:
+            blocker.execute(text('SELECT id FROM app_notification WHERE id = :id FOR UPDATE'), {'id': notification_id})
+            pending = pool.submit(read_client.put, preference_path, headers=reader, json={'read_message_id': message_id})
+            deadline = monotonic() + 4
+            with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as observer:
+                while not observer.execute(text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
+                    "AND query LIKE 'UPDATE app_notification%')",
+                )).scalar_one():
+                    assert monotonic() < deadline, '已读请求未进入预期的通知锁等待'
+                    sleep(.04)
+            pinned = writer.put(preference_path, headers=reader, json={'pinned': True})
+            assert pinned.status_code == 200, pinned.text
+            assert pinned.json()['pinned'] is True and not pending.done()
+        finished = pending.result()
+        assert finished.status_code == 200 and finished.json()['last_read_id'] == message_id
+        assert finished.json()['pinned'] is True
+
+        for kind, table in [('direct', 'chat_direct_conversation'), ('annotation', 'annotation_project'),
+                            ('translation', 'translation_project')]:
+            project, _ = rooms[kind]
+            with engine.begin() as blocker:
+                blocker.execute(text(f'SELECT id FROM {table} WHERE id = :id FOR UPDATE'), {'id': project})
+                result = writer.put(f'/chat/sessions/{kind}/{project}/preferences', headers=reader, json={'pinned': True})
+                assert result.status_code == 200, result.text
+                assert result.json()['pinned'] is True
+
+
 def test_chat_relay_across_two_local_backends_and_catchup(environment, tmp_path):
     redis_url = os.getenv('CHAT_TEST_REDIS_URL')
     if not redis_url:

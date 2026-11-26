@@ -1,5 +1,7 @@
 <template>
   <section @dragenter.prevent="dragEnter" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="dropFiles" class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
+    <ChatInitialLoad v-if="accessPending || (conversationMode && !timelineReady)" :error="error" :loading="loading || initializing" @retry="initializeConversation" />
+    <template v-else>
     <div class="annotation-group__main">
     <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget, 'group-toolbar--menu':toolbarMenu }">
       <ChatParticipantsPopover v-if="!isDirect" v-model="inviteIds" :members="group.members" :invitable-users="group.invitableUsers" :current-user-id="currentUserId" :z-index="participantsZ" :inviting="inviting" show-follow-note @invite="invite" @member-click="startDirect">
@@ -32,6 +34,7 @@
       :placement="historyPlacement"
       @locate="onSearchLocate"
     />
+    </template>
   </section>
 </template>
 
@@ -54,6 +57,7 @@ import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import ChatTimeline from './ChatTimeline.vue'
 import ChatComposer from './ChatComposer.vue'
+import ChatInitialLoad from './ChatInitialLoad.vue'
 import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue'
 import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
 import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
@@ -79,6 +83,7 @@ const props = defineProps({
   targetMessageId: { type: String, default: '' },
   projectId: [String, Number],
   active: Boolean,
+  accessPending: Boolean,
   conversationMode: Boolean,
   toolbarTarget: { type: String, default: '' },
   toolbarMenu: Boolean,
@@ -139,6 +144,7 @@ const contentTooLong = computed(() => outgoingContent().length > 10000)
 
 const inviting = ref(false), followingBusy = ref(false), searchOpen = ref(false)
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), error = ref('')
+const timelineReady = ref(false), initializing = ref(false)
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
 const imageUrls = reactive({}), imageErrors = reactive({}), imageRequests = new Set()
 const historySenders = computed(() => group.eligibleUsers.map(user => ({ id: user.id, name: user.name })))
@@ -267,6 +273,7 @@ async function search() {
     const pendingOutbox = loadOutboxMessages(outboxScope())
     messages.value = []; visibleMessages.clear(); merge([...pendingOutbox, ...data.items]); hasEarlier.value = data.hasMore
     syncedSequence = data.items.at(-1)?.sequenceNo || 0
+    timelineReady.value = true
     markFresh()
     await bottom()
   } catch (e) { if (version === generation && !searchController.signal.aborted) error.value = detail(e) }
@@ -355,6 +362,24 @@ function observeMessage(el, message) {
   interactions.observe(el, message)
   if (el && observer && !observedElements.has(el)) { observedElements.add(el); observer.observe(el) }
 }
+watch(list, root => {
+  observer?.disconnect()
+  observer = undefined
+  visibleMessages.clear()
+  if (!root) return
+  observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      const id = entry.target.dataset.messageId
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence))
+      else visibleMessages.delete(id)
+    })
+    scheduleRead()
+  }, { root, threshold: [0, 0.5, 1] })
+  for (const el of root.querySelectorAll('[data-message-id][data-sequence]')) {
+    observedElements.add(el)
+    observer.observe(el)
+  }
+}, { flush: 'post' })
 function scheduleRead() { clearTimeout(readTimer); readTimer = setTimeout(markRead, 350) }
 async function markRead() {
   if (document.querySelector('.chat-topic-results-dialog')) return
@@ -588,12 +613,12 @@ async function deliverOptimisticMessage(tempMessage) {
       void groupRefresh.schedule()
     }
   } catch (e) {
-    const errText = detail(e)
+    const errText = detail(e) || '请稍后重试'
     upsertOutboxMessage(scope, { ...tempMessage, optimisticStatus: 'failed', optimisticError: errText })
     if (!disposed) {
       updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: errText })
     }
-    ElMessage.error(sessionTitle ? `「${sessionTitle}」有消息发送失败，请重试` : `消息发送失败，请重试：${errText}`)
+    ElMessage.error(sessionTitle ? `「${sessionTitle}」有消息发送失败：${errText}` : `消息发送失败：${errText}`)
   } finally {
     unmarkOutboxInFlight(tempMessage.clientMessageId)
   }
@@ -664,9 +689,33 @@ watch(() => props.active, active => {
   if (active && initialized) foreground()
   else if (!active) closeMention()
 })
+async function initializeConversation() {
+  if (initialized) return search()
+  if (initializing.value || disposed) return
+  initializing.value = true
+  error.value = ''
+  try {
+    if (!isDirect.value) await annotationChatRequest(props.projectId, 'start', { method: 'post' })
+    if (disposed) return
+    await Promise.all([loadGroup(), search()])
+    if (disposed) return
+    initialized = true; resolveReady()
+    if (props.targetMessageId) await locate(props.targetMessageId)
+    // 实时事件即时同步，低频轮询覆盖连接恢复前的断线间隔。
+    let pollCount = 0
+    if (!disposed) syncTimer = setInterval(() => {
+      if (!props.active || document.visibilityState !== 'visible') return
+      void scheduleFullSync(); scheduleRead()
+      if (++pollCount % 2 === 0) void groupRefresh.schedule()
+    }, 30000 + Math.floor(Math.random() * 5000))
+  } catch (e) {
+    if (!disposed) error.value = detail(e)
+  } finally {
+    initializing.value = false
+  }
+}
 onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
-  observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
   if (!isDirect.value) unwatch = watchAnnotationChat(props.projectId)
 
   // 监听通用的状态变更
@@ -713,20 +762,7 @@ onMounted(async () => {
   }))
   document.addEventListener('visibilitychange', foreground); window.addEventListener('focus', foreground)
   window.addEventListener('resize', closeMention)
-  if (!isDirect.value) {
-    try { await annotationChatRequest(props.projectId, 'start', { method: 'post' }) }
-    catch (e) { error.value = detail(e); resolveReady(); return }
-  }
-  await Promise.all([loadGroup(), search()])
-  initialized = true; resolveReady()
-  if (props.targetMessageId) await locate(props.targetMessageId)
-  // WebSocket 事件即时同步；定时轮询仅兜底当前可见会话，避免最小化窗口持续请求。
-  let pollCount = 0
-  if (!disposed) syncTimer = setInterval(() => {
-    if (!props.active || document.visibilityState !== 'visible') return
-    void scheduleFullSync(); scheduleRead()
-    if (++pollCount % 2 === 0) void groupRefresh.schedule()
-  }, 30000 + Math.floor(Math.random() * 5000))
+  await initializeConversation()
 })
 const draft = useChatDraft(
   computed(() => [props.projectType, props.projectId]),
