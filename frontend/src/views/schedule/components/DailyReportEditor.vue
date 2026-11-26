@@ -179,13 +179,14 @@ async function savePreferredTypes(){
 const typeOptions=computed(()=>{
   if(usingPreferredTypes.value){
     return [
+      ...(props.editable?[{value:'__show_all_types__',label:'▸ 查看全部类型'}]:[]),
       ...buildPreferredWorkTypeOptions(localCategories.value,model.rows,effectivePreferredTypes.value),
-      ...(props.editable?[{value:'__show_all_types__',label:'▸ 查看全部类型'},{value:'__add_category__',label:'＋ 新增自定义分类'}]:[])
+      ...(props.editable?[{value:'__add_category__',label:'＋ 新增自定义分类'}]:[])
     ]
   }
   return [
-    ...buildWorkTypeOptions(localCategories.value,model.rows).map(group=>({...group,children:group.children.map(option=>({...option,disabled:option.value==='其他项目'&&!props.canAddProjectCategory&&!model.rows.some(row=>row.display_metadata.custom_project_type)}))})),
     ...(props.editable&&hasPreferredTypes.value?[{value:'__only_preferred__',label:'◂ 返回我的常用类型'}]:[]),
+    ...buildWorkTypeOptions(localCategories.value,model.rows).map(group=>({...group,children:group.children.map(option=>({...option,disabled:option.value==='其他项目'&&!props.canAddProjectCategory&&!model.rows.some(row=>row.display_metadata.custom_project_type)}))})),
     ...(props.editable?[{value:'__add_category__',label:'＋ 新增自定义分类'}]:[])
   ]
 })

@@ -10,14 +10,21 @@
       <el-empty v-else-if="!messages.length && !error" :description="keyword ? '没有匹配的消息' : '暂无消息，开始讨论吧'" :image-size="50" />
       <template v-for="(message, index) in messages" :key="message.id">
         <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date"><span>{{ formatMessageDay(message.createdAt) }}</span></div>
-        <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId, 'is-grouped': !chatGroupStart(message, messages[index - 1]), 'is-mentioned': mentionsMe(message) }">
+        <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId, 'is-grouped': !chatGroupStart(message, messages[index - 1]), 'is-mentioned': mentionsMe(message), 'is-sending': message.optimisticStatus === 'sending', 'is-failed': message.optimisticStatus === 'failed' }">
           <span v-if="!message.recalledAt && message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])" class="discussion-chat__avatar" aria-hidden="true">{{ chatAvatarText(message.senderName) }}</span>
           <div v-if="!message.recalledAt && ((message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])) || (showMessageTime && timestampIndexes.has(index)))" class="discussion-chat__meta"><strong v-if="message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
           <div v-if="undisplayedMentions(message,currentUserId).length" class="discussion-chat__mention-recipients" aria-label="消息提及人员"><span v-for="item in undisplayedMentions(message,currentUserId)" :key="item.id" :class="{'discussion-mention-highlight':item.highlight}">{{ item.label }}</span></div>
           <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
-            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote><ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" preserve-discussion-files @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" /><template v-else><p><template v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex"><span :class="{'discussion-mention-highlight':part.highlight}"><template v-for="(seg,segIndex) in splitUrgentText(part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,''))" :key="segIndex"><span v-if="seg.urgent" class="chat-urgent-badge">急</span><ScreenshotText v-else :text="seg.text" :chat-message-id="message.id" chat-kind="discussion" /></template></span></template></p><span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span></template><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
-            <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button></div>
+            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="!message.optimisticStatus && messageMenu?.open($event,message)" @keydown="!message.optimisticStatus && messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote><ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" preserve-discussion-files @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" /><template v-else><p><template v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex"><span :class="{'discussion-mention-highlight':part.highlight}"><template v-for="(seg,segIndex) in splitUrgentText(part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,''))" :key="segIndex"><span v-if="seg.urgent" class="chat-urgent-badge">急</span><ScreenshotText v-else :text="seg.text" :chat-message-id="message.id" chat-kind="discussion" /></template></span></template></p><span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span></template><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
+            <button v-if="!message.optimisticStatus" type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button>
+            <span v-else-if="message.optimisticStatus === 'sending'" class="chat-optimistic-sending" role="status">发送中…</span>
+            <span v-else-if="message.optimisticStatus === 'failed'" class="chat-optimistic-failed" role="alert" :title="message.optimisticError || '发送失败'">
+              <span>发送失败</span>
+              <button type="button" class="chat-optimistic-action" @click="retryOptimisticMessage(message)">重试</button>
+              <button type="button" class="chat-optimistic-action is-muted" @click="removeOptimisticMessage(message)">移除</button>
+            </span>
+            </div>
             <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" @acknowledge="acknowledge" @reply="quoteMessage" @references="(id,event)=>references.open(id,event)" />
           </template>
         </article>
@@ -75,6 +82,7 @@ import { formatBusinessDateTime } from '@/utils/dateTime'
 import { subscribe } from '@/utils/realtimeSocket'
 import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
+import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
 const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, targetMessageId: { type: String, default: '' } })
 const TechnicalTaskDialog = defineAsyncComponent(() => import('@/views/technology/TechnicalDevelopment.vue'))
 const taskDraft = ref(null)
@@ -86,6 +94,7 @@ function createDevelopmentTask(message, excerpt) {
   taskDraft.value = { content }
 }
 const currentUserId = localStorage.getItem('user_id') || ''
+const currentUserName = localStorage.getItem('user_name') || localStorage.getItem('username') || '我'
 const { refresh: refreshSessions } = useAnnotationFollowed()
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
@@ -129,15 +138,20 @@ function ensureMentionUsers() {
   return membersRequest
 }
 const atBottom = () => !list.value || list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 50
-const merge = rows => {
+const compareDiscussionMessages = (a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0
+const lastRealMessageId = () => [...messages.value].reverse().find(row => !isOptimisticMessage(row))?.id
+const firstRealMessageId = () => messages.value.find(row => !isOptimisticMessage(row))?.id
+const merge = (rows, options = {}) => {
+  messages.value = mergeWithOptimistic(messages.value, rows, {
+    replaceTempId: options.replaceTempId || '',
+    compareReal: compareDiscussionMessages,
+  })
   const map = new Map(messages.value.map(row => [row.id, row]))
-  for (const row of rows) map.set(row.id, row)
-  messages.value = [...map.values()].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0)
   if (replyTo.value && map.get(replyTo.value.id)?.recalledAt) replyTo.value = null
   if (editingMessageId.value && map.get(editingMessageId.value)?.recalledAt) { editingMessageId.value = ''; editingError.value = '' }
 }
 async function markRead() {
-  const last = messages.value.at(-1)?.id
+  const last = lastRealMessageId()
   if (reading || !canRefresh() || !document.hasFocus() || !storageReady.value || keyword.value || !last || BigInt(last) <= BigInt(readVersion)) return
   reading = true
   try { await chatRequest(`${base}/preferences`, { method: 'put', data: { readMessageId: last } }); readVersion = last } catch { /* 下轮重试，不能提前清除未读。 */ } finally { reading = false }
@@ -151,7 +165,7 @@ async function refresh(reset = false) {
   const signal = controller.signal
   if (reset) { pendingFilterReset = false; messageFreshness.invalidate() }
   const markFresh = messageFreshness.begin()
-  const follow = reset || atBottom(), previousLast = messages.value.at(-1)?.id
+  const follow = reset || atBottom(), previousLast = [...messages.value].reverse().find(row => !row?.optimisticStatus)?.id
   if (reset) { loading.value = true; messages.value = []; replyTo.value = null; pendingNew.value = false }
   try {
     const data = await chatRequest(`${base}/messages`, { params: { keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined }, signal })
@@ -174,18 +188,19 @@ async function refresh(reset = false) {
     merge([...missed, ...data.items])
     markFresh()
     if (follow) await goBottom()
-    else if (previousLast !== messages.value.at(-1)?.id) pendingNew.value = true
+    else if (previousLast !== [...messages.value].reverse().find(row => !row?.optimisticStatus)?.id) pendingNew.value = true
   } catch (e) {
     if (disposed || version !== requestVersion || e.code === 'ERR_CANCELED') return
     error.value = e.message || '加载讨论消息失败'; if ([503, 403, 404].includes(e.status || e.response?.status)) storageReady.value = false
   } finally { if (version === requestVersion) loading.value = false }
 }
 async function loadEarlier() {
-  if (loadingEarlier.value || !hasEarlier.value || !messages.value.length) return
+  const firstId = firstRealMessageId()
+  if (loadingEarlier.value || !hasEarlier.value || !firstId) return
   autoScroll.pause()
   loadingEarlier.value = true; const version = requestVersion, height = list.value?.scrollHeight || 0
   try {
-    const data = await chatRequest(`${base}/messages`, { params: { before: messages.value[0].id, keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined } })
+    const data = await chatRequest(`${base}/messages`, { params: { before: firstId, keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined } })
     if (disposed || version !== requestVersion) return
     merge(data.items); hasEarlier.value = data.hasMore; await nextTick(); if (list.value) list.value.scrollTop += list.value.scrollHeight - height
   } catch (e) { if (!disposed && version === requestVersion) error.value = e.message } finally { loadingEarlier.value = false }
@@ -195,18 +210,63 @@ function newClientId() {
   const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
 }
-async function send() {
-  if (!storageReady.value || !canSend.value) return
-  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
-  sending.value = true; sendError.value = ''
+function updateOptimisticMessage(tempId, patch) {
+  const index = messages.value.findIndex(item => item.id === tempId)
+  if (index < 0) return
+  const next = [...messages.value]
+  next[index] = { ...next[index], ...patch }
+  messages.value = next
+}
+async function deliverOptimisticMessage(tempMessage) {
+  const payload = tempMessage.optimisticPayload
+  if (!payload) return
+  updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'sending', optimisticError: '' })
   try {
     const row = await chatRequest(`${base}/messages`, { method: 'post', data: payload })
     if (disposed) return
     if (payload.replyToId) void refreshSessions()
-    retryPayload.value = null; content.value = ''; replyTo.value = null
-    if (keyword.value) { keyword.value = ''; await refresh(true) } else { merge([row]); await goBottom() }
-    await nextTick(); input.value?.focus()
-  } catch (e) { if (!disposed) { retryPayload.value = payload; sendError.value = e.message || '发送失败，请重试' } } finally { sending.value = false }
+    if (keyword.value) {
+      keyword.value = ''
+      await refresh(true)
+    } else {
+      const follow = atBottom()
+      merge([row], { replaceTempId: tempMessage.id })
+      if (follow) await goBottom()
+    }
+  } catch (e) {
+    if (disposed) return
+    updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: e.message || '发送失败，请重试' })
+  }
+}
+function retryOptimisticMessage(message) {
+  if (!message || message.optimisticStatus !== 'failed') return
+  void deliverOptimisticMessage(message)
+}
+function removeOptimisticMessage(message) {
+  if (!message || !isOptimisticMessage(message)) return
+  messages.value = messages.value.filter(item => item.id !== message.id)
+}
+async function send() {
+  if (!storageReady.value || !canSend.value) return
+  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
+  sendError.value = ''
+  const tempMessage = createOptimisticMessage({
+    clientMessageId: payload.clientMessageId,
+    senderUserId: currentUserId,
+    senderName: currentUserName,
+    content: payload.content,
+    reply: replyTo.value,
+    payload,
+  })
+  retryPayload.value = null
+  content.value = ''
+  replyTo.value = null
+  mentionSelection.value = { mentionedUserIds: [], mentionAll: false }
+  merge([tempMessage])
+  await goBottom()
+  await nextTick()
+  input.value?.focus()
+  void deliverOptimisticMessage(tempMessage)
 }
 function keydown(event) { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); send() } }
 async function recall(message) {
@@ -330,4 +390,12 @@ defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 <style scoped>
 .discussion-chat__mention-recipients{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 5px;color:#334155;font-size:12px}.is-own .discussion-chat__mention-recipients{justify-content:flex-end}.discussion-chat__mention-recipients span{padding:1px 7px;border-radius:10px;background:#e8eef6;color:#334155;font-weight:500}.discussion-chat__mention-recipients span.discussion-mention-highlight{background:#fef3c7;color:#92400e}
 .chat-edited-tag{display:inline-block;margin-top:4px;font-size:11px;color:#94a3b8}
+.discussion-chat__message.is-sending .discussion-chat__bubble{opacity:.9}
+.discussion-chat__message.is-failed .discussion-chat__bubble{border-color:#fca5a5}
+.chat-optimistic-sending{font-size:11px;color:#94a3b8;white-space:nowrap;opacity:0;animation:chat-opt-fade .18s ease .4s forwards}
+.chat-optimistic-failed{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#dc2626;white-space:nowrap}
+.chat-optimistic-action{border:0;background:transparent;padding:0 2px;font:inherit;color:#2563eb;cursor:pointer}
+.chat-optimistic-action:hover{text-decoration:underline}
+.chat-optimistic-action.is-muted{color:#64748b}
+@keyframes chat-opt-fade{to{opacity:1}}
 </style>

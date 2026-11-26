@@ -71,7 +71,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch }
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { FolderOpened, ChatDotRound, Close, Edit, FolderAdd, Plus, Loading, Clock, CircleClose, CircleCheck, Document, Folder, Grid, UserFilled, Promotion, School, MoreFilled } from '@element-plus/icons-vue'
 import { useChatSessionCategories } from '@/composables/useChatSessionCategories'
-import { annotationFolderEntries, annotationFolderId, annotationStatusGroupId, resourceFolderId, sessionFolderCount, sessionFolderMentionUnread, sessionFolderNodes, placeCompanyConversations } from '@/utils/chatSessionFolders'
+import { annotationFolderEntries, annotationFolderId, annotationStatusGroupId, createSessionFolderIndex, resourceFolderId, sessionFolderNodes, placeCompanyConversations } from '@/utils/chatSessionFolders'
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
@@ -121,8 +121,9 @@ const order = ref(Array.isArray(saved.order) ? saved.order.filter(id => typeof i
 const panel = ref(), panelHeight = ref(Math.max(100, Math.min(Number(saved.height) || 270, window.innerHeight * .55))), dragged = ref('')
 const manualOrder = ref(saved.orderVersion === 2 && saved.manualOrder === true)
 const dropTarget = ref(''), dropSide = ref('before')
+const rankMap = computed(() => new Map(order.value.map((id, index) => [id, index])))
+const rank = id => rankMap.value.has(id) ? rankMap.value.get(id) : order.value.length
 const roots = computed(() => { const rows = nodes.value.filter(row => !row.parentKey).sort((a,b)=>rank(a.id)-rank(b.id)); return manualOrder.value ? rows : placeCompanyConversations(rows) })
-const rank = id => order.value.includes(id) ? order.value.indexOf(id) : order.value.length
 function persist() { try { localStorage.setItem(preferenceKey, JSON.stringify({ order: order.value, height: panelHeight.value, manualOrder: manualOrder.value, orderVersion: 2, expanded: [...expanded.value] })) } catch { /* 本次调整仍然生效。 */ } }
 function folderTint(row) { const colors = ['#64748b','#0d9488','#334155','#7c3aed','#d97706','#0284c7']; const index = ['resource','annotation','translation','interpretation','recruitment','technical'].indexOf(row.ruleKey); return colors[index < 0 ? [...row.id].reduce((n,c)=>n+c.charCodeAt(0),0)%colors.length : index] }
 function beginDrag(event, id) {
@@ -193,7 +194,23 @@ function beginResize(event) {
   handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', stopResize); handle.addEventListener('pointercancel', stopResize)
 }
 onBeforeUnmount(() => stopResize())
-const children = id => nodes.value.filter(row => row.parentKey === id).sort((a, b) => Number(!!b.fixedTop) - Number(!!a.fixedTop) || rank(a.id) - rank(b.id))
+const childrenMap = computed(() => {
+  const grouped = new Map()
+  for (const row of nodes.value) {
+    if (!row.parentKey) continue
+    let list = grouped.get(row.parentKey)
+    if (!list) {
+      list = []
+      grouped.set(row.parentKey, list)
+    }
+    list.push(row)
+  }
+  for (const list of grouped.values()) {
+    list.sort((a, b) => Number(!!b.fixedTop) - Number(!!a.fixedTop) || rank(a.id) - rank(b.id))
+  }
+  return grouped
+})
+const children = id => childrenMap.value.get(id) || []
 const visibleChildren = id => annotationFolderEntries(children(id), id).flatMap(row => [row, ...(expanded.value.has(row.id) ? children(row.id) : [])])
 const activeRootId = computed(() => {
   let row = nodes.value.find(item => item.id === props.selected)
@@ -205,7 +222,8 @@ const activeRootId = computed(() => {
   return row?.id || ''
 })
 const subFolders = computed(() => (activeRootId.value ? visibleChildren(activeRootId.value) : []))
-const count = id => sessionFolderCount(props.sessions, id, nodes.value)
+const folderStats = computed(() => createSessionFolderIndex(props.sessions, nodes.value))
+const count = id => folderStats.value.counts.get(id) || 0
 const expanded = ref(new Set(Array.isArray(saved.expanded) ? saved.expanded : []))
 const editing = ref(null), saving = ref(false), error = ref(''), editKey = ref(0)
 function toggle(id) { const value = new Set(expanded.value); value.has(id) ? value.delete(id) : value.add(id); expanded.value = value; persist() }
@@ -220,7 +238,7 @@ async function reveal(id=props.selected){
 // 分别观察标量，避免轮询替换分组数据时因数组引用变化反复拉回滚动位置。
 // 普通点击和轮询不自动定位，避免打断手动滚动。
 defineExpose({reveal})
-const mentionCount = id => sessionFolderMentionUnread(props.sessions, id, nodes.value)
+const mentionCount = id => folderStats.value.mentionUnreads.get(id) || 0
 function start(parentKey = null, row = null, conversation = false, directory = false) {
   if (editing.value || !categories.canManage || !canStartChatNameEditing()) return
   if (parentKey && !categories.hierarchyReady) return

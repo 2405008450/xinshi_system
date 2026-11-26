@@ -104,3 +104,111 @@ export function assignableSessionFolders(items, options) {
     label: [nodes.find(parent => parent.id === row.parentKey)?.name, row.name].filter(Boolean).join(' / '),
   }))
 }
+
+export function createSessionFolderIndex(sessions = [], nodes = []) {
+  const nodeById = new Map()
+  const conversationIds = new Set()
+  const statusRootByModule = new Map()
+  const statusNodeByKey = new Map()
+  const moduleRuleNodes = new Map()
+
+  for (const row of nodes) {
+    nodeById.set(row.id, row)
+    if (row.isConversation) conversationIds.add(row.id)
+    if (row.ruleKey === 'project-status' && row.projectModule) {
+      const list = statusRootByModule.get(row.projectModule) || []
+      list.push(row.id)
+      statusRootByModule.set(row.projectModule, list)
+    } else if (row.ruleKey?.startsWith('status:') && row.projectModule) {
+      const key = `${row.projectModule}:${row.ruleKey.slice(7)}`
+      const list = statusNodeByKey.get(key) || []
+      list.push(row.id)
+      statusNodeByKey.set(key, list)
+    } else if (['annotation', 'translation', 'interpretation', 'recruitment'].includes(row.ruleKey)) {
+      const list = moduleRuleNodes.get(row.ruleKey) || []
+      list.push(row.id)
+      moduleRuleNodes.set(row.ruleKey, list)
+    }
+  }
+
+  const sessionKeysByFolder = new Map()
+  const mentionByFolder = new Map()
+
+  const addAncestors = (startId, targetSet) => {
+    let cur = nodeById.get(startId)
+    let depth = 0
+    while (cur && depth <= 3) {
+      if (targetSet.has(cur.id)) break
+      targetSet.add(cur.id)
+      cur = cur.parentKey ? nodeById.get(cur.parentKey) : null
+      depth++
+    }
+  }
+
+  for (const session of sessions) {
+    const type = session.projectType || session.kind
+    if (type === 'direct') continue
+    const matched = new Set()
+    if (type === 'discussion' && ['资源开拓讨论', '资源开拓与讨论'].includes(session.subtitle) && nodeById.has(resourceFolderId)) {
+      matched.add(resourceFolderId)
+    }
+    if (type === 'discussion' && conversationIds.has(String(session.projectId))) {
+      addAncestors(String(session.projectId), matched)
+    }
+    if (Array.isArray(session.categoryIds)) {
+      for (const cid of session.categoryIds) {
+        if (nodeById.has(cid)) addAncestors(cid, matched)
+      }
+    }
+    const module = session.projectModule || type
+    const statusRoots = statusRootByModule.get(module)
+    if (statusRoots) {
+      for (const id of statusRoots) addAncestors(id, matched)
+    }
+    const normalizedStatus = normalizeProjectStatus(
+      module,
+      module === 'annotation' ? normalizeAnnotationStatus(session.projectStatus) : session.projectStatus,
+    ) || '__unset'
+    const statusNodes = statusNodeByKey.get(`${module}:${normalizedStatus}`)
+    if (statusNodes) {
+      for (const id of statusNodes) addAncestors(id, matched)
+    }
+    const moduleNodes = moduleRuleNodes.get(type)
+    if (moduleNodes) {
+      for (const id of moduleNodes) addAncestors(id, matched)
+    }
+
+    if (!matched.size) continue
+    const listKey = sessionListKey(session)
+    const mentionVal = Number(session.mentionUnread) || 0
+    for (const folderId of matched) {
+      let keys = sessionKeysByFolder.get(folderId)
+      if (!keys) {
+        keys = new Set()
+        sessionKeysByFolder.set(folderId, keys)
+      }
+      keys.add(listKey)
+
+      if (mentionVal > 0) {
+        let mMap = mentionByFolder.get(folderId)
+        if (!mMap) {
+          mMap = new Map()
+          mentionByFolder.set(folderId, mMap)
+        }
+        mMap.set(session.key, Math.max(mMap.get(session.key) || 0, mentionVal))
+      }
+    }
+  }
+
+  const counts = new Map()
+  for (const [folderId, keys] of sessionKeysByFolder.entries()) {
+    counts.set(folderId, keys.size)
+  }
+  const mentionUnreads = new Map()
+  for (const [folderId, mMap] of mentionByFolder.entries()) {
+    let sum = 0
+    for (const value of mMap.values()) sum += value
+    mentionUnreads.set(folderId, sum)
+  }
+  return { counts, mentionUnreads }
+}

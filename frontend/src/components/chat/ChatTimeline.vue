@@ -7,13 +7,13 @@
       <template v-for="(message, index) in messages" :key="message.id">
       <div v-if="showMessageDates && (index === 0 || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="group-date-divider"><span>{{ formatMessageDay(message.createdAt) }}</span></div>
       <article :ref="el => observeMessage(el, message)" :data-message-id="message.id" :data-sequence="message.sequenceNo"
-        class="group-message" :class="{ 'group-message--own': message.senderUserId === currentUserId, 'group-message--grouped': !chatGroupStart(message, messages[index - 1]), 'group-message--highlight': highlighted === message.id, 'group-message--mentioned': mentionsMe(message) }">
-        <div class="group-message-meta"><el-checkbox v-if="!message.recalledAt && props.canAddToProgress && message.content" v-model="selected" :value="message.id" :label="message.id"><span class="sr-only">选择消息</span></el-checkbox><strong v-if="!message.recalledAt && message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''">{{ chatMessageTime(message.createdAt) }}</time></div>
+        class="group-message" :class="{ 'group-message--own': message.senderUserId === currentUserId, 'group-message--grouped': !chatGroupStart(message, messages[index - 1]), 'group-message--highlight': highlighted === message.id, 'group-message--mentioned': mentionsMe(message), 'group-message--sending': message.optimisticStatus === 'sending', 'group-message--failed': message.optimisticStatus === 'failed' }">
+        <div class="group-message-meta"><el-checkbox v-if="!message.recalledAt && !message.optimisticStatus && props.canAddToProgress && message.content" v-model="selected" :value="message.id" :label="message.id"><span class="sr-only">选择消息</span></el-checkbox><strong v-if="!message.recalledAt && message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''">{{ chatMessageTime(message.createdAt) }}</time></div>
         <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts?.canReedit(message)" @reedit="reeditMessage" />
         <template v-else>
           <span v-if="message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])" class="group-message-avatar" aria-hidden="true">{{ chatAvatarText(message.senderName) }}</span>
           <div class="group-message-main">
-          <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''" @contextmenu="messageMenu.open($event,message)" @keydown="messageMenu.openKeyboard($event,message)">
+          <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''" @contextmenu="!message.optimisticStatus && messageMenu.open($event,message)" @keydown="!message.optimisticStatus && messageMenu.openKeyboard($event,message)">
             <blockquote v-if="message.reply" class="group-reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote>
             <ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" />
             <template v-else>
@@ -31,7 +31,13 @@
               <el-button v-if="file.contentType.startsWith('image/') && imageErrors[file.id]" link @click="loadImage(file)">重新加载图片</el-button>
             </div>
           </div>
-          <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu.open($event,message)">⋯</button>
+          <button v-if="!message.optimisticStatus" type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu.open($event,message)">⋯</button>
+          <span v-else-if="message.optimisticStatus === 'sending'" class="chat-optimistic-sending" role="status">发送中…</span>
+          <span v-else-if="message.optimisticStatus === 'failed'" class="chat-optimistic-failed" role="alert" :title="message.optimisticError || '发送失败'">
+            <span>发送失败</span>
+            <button type="button" class="chat-optimistic-action" @click="retryOptimisticMessage(message)">重试</button>
+            <button type="button" class="chat-optimistic-action is-muted" @click="removeOptimisticMessage(message)">移除</button>
+          </span>
           </div>
           <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="interactions.stats[message.id]" :views-available="interactions.viewsAvailable.value" :acknowledging="ackBusy.has(message.id)" @reply="menuHandlers.reply" @acknowledge="confirmReceived" @references="(id,event)=>references.open(id,event)" />
         </template>
@@ -59,7 +65,7 @@ import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress, quoteMessage } = inject('chatController')
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
-const { recallDrafts, reeditMessage, editingMessageId, editingSaving, editingError, startEdit, cancelEdit, saveEdit } = inject('chatController')
+const { recallDrafts, reeditMessage, editingMessageId, editingSaving, editingError, startEdit, cancelEdit, saveEdit, retryOptimisticMessage, removeOptimisticMessage } = inject('chatController')
 const messageMenu = ref(), references = ref(), ackBusy = ref(new Set())
 async function confirmReceived(message) {
   if(ackBusy.value.has(message.id))return
@@ -80,6 +86,14 @@ const menuHandlers = {
 .group-message-main{display:flex;align-items:center;gap:6px}.group-message--own .group-message-main{flex-direction:row-reverse}.group-message-main .group-bubble{margin-left:0;max-width:min(680px,calc(100% - 34px))}.group-bubble:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}
 .group-topic-label{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
 .chat-edited-tag{display:inline-block;margin-top:4px;font-size:11px;color:#94a3b8}
+.group-message--sending .group-bubble{opacity:.9}
+.group-message--failed .group-bubble{border-color:#fca5a5}
+.chat-optimistic-sending{font-size:11px;color:#94a3b8;white-space:nowrap;opacity:0;animation:chat-opt-fade .18s ease .4s forwards}
+.chat-optimistic-failed{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#dc2626;white-space:nowrap}
+.chat-optimistic-action{border:0;background:transparent;padding:0 2px;font:inherit;color:#2563eb;cursor:pointer}
+.chat-optimistic-action:hover{text-decoration:underline}
+.chat-optimistic-action.is-muted{color:#64748b}
+@keyframes chat-opt-fade{to{opacity:1}}
 .group-message{position:relative;padding-left:42px;margin:14px 0}.group-message--own{padding-left:0;padding-right:0}.group-message--grouped{margin-top:-6px}.group-message-avatar{position:absolute;left:0;top:1px;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#e3ebf5;color:#3b526b;font-size:12.5px;font-weight:600;border:1px solid #d5e0ee}.group-date-divider{display:flex;align-items:center;justify-content:center;margin:18px 0}.group-date-divider>span{padding:2px 10px;border-radius:10px;background:#e8edf4;color:#64748b;font-size:11px;line-height:1.5}.group-message-meta{flex-wrap:wrap}.group-message-meta time{white-space:normal;overflow-wrap:anywhere}
 </style>
 

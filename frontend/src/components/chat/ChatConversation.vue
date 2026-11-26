@@ -58,6 +58,7 @@ import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue
 import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
 import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
+import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
@@ -97,6 +98,7 @@ onMounted(() => { headerReady.value = true })
 const request = (...args) => (isDirect.value ? directChatRequest : annotationChatRequest)(...args)
 const emit = defineEmits(['add-to-progress', 'unread'])
 const currentUserId = localStorage.getItem('user_id') || ''
+const currentUserName = localStorage.getItem('user_name') || localStorage.getItem('username') || '我'
 const recallDrafts = useRecalledMessageDrafts(computed(() => [props.projectType, props.projectId]))
 // 局域网 HTTP 下 randomUUID 可能不可用，getRandomValues 仍可生成标准 UUID。
 const newMessageId = () => {
@@ -210,22 +212,23 @@ function scheduleFullSync() {
   refreshLoadedMessages = true
   return messageRefresh.schedule()
 }
-function merge(rows) {
-  const merged = new Map(messages.value.map(m => [m.id, m]))
-  rows.forEach(m => merged.set(m.id, m))
+function compareChatMessages(a, b) {
+  const seqA = a.sequenceNo ?? a.sequence_no ?? 0
+  const seqB = b.sequenceNo ?? b.sequence_no ?? 0
+  if (seqA !== seqB) return seqA - seqB
 
-  // 优先按服务端序号排序，历史消息使用时间和 ID 保持稳定顺序。
-  messages.value = [...merged.values()].sort((a, b) => {
-    const seqA = a.sequenceNo ?? a.sequence_no ?? 0
-    const seqB = b.sequenceNo ?? b.sequence_no ?? 0
-    if (seqA !== seqB) return seqA - seqB
+  const timeA = new Date(a.createdAt || a.created_at || 0).getTime()
+  const timeB = new Date(b.createdAt || b.created_at || 0).getTime()
+  if (timeA !== timeB) return timeA - timeB
 
-    const timeA = new Date(a.createdAt || a.created_at || 0).getTime()
-    const timeB = new Date(b.createdAt || b.created_at || 0).getTime()
-    if (timeA !== timeB) return timeA - timeB
-
-    return String(a.id).localeCompare(String(b.id))
+  return String(a.id).localeCompare(String(b.id))
+}
+function merge(rows, options = {}) {
+  messages.value = mergeWithOptimistic(messages.value, rows, {
+    replaceTempId: options.replaceTempId || '',
+    compareReal: compareChatMessages,
   })
+  const merged = new Map(messages.value.map(m => [m.id, m]))
 
   selected.value = selected.value.filter(id => merged.has(id) && !merged.get(id).recalledAt)
   if (replyTo.value && merged.get(replyTo.value.id)?.recalledAt) replyTo.value = null
@@ -262,12 +265,13 @@ async function search() {
   finally { if (version === generation) loading.value = false }
 }
 async function loadEarlier() {
-  if (loadingEarlier.value || !messages.value.length) return
+  const firstReal = messages.value.find(m => !isOptimisticMessage(m))
+  if (loadingEarlier.value || !firstReal) return
   autoScroll.pause()
   const version = generation, height = list.value.scrollHeight, top = list.value.scrollTop
   loadingEarlier.value = true
   try {
-    const data = await request(props.projectId, 'timeline', { params: { before: messages.value[0].sequenceNo } })
+    const data = await request(props.projectId, 'timeline', { params: { before: firstReal.sequenceNo } })
     if (version !== generation || disposed) return
     merge(data.items); hasEarlier.value = data.hasMore
     await nextTick(); if (list.value) list.value.scrollTop = top + list.value.scrollHeight - height
@@ -281,7 +285,7 @@ async function sync() {
   refreshLoadedMessages = false
   try {
     // 重连、定时兜底和消息操作会补查已加载历史。跨端新消息只读取增量。
-    const ids = refreshLoaded ? messages.value.map(m => m.id) : []
+    const ids = refreshLoaded ? messages.value.filter(m => !isOptimisticMessage(m)).map(m => m.id) : []
     for (let i = 0; i < ids.length; i += 200) {
       const data = await request(props.projectId, 'refresh', { method: 'post', data: { messageIds: ids.slice(i, i + 200) } })
       if (version !== generation || disposed) return
@@ -339,6 +343,7 @@ async function locate(id) {
   return true
 }
 function observeMessage(el, message) {
+  if (isOptimisticMessage(message)) return
   interactions.observe(el, message)
   if (el && observer && !observedElements.has(el)) { observedElements.add(el); observer.observe(el) }
 }
@@ -534,37 +539,82 @@ async function quoteMessage(message){
 }
 function cancelQuote(){if(sending.value||retryPayload.value)return;applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value));replyTo.value=null}
 watch(replyTo,value=>{if(!value&&automaticQuoteMention.value){applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value))}})
-async function send() {
-  if (!canSend.value) return
-  sending.value = true; sendError.value = ''
-  closeMention()
-  const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+function updateOptimisticMessage(tempId, patch) {
+  const index = messages.value.findIndex(item => item.id === tempId)
+  if (index < 0) return
+  const next = [...messages.value]
+  next[index] = { ...next[index], ...patch }
+  messages.value = next
+}
+async function deliverOptimisticMessage(tempMessage) {
+  const payload = tempMessage.optimisticPayload
+  if (!payload) return
+  updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'sending', optimisticError: '' })
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
+    if (disposed) return
     if (payload.replyToMessageId) {
       seenMentions.value = [...new Set([...seenMentions.value, payload.replyToMessageId])]
       void refreshSessions()
     } else {
       void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
     }
-    retryPayload.value = null; content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []
-    if (viewingHistory.value) await search()
-
-    // 发送成功后立即展示返回的消息。
-    if (message) {
-      merge([message])
+    if (viewingHistory.value) {
+      await search()
+    } else {
+      const follow = atBottom()
+      merge(message ? [message] : [], { replaceTempId: tempMessage.id })
+      if (follow) await bottom()
     }
-    if (!isDirect.value && payload.mentionedUserIds.length) {
+    if (!isDirect.value && payload.mentionedUserIds?.length) {
       memberFreshness.invalidate()
       void groupRefresh.schedule()
     }
-    await bottom()
-
   } catch (e) {
-    retryPayload.value = payload; sendError.value = detail(e)
-  } finally {
-    sending.value = false; nextTick(() => input.value?.focus())
+    if (disposed) return
+    updateOptimisticMessage(tempMessage.id, { optimisticStatus: 'failed', optimisticError: detail(e) })
   }
+}
+function retryOptimisticMessage(message) {
+  if (!message || message.optimisticStatus !== 'failed') return
+  void deliverOptimisticMessage(message)
+}
+function removeOptimisticMessage(message) {
+  if (!message || !isOptimisticMessage(message)) return
+  messages.value = messages.value.filter(item => item.id !== message.id)
+}
+async function send() {
+  if (!canSend.value) return
+  sendError.value = ''
+  closeMention()
+  const payload = retryPayload.value || {
+    content: outgoingContent(),
+    mentionAll: mentionIds.value.includes('__all__') && content.value.includes('@所有人 '),
+    mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))),
+    attachmentIds: files.value.map(f => f.data.id),
+    replyToMessageId: replyTo.value?.id || null,
+    clientMessageId: newMessageId(),
+  }
+  const optimisticAttachments = files.value.map(f => f.data).filter(Boolean)
+  const tempMessage = createOptimisticMessage({
+    clientMessageId: payload.clientMessageId,
+    senderUserId: currentUserId,
+    senderName: currentUserName,
+    content: payload.content,
+    reply: replyTo.value,
+    attachments: optimisticAttachments,
+    payload,
+  })
+  retryPayload.value = null
+  content.value = ''
+  files.value = []
+  imageQueue.clear()
+  replyTo.value = null
+  mentionIds.value = []
+  merge([tempMessage])
+  await bottom()
+  nextTick(() => input.value?.focus())
+  void deliverOptimisticMessage(tempMessage)
 }
 async function cancelRetry() {
   if (!retryPayload.value || sending.value) return
@@ -684,7 +734,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { recallDrafts, reeditMessage, editingMessageId, editingSaving, editingError, startEdit, cancelEdit, saveEdit, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { recallDrafts, reeditMessage, editingMessageId, editingSaving, editingError, startEdit, cancelEdit, saveEdit, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, retryOptimisticMessage, removeOptimisticMessage, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

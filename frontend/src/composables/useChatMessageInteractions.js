@@ -17,7 +17,7 @@ export function useChatMessageInteractions({ projectId, projectType, messages, a
   function queueRefresh() { void scheduledRefresh.schedule() }
   async function refresh() {
     if (disposed || !active.value || !projectId.value) return
-    const ids = [...new Set([...visible, ...messages.value.slice(-100).map(row => String(row.id))])].slice(0, 100)
+    const ids = [...new Set([...visible, ...messages.value.filter(row => !row.optimisticStatus).slice(-100).map(row => String(row.id))])].slice(0, 100)
     if (!ids.length) return
     // 已有统计请求在途时只登记一次补查，不取消在途请求：取消只会让浏览器放弃响应，后端仍要完整执行，
     // 滚动或新消息密集到达时反而叠加数据库负载。
@@ -45,7 +45,7 @@ export function useChatMessageInteractions({ projectId, projectType, messages, a
     finally { posting = false }
   }
   function observe(el, message) {
-    const id = String(message?.id || '')
+    const id = message?.optimisticStatus ? '' : String(message?.id || '')
     if (!id) return
     const previous = elements.get(id)
     if (previous && previous !== el) observer?.unobserve(previous)
