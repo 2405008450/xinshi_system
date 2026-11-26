@@ -296,6 +296,14 @@ def decorate_member_counts(db, rows):
                 row['member_count'] = counts.get(str(row['project_id']), 0)
 
 
+@router.get('/sessions/history')
+def session_history(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
+                    limit: int = Query(30, ge=1, le=100), mine: bool = False, db: Session = Depends(get_db),
+                    user: AppUser = Depends(get_current_user)):
+    from chat_session_history import list_sessions
+    return list_sessions(db, user, keyword, offset, limit, mine)
+
+
 @router.get('/sessions')
 def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     ready = phase_one_ready(db)
@@ -333,6 +341,8 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
     if not ready:
         import discussion_chat_service
         rows.extend(discussion_chat_service.catalog(db, user))
+        from chat_project_views import decorate_sessions as decorate_project_views
+        decorate_project_views(db, user, rows)
         decorate_member_counts(db, rows)
         session_categories.decorate_sessions(db, rows)
         decorate_mention_sessions(db, user, rows, mention_stats)
@@ -367,6 +377,8 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
     import discussion_chat_service
     rows.extend(discussion_chat_service.catalog(db, user))
+    from chat_project_views import decorate_sessions as decorate_project_views
+    decorate_project_views(db, user, rows)
     decorate_member_counts(db, rows)
     session_categories.decorate_sessions(db, rows)
     decorate_mention_sessions(db, user, rows, mention_stats)

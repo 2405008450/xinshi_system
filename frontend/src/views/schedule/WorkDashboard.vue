@@ -12,6 +12,7 @@
       >
         <template #context>
           <MyShiftStatus :loading="shiftLoading" :day="myShiftDay" />
+          <el-button @click="meetingHelpVisible=true">任务与会议帮助</el-button>
         </template>
       </ScheduleHeader>
     </template>
@@ -53,9 +54,11 @@
         <el-tab-pane name="my-tasks" label="我的任务与思考" lazy>
           <section class="my-tasks-upper" aria-label="我的项目任务">
             <TodayTasks :day="dailyReportDate" @open-project="handleOpenProject" />
+            <MeetingAssignedTasks category="project" />
           </section>
           <el-collapse v-model="personalSections" class="personal-work-sections">
             <el-collapse-item title="我的非项目任务" name="non-project">
+              <MeetingAssignedTasks v-if="personalSections.includes('non-project')" category="non_project" />
               <UnifiedTasksPanel v-if="personalSections.includes('non-project')" fixed-source="non_project" :current-user-name="currentUserName" :current-user-id="currentUserId" :items="workItems" :reference-date="scheduleDate" @refresh="loadMyWorkItems" />
             </el-collapse-item>
             <el-collapse-item title="我的思考与发散" name="thoughts"><MyThoughts v-if="personalSections.includes('thoughts')" /></el-collapse-item>
@@ -169,6 +172,7 @@
         @update:report-date="fieldWorkReportDate = $event" @status-change="onDailyReportStatus" />
       <template #footer><div ref="fieldWorkReportFooter" class="field-work-report-footer" /><el-button @click="fieldWorkReportOpen = false">关闭</el-button></template>
     </DraggableFormDialog>
+    <MeetingHelp v-model="meetingHelpVisible" />
     <ShiftMatrixDialog
       v-model="matrixVisible"
       :reference-date="scheduleDate"
@@ -189,7 +193,7 @@ import MyMonthlyShift from './components/MyMonthlyShift.vue'
 import { getMyWorkItems, getReportAccessContext } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
-import { getAnnotationProject } from '@/api/annotationProjects'
+import { loadProjectIdentity, resolveProjectType } from '@/utils/projectIdentity'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { ElMessage } from 'element-plus'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
@@ -198,6 +202,9 @@ import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
 
 const UnifiedTasksPanel = defineAsyncComponent(() => import('./components/UnifiedTasksPanel.vue'))
 const TodayTasks = defineAsyncComponent(() => import('./components/TodayTasks.vue'))
+const MeetingAssignedTasks=defineAsyncComponent(()=>import('@/components/meetings/MeetingAssignedTasks.vue'))
+const MeetingHelp=defineAsyncComponent(()=>import('@/components/meetings/MeetingHelp.vue'))
+const meetingHelpVisible=ref(false)
 const MyThoughts = defineAsyncComponent(() => import('./components/MyThoughts.vue'))
 const personalSections=ref(['non-project','thoughts'])
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
@@ -235,7 +242,7 @@ function readInitialMainTab() {
 }
 
 const activeSection = ref(readInitialMainTab())
-watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
+watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';else if(value==='my-tasks')activeSection.value='my-tasks';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
 function openMyWorkReport(){activeSection.value='daily-report';dailyReportDate.value=reportBusinessDate()}
 const reportAnnotationProject = ref(null)
 const reportChatProject = computed(() => typeof attendanceRoute.query.reportChatProject === 'string' ? attendanceRoute.query.reportChatProject : '')
@@ -244,24 +251,27 @@ function returnToReportChat() {
   useProjectChatDock().openChat({ projectId: reportChatProject.value, projectType: 'annotation', syncSidebar: true })
 }
 function clearReportProject(id) {
-  if (attendanceRoute.query.reportAnnotationProject !== id) return
+  if ((attendanceRoute.query.reportProjectId || attendanceRoute.query.reportAnnotationProject) !== id) return
   const query = { ...attendanceRoute.query }
   delete query.reportAnnotationProject
+  delete query.reportProjectId
+  delete query.reportProjectType
   void router.replace({ query })
 }
-watch(() => attendanceRoute.query.reportAnnotationProject, async (id, _, onCleanup) => {
+watch(() => [attendanceRoute.query.reportProjectId || attendanceRoute.query.reportAnnotationProject, attendanceRoute.query.reportProjectType || 'annotation'], async ([id, projectType], _, onCleanup) => {
   reportAnnotationProject.value = null
   if (typeof id !== 'string' || !id) return
   openMyWorkReport()
   const controller = new AbortController()
   onCleanup(() => controller.abort())
   try {
-    const project = await getAnnotationProject(id, { signal: controller.signal })
+    const type = resolveProjectType(projectType)
+    const project = await loadProjectIdentity(type, id, { signal: controller.signal })
     if (!project?.projectName?.trim()) throw new Error('缺少项目名称')
-    if (!controller.signal.aborted) reportAnnotationProject.value = { id, name: project.projectName }
+    if (!controller.signal.aborted) reportAnnotationProject.value = { id, type, name: project.projectName, orderNo: project.orderNo }
   } catch (error) {
     if (controller.signal.aborted) return
-    ElMessage.error(error.detail || '无法带入标注项目')
+    ElMessage.error(error.detail || '无法带入项目')
     clearReportProject(id)
   }
 }, { immediate: true })

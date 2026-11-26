@@ -3048,3 +3048,17 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - 指定执行人先确认收到，填写公众号执行说明；回执 `platforms=[]`、`content` 保存说明。首次执行后创建内部 `kind=wechat_broadcast` 批次，保留原批次 ID、执行人和说明快照，通知当时所有在用且未删除账号。唯一幂等键 `public-broadcast:<原批次UUID>` 与需求行锁共同避免重复广播。
 - 全体通知的逐人收到、已执行时间仍存于原回执表；取消公众号需求同时取消后续广播，保留历史执行与确认记录。
 - 新默认名单配置键为 `v2_circle`、`v2_wechat_public`、`v2_xiaohongshu`（均不超过原 `kind` 的16字符），与旧配置隔离。NULL 使用动态初始规则：发圈为全体在用账号，公众号为王露和黄杰，小红书为舒婷；显式空列表表示管理员清空。口译、标注共用，设置入口为资源需求管理的“需求发送设置”。
+
+
+### meeting_arrangement / meeting_participant（会议安排与回执）
+- meeting_arrangement：number INTEGER 自增主键（“第N个会议”）；id UUID 唯一公共标识；client_id UUID 唯一提交幂等键；organizer_id UUID 召开人外键及索引；topic VARCHAR(500)；meeting_type VARCHAR(30)；location VARCHAR(80)；start_at/end_at TIMESTAMPTZ；selection JSON 人员/部门选择快照；association JSON 项目/客户/部门/技术任务关联快照；note TEXT；created_at TIMESTAMPTZ。结束晚于开始约束、开始时间索引。
+- meeting_participant：(meeting_id,user_id) UUID 复合主键及外键；name VARCHAR(200) 邀请时姓名；response VARCHAR(20) pending/attending/declined；reason TEXT 不能参加事由；responded_at TIMESTAMPTZ；response_version INTEGER 回执版本；organizer_seen_version INTEGER 召开人已读版本。user_id/response 索引、状态约束。
+- 全部业务时间接口以 +08:00 返回。读取仅召开人及参会人；不能参加事由仅召开人及本人可见；创建/回执与通知同事务，提交后推送。部门/全体按发送时快照，不追溯加入后续新成员。
+- 倒计时提前量：会议≤30分钟提前10分钟，30至60分钟提前15分钟，超过60分钟提前20分钟。
+- 创建脚本：tools/apply_meeting_migration.py，仅创建新表及必要约束/索引，无启动自动迁移、无历史回填。
+
+#### 会议议程、实际确认及任务安排补充
+- meeting_arrangement.agendas JSON：多项议程的content、same_people、user_ids快照；实际确认actual_start_at/actual_end_at TIMESTAMPTZ、actual_user_ids JSON、confirmed_at TIMESTAMPTZ，单次原子写入报告，重复确认不重新插入。报告项source_type=manual，可删除；来源metadata.source=meeting。
+- meeting_arrangement.record_content TEXT（最多30000字）、record_version INTEGER 并发版本：支持纯记录，或同事务创建多人任务。
+- meeting_action_task：id UUID主键；client_id UUID请求键；meeting_id/assignee_id/arranger_id UUID外键；category project/non_project；content TEXT；project JSON项目身份快照；due_at/assigned_at/completed_at TIMESTAMPTZ；status pending/in_progress/completed；revision INTEGER。client_id+assignee_id唯一，会议和执行人索引。每人独立任务、仅本人修改状态；召开人读取本会议任务。
+- 工作报告分类目录改为共享展示所有用户已保存的分类和二级内容；不公开创建人的报告正文，不共享个人排版固定任务，项目分类新增仍仅超级管理员。无需修改既有表结构或历史行。

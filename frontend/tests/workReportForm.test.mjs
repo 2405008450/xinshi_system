@@ -74,7 +74,7 @@ test('日期和星期固定UTC+8，跨月跨年正确',()=>{
 test('工作量支持小数和空值，拒绝负数非数字',()=>{for(const n of ['',null,0,'1.25'])assert.equal(validQuantity(n),true);for(const n of ['x',-1,Infinity])assert.equal(validQuantity(n),false)})
 
 test('工作分类保留层级，非项目、外勤及财务工作免填订单和项目名称',()=>{
- const options=buildWorkTypeOptions();assert.deepEqual(options.map(option=>option.label),['项目工作','非项目工作','财务工作','外勤工作','管理工作','培训工作'])
+ const options=buildWorkTypeOptions();assert.deepEqual(options.map(option=>option.label),['项目工作','非项目工作','财务工作','外勤工作','管理工作','会议','培训工作'])
  for(const types of [['非项目工作'],['非项目工作::接待客户'],['外勤工作::拜访客户'],['财务工作::客户对账']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),false)
  for(const types of [['笔译项目'],['管理工作::分析数据'],['培训工作::AI知识培训'],['非项目工作::接待客户','管理工作::分析数据']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),true)
  const row={display_metadata:{}};updateRowTypes(row,['外勤工作::拜访客户','管理工作::分析数据']);assert.equal(row.task_type,'外勤工作、管理工作')

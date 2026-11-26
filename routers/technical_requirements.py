@@ -38,10 +38,12 @@ def listing(keyword:str=Query('',max_length=200),offset:int=Query(0,ge=0),limit:
     from discussion_chat_models import DiscussionMember
     from sqlalchemy import func
     from search_matching import keyword_contains
-    query=db.query(TechnicalRoom).join(AnnotationProject,AnnotationProject.id==TechnicalRoom.project_id).join(DiscussionMember,DiscussionMember.room_id==TechnicalRoom.room_id).filter(DiscussionMember.user_id==user.id)
+    from chat_session_category_models import ChatSessionCategory
+    if not user.is_active: return dict(items=[],total=0)
+    query=db.query(TechnicalRoom,AnnotationProject).join(AnnotationProject,AnnotationProject.id==TechnicalRoom.project_id).join(DiscussionMember,DiscussionMember.room_id==TechnicalRoom.room_id).join(ChatSessionCategory,ChatSessionCategory.id==TechnicalRoom.room_id).filter(DiscussionMember.user_id==user.id,ChatSessionCategory.active.is_(True))
     if keyword.strip():query=query.filter(keyword_contains(func.coalesce(AnnotationProject.order_no,'')+' '+func.coalesce(AnnotationProject.project_name,'')+' '+TechnicalRoom.requirements,keyword))
     total=query.count()
-    return dict(items=[service.serialize(db,row) for row in query.order_by(TechnicalRoom.updated_at.desc(),TechnicalRoom.project_id).offset(offset).limit(limit)],total=total)
+    return dict(items=[service.serialize(db,row,project) for row,project in query.order_by(TechnicalRoom.updated_at.desc(),TechnicalRoom.project_id).offset(offset).limit(limit)],total=total)
 
 
 @router.get('/rooms/{room_id}')

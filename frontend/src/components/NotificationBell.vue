@@ -239,6 +239,7 @@ const projectNotificationRoutes = {
 }
 const workflowTargets = ['workflow_handover_pending', 'project_manager_handover_pending']
 const notificationEntityTargets = [
+  'meeting_invitation', 'meeting_receipt', 'meeting_task',
   'translation_simple_dispatch', 'translation_simple_dispatch_receipt',
   'translation_simple_requirement', 'translation_simple_requirement_receipt', 'resource_request_dispatch', 'chat_summary',
 ]
@@ -263,6 +264,8 @@ async function openReceivedTarget(item) {
   }
 }
 const navigateToNotification = async (item) => {
+  if(item.notification_type==='meeting_task'){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'my-tasks'}});return}
+  if(['meeting_invitation','meeting_receipt','meeting_task'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;window.dispatchEvent(new CustomEvent('meeting-open',{detail:{meetingId:String(item.related_entity_id)}}));return}
   if(['business_invoice_request','interpretation_invoice_request'].includes(item.related_project_type)&&item.related_entity_id){popoverVisible.value=false;businessInvoiceRequestId.value=String(item.related_entity_id);return}
   if (item.related_project_type === 'invoice_request' && item.related_entity_id) {
     popoverVisible.value = false

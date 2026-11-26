@@ -99,21 +99,21 @@ test('关闭未打开的目录会话仍可移出，重复关闭不会新增记�
   assert.equal(instance.state.windows.length, 0)
 })
 
-test('最近关闭按关闭顺序保留10个系列，重复关闭前移，点击恢复仅打开目标订单', () => {
+test('最近关闭按关闭顺序保留全部系列，重复关闭前移，点击恢复仅打开目标订单', () => {
   const { dock: instance, storage } = createDockHarness()
   const sessions = Array.from({ length: 12 }, (_, i) => ({ key: `annotation:${i}`, projectId: String(i), projectType: 'annotation', title: `会话${i}`, subtitle: `AP-261021-${String(i + 1).padStart(3, '0')}`, projectStatus: 'trial_preparation' }))
   for (const session of sessions) instance.closeSessionEntry(session)
-  assert.equal(instance.state.recentClosedSessions.length, 10)
+  assert.equal(instance.state.recentClosedSessions.length, 12)
   assert.equal(instance.state.recentClosedSessions[0].key, 'annotation:11')
   instance.closeSessionEntry(sessions[5])
   assert.equal(instance.state.recentClosedSessions[0].key, 'annotation:5')
-  assert.equal(new Set(instance.state.recentClosedSessions.map(row => row.key)).size, 10)
+  assert.equal(new Set(instance.state.recentClosedSessions.map(row => row.key)).size, 12)
   const restored = createDockHarness(storage).dock
   restored.ensurePreferences()
-  assert.equal(restored.state.recentClosedSessions.length, 10)
+  assert.equal(restored.state.recentClosedSessions.length, 12)
   restored.restoreClosedSession(restored.state.recentClosedSessions[0])
   assert.deepEqual(Array.from(restored.state.windows, row => row.key), ['annotation:5'])
-  assert.equal(restored.state.recentClosedSessions.length, 9)
+  assert.equal(restored.state.recentClosedSessions.length, 11)
   assert.equal(restored.state.closedSessionKeys.includes('annotation:5'), false)
 })
 
@@ -212,7 +212,7 @@ test('关闭当前会话不删除其他已打开会话；减号仍只最小化',
   assert.match(dock, /@close-active="closeWorkspaceSession"/)
 })
 
-test('一键恢复跨分组最新十项，恢复时列表变化也不跳项，最新会话成为当前项', () => {
+test('一键恢复跨分组全部记录，恢复时列表变化也不跳项，最新会话成为当前项', () => {
   const { dock: instance } = createDockHarness()
   for (let i = 0; i < 12; i++) {
     const key = instance.openChat({ projectId: String(i), projectType: i % 2 ? 'annotation' : 'direct', title: `会话${i}` })
@@ -225,10 +225,10 @@ test('一键恢复跨分组最新十项，恢复时列表变化也不跳项，�
     recentClosedVisible: { value: true },
     emit: (event, item) => instance.restoreClosedSession(item),
   })
-  assert.equal(instance.state.windows.length, 10)
+  assert.equal(instance.state.windows.length, 12)
   assert.equal(instance.state.recentClosedSessions.length, 0)
   assert.equal(instance.state.activeKey, latest)
-  assert.equal(instance.state.closedSessionKeys.length, 2)
+  assert.equal(instance.state.closedSessionKeys.length, 0)
 })
 
 test('历史提及只标记原目录及临时打开的项目，不能加入目录外项目', () => {
@@ -724,4 +724,22 @@ test('通知重复打开当前会话也会通知侧栏同步，普通会话点�
  const h=createDockHarness();h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A'});await Promise.resolve();assert.equal(h.viewport.events.length,0)
  h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A',syncSidebar:true});await Promise.resolve();await Promise.resolve()
  assert.equal(h.viewport.events.at(-1).type,'chat-conversation-activated');assert.equal(h.viewport.events.at(-1).detail.projectId,'a');h.dock.closeAllChats()
+})
+
+
+test('移除最近关闭记录或清空全部不会删除会话，刷新后也不重新填回',()=>{
+ const {dock:instance,storage}=createDockHarness()
+ const rows=Array.from({length:55},(_,i)=>({key:`annotation:history-${i}`,projectId:`history-${i}`,projectType:'annotation',title:`关闭记录${i}`,subtitle:`AP-261126-${String(i).padStart(3,'0')}`}))
+ for(const row of rows)instance.closeSessionEntry(row)
+ assert.equal(instance.state.recentClosedSessions.length,55)
+ instance.removeClosedHistory(instance.state.recentClosedSessions[0])
+ assert.equal(instance.state.recentClosedSessions.length,54)
+ assert.equal(instance.state.closedSessionKeys.length,55)
+ const restored=createDockHarness(storage).dock;restored.ensurePreferences()
+ assert.equal(restored.state.recentClosedSessions.length,54)
+ restored.clearClosedHistory();assert.equal(restored.state.recentClosedSessions.length,0)
+ const cleared=createDockHarness(storage).dock;cleared.ensurePreferences();cleared.syncClosedSessionCatalog(rows)
+ assert.equal(cleared.state.recentClosedSessions.length,0)
+ assert.equal(cleared.state.closedSessionKeys.length,55)
+ cleared.restoreClosedSession(rows[0]);assert.equal(cleared.state.windows.length,1)
 })

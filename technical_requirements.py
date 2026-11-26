@@ -1,4 +1,4 @@
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 import re
 from fastapi import HTTPException
 from sqlalchemy import inspect, func
@@ -20,7 +20,28 @@ def specs(db):
     if not ready(db): return []
     from discussion_chat_service import ANNOTATION_ROOT
     return [dict(id=str(room.room_id),name=f'技术需求 · {project.project_name or project.order_no}',parent_key=ANNOTATION_ROOT,
-        technical_project_id=str(project.id),technical_order_no=project.order_no) for room,project in db.query(TechnicalRoom,AnnotationProject).join(AnnotationProject,AnnotationProject.id==TechnicalRoom.project_id)]
+        technical_project_id=str(project.id),technical_order_no=project.order_no,
+        technical_folder_day=api_time(room.created_at).date().isoformat()) for room,project in db.query(TechnicalRoom,AnnotationProject).join(AnnotationProject,AnnotationProject.id==TechnicalRoom.project_id)]
+
+
+def folder_catalog(db, user, active_category_ids):
+    """展示时归入创建当天的每日文件夹，复用项目发送的日期目录 ID。"""
+    from discussion_chat_service import ANNOTATION_ROOT
+    rows = specs(db)
+    member_rooms = {str(room_id) for room_id, in db.query(DiscussionMember.room_id).filter_by(user_id=user.id)} if rows else set()
+    overrides, folders, hidden = {}, {}, set()
+    for row in rows:
+        if row['id'] not in member_rooms:
+            hidden.add(row['id'])
+            continue
+        if row['id'] not in active_category_ids:
+            continue
+        day = row['technical_folder_day']
+        folder_id = str(uuid5(NAMESPACE_URL, f'xinshi:annotation:date:{day}'))
+        overrides[row['id']] = dict(row, parent_key=folder_id)
+        folders[folder_id] = dict(id=folder_id, name=day.replace('-', '')[2:], parent_key=ANNOTATION_ROOT,
+            active=True, revision=1, is_conversation=False, builtin=True, assignable=False)
+    return overrides, list(folders.values()), hidden
 
 
 def default_members(db, project, user):
@@ -41,10 +62,11 @@ def default_members(db, project, user):
     return [p for p in people if p.id in ids]
 
 
-def serialize(db, row):
-    project=db.get(AnnotationProject,row.project_id)
+def serialize(db, row, project=None):
+    if project is None: project=db.get(AnnotationProject,row.project_id)
     return api_time(dict(room_id=row.room_id,project_id=row.project_id,title=f'技术需求 · {project.project_name or project.order_no}',
-        order_no=project.order_no,requirements=row.requirements,revision=row.revision,updated_at=row.updated_at))
+        order_no=project.order_no,requirements=row.requirements,revision=row.revision,created_at=row.created_at,
+        folder_day=api_time(row.created_at).date().isoformat(),updated_at=row.updated_at))
 
 
 def open_room(db,user,project_id,extra_ids):

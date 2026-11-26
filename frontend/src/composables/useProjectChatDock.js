@@ -22,6 +22,7 @@ const state = reactive({
   windows: [],
   closedSessionKeys: [],
   recentClosedSessions: [],
+  recentClosedHistoryInitialized: false,
   layout: 'float',
   tileMode: '',
   workspaceMinimized: false,
@@ -77,6 +78,7 @@ const persistPreferences = () => {
       closedSessionKeys: [...state.closedSessionKeys],
       protectedDiscussionKeys: [...protectedDiscussionKeys],
       recentClosedSessions: state.recentClosedSessions,
+      recentClosedHistoryInitialized: state.recentClosedHistoryInitialized,
     }))
   } catch {
     // 隐私模式或存储配额不足时仍允许本次会话使用当前档位。
@@ -92,7 +94,8 @@ const ensurePreferences = () => {
     state.closedSessionKeys = Array.isArray(saved.closedSessionKeys)
       ? [...new Set(saved.closedSessionKeys.filter(key => typeof key === 'string' && (/^(annotation|translation|direct):.+$/.test(key) || protectedDiscussionKeys.has(key))))] : []
     state.recentClosedSessions = Array.isArray(saved.recentClosedSessions) ? saved.recentClosedSessions.filter(item =>
-      item && typeof item.key === 'string' && (/^(annotation|translation|direct):.+$/.test(item.key) || protectedDiscussionKeys.has(item.key)) && typeof item.projectId === 'string').slice(0, 10) : []
+      item && typeof item.key === 'string' && (/^(annotation|translation|direct):.+$/.test(item.key) || protectedDiscussionKeys.has(item.key)) && typeof item.projectId === 'string') : []
+    state.recentClosedHistoryInitialized = saved.recentClosedHistoryInitialized ?? Array.isArray(saved.recentClosedSessions)
     // 兼容旧版全屏偏好，刷新后恢复普通布局，不自动遮住业务页面。
     const savedLayout = saved.workspaceMaximized === true ? saved.maximizedFrom : saved.layout
     if (savedLayout === 'workspace' || savedLayout === 'float') state.layout = savedLayout
@@ -571,7 +574,8 @@ const rememberClosedSession = (session, sessionKeys = [session.key]) => {
   }
   const previous = state.recentClosedSessions.filter(item => sessionListKey(item) === sessionListKey(entry))
   entry.sessionKeys = [...new Set([...sessionKeys, ...previous.flatMap(item => item.sessionKeys || [item.key])])]
-  state.recentClosedSessions = [entry, ...state.recentClosedSessions.filter(item => sessionListKey(item) !== sessionListKey(entry))].slice(0, 10)
+  state.recentClosedSessions = [entry, ...state.recentClosedSessions.filter(item => sessionListKey(item) !== sessionListKey(entry))]
+  state.recentClosedHistoryInitialized = true
 }
 
 const closeChat = (key, { session, recordRecent = true } = {}) => {
@@ -621,10 +625,22 @@ const restoreClosedSession = (session) => {
   return key
 }
 
+const removeClosedHistory = (entry) => {
+  ensurePreferences()
+  const keys=new Set(entry.sessionKeys || [entry.key])
+  state.recentClosedSessions=state.recentClosedSessions.filter(item=>!(item.sessionKeys || [item.key]).some(key=>keys.has(key)))
+  state.recentClosedHistoryInitialized=true
+  persistPreferences()
+}
+const clearClosedHistory = () => {
+  ensurePreferences();state.recentClosedSessions=[];state.recentClosedHistoryInitialized=true;persistPreferences()
+}
+
 const syncClosedSessionCatalog = (catalog) => {
   ensurePreferences()
   for(const session of catalog)if(session.deletionProtected&&session.key?.startsWith('discussion:'))protectedDiscussionKeys.add(session.key)
-  if (state.recentClosedSessions.length || !catalog.length) return
+  if (state.recentClosedHistoryInitialized || state.recentClosedSessions.length || !catalog.length) return
+  state.recentClosedHistoryInitialized = true
   const known = new Set(state.recentClosedSessions.flatMap(item => item.sessionKeys || [item.key]))
   // 为升级前只记录了 ID 的关闭项补齐名称，不改变原有关闭顺序。
   for (const key of state.closedSessionKeys) {
@@ -727,6 +743,8 @@ export const useProjectChatDock = () => ({
   closeSessionEntry,
   restoreClosedSession,
   syncClosedSessionCatalog,
+  removeClosedHistory,
+  clearClosedHistory,
   closeAllChats,
   closeWorkspaceSession,
   minimizeChat,

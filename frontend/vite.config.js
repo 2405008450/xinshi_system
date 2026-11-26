@@ -3,13 +3,16 @@ import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
+import localhostAlias from './plugins/localhostAlias.js'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000'
 
   return {
+    define: { __APP_UPDATED_AT__: JSON.stringify(new Intl.DateTimeFormat('sv-SE', { timeZone:'Asia/Hong_Kong',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23' }).format(new Date())) },
     plugins: [
+      localhostAlias(),
       vue(),
       Components({ resolvers: [
         name => name === 'ElFormItem' ? { name: 'default', from: fileURLToPath(new URL('./src/components/common/ClientLinkFormItem.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/form/style/css' } : undefined,

@@ -1,0 +1,43 @@
+<template>
+  <section class="chat-session-directory" :aria-label="mine ? '我的项目' : '全部会话'">
+    <p role="status">{{ mine ? '我的项目' : '全部会话' }} · {{ total }} 个</p>
+    <p v-if="error" role="alert">{{ error }} <el-button link @click="load">重试</el-button></p>
+    <p v-if="loading">加载中…</p>
+    <el-empty v-else-if="!items.length && !error" description="没有符合条件的会话" :image-size="48" />
+    <button v-for="item in items" :key="item.key" type="button" class="chat-session-directory__item" @click="$emit('open', { ...item, projectType: item.kind })">
+      <strong>{{ item.title }}</strong><small>{{ item.subtitle }} · 点击查看聊天记录</small>
+    </button>
+    <ChatListPagination v-model:page="page" v-model:page-size="pageSize" :total="total" @change="load" />
+  </section>
+</template>
+<script setup>
+import { ref, watch, onBeforeUnmount } from 'vue'
+import ChatListPagination from './ChatListPagination.vue'
+import { chatRequest } from '@/api/projectChat'
+const props = defineProps({ keyword: String, revision: Number, active: Boolean, mine: Boolean })
+defineEmits(['open'])
+const items = ref([]), total = ref(0), page = ref(1), pageSize = ref(20), loading = ref(false), error = ref('')
+let controller, generation = 0
+async function load() {
+  controller?.abort()
+  const version = ++generation, identity = localStorage.getItem('user_id')
+  loading.value = false
+  if (!props.active) return
+  const current = new AbortController(); controller = current
+  loading.value = true; error.value = ''; items.value = []
+  try {
+    const data = await chatRequest('sessions/history', { params: { keyword: props.keyword || '', mine: props.mine, offset: (page.value - 1) * pageSize.value, limit: pageSize.value }, signal: current.signal })
+    if (version !== generation || identity !== localStorage.getItem('user_id')) return
+    total.value = data.total || 0
+    const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+    if (page.value > lastPage) { page.value = lastPage; return load() }
+    items.value = data.items || []
+  } catch (e) { if (version === generation && !current.signal.aborted) error.value = e.detail || e.message || '全部会话暂时无法加载' }
+  finally { if (version === generation) loading.value = false }
+}
+watch(() => [props.keyword, props.revision, props.active, props.mine], () => { page.value = 1; total.value = 0; items.value = []; load() }, { immediate: true })
+onBeforeUnmount(() => { ++generation; controller?.abort() })
+</script>
+<style scoped>
+.chat-session-directory{padding:4px 8px;font-size:12px;color:#64748b}.chat-session-directory__item{display:flex;flex-direction:column;gap:6px;width:100%;padding:12px 8px;text-align:left;border:0;border-bottom:1px solid #e2e8f0;background:transparent;color:#334155;cursor:pointer}.chat-session-directory__item:hover{background:#e8eef7}.chat-session-directory__item strong{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.chat-session-directory__item small{color:#64748b}.chat-session-directory :deep(.el-pagination){justify-content:center;margin:12px 0}
+</style>

@@ -87,6 +87,7 @@ import {createAutoDraftStore} from '@/utils/autoDraftStore'
 import {mergeAnnotationOperationRows,newReportRow,reportBusinessDate,reportWeekday,shiftReportDate,requiresProjectIdentity,updateRowTypes} from '@/utils/workReportForm'
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
+import { projectTypeNames } from '@/utils/projectIdentity'
 import {
   getDailyReportEditorContext,
   amendDailyReport,
@@ -241,21 +242,26 @@ watch([() => props.annotationProject, () => props.reportDate, loadedDate, loadin
   }
   handledAnnotationProject = project
   const rows = sheetRef.value.getRows()
+  const type = project.type || 'annotation'
+  const category = projectTypeNames[type]
   let index = rows.findIndex(row => row.source_type === 'manual' &&
-    row.display_metadata?.chat_annotation_project_id === project.id &&
-    row.display_metadata.report_types?.includes('标注项目') && !row.progress_content?.trim())
+    (row.display_metadata?.project_id === project.id || type === 'annotation' && row.display_metadata?.chat_annotation_project_id === project.id) &&
+    row.display_metadata.report_types?.includes(category) && !row.progress_content?.trim())
   if (index === -1) {
     const row = newReportRow()
-    row.task_name = Array.from(project.name).slice(0, 255).join('')
-    row.display_metadata.chat_annotation_project_id = project.id
-    updateRowTypes(row, ['标注项目'])
+    updateRowTypes(row, [category])
     index = rows.length
-    report.items = [...rows, row]
-    await nextTick()
-    onEditorChange(Math.max(1, dirtyCount.value))
+    rows.push(row)
   }
+  const row = rows[index]
+  if (!row.task_name?.trim()) row.task_name = Array.from(project.name).slice(0, 255).join('')
+  Object.assign(row.display_metadata, { project_id: project.id, selected_project_type: category, selected_project_name: project.name, order_no: project.orderNo || row.display_metadata.order_no || '' })
+  if (type === 'annotation') row.display_metadata.chat_annotation_project_id = project.id
+  report.items = rows
+  await nextTick()
+  onEditorChange(Math.max(1, dirtyCount.value))
   emit('annotation-project-applied', project.id)
-  await sheetRef.value?.focusReportRow(index, 'input[aria-label$="订单号"]')
+  await sheetRef.value?.focusReportRow(index, 'textarea[aria-label$="具体任务"]')
 }, { flush: 'post' })
 
 function cacheDraft(date=props.reportDate,force=false){

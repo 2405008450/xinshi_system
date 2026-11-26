@@ -53,7 +53,7 @@ def room_specs(db):
                     if str(row.id) not in existing)
     root_ids = {row['id'] for row in BUILTIN_FOLDERS if not row['parentKey']}
     active_categories = {str(row.id) for row in db.query(Category).filter(Category.active.is_(True))}
-    locations = {str(row.category_id): str(row.parent_key) for row in db.query(Folder)} if folder_schema_ready(db) else {}
+    locations = {str(row.category_id): str(row.parent_key) if row.parent_key else None for row in db.query(Folder)} if folder_schema_ready(db) else {}
     visible = root_ids | {key for key in active_categories if not locations.get(key)}
     for _ in range(2):
         visible |= {key for key in active_categories if locations.get(key) in visible}

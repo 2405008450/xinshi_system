@@ -13,11 +13,12 @@
     <p v-if="error" role="alert">{{ error }} <el-button link @click="refresh">重试</el-button></p>
     <el-empty v-else-if="!followed.length" description="在项目沟通中点击关注，即可在这里快速找到" :image-size="50" />
     <div class="annotation-favorites-list">
-      <div v-for="item in followed" :key="item.projectId" class="annotation-favorite-row" @contextmenu.prevent.stop="showFavoriteMenu($event, item)" @keydown.shift.f10.prevent.stop="showFavoriteMenu($event, item)">
+      <div v-for="item in pagedFavorites" :key="item.projectId" class="annotation-favorite-row" @contextmenu.prevent.stop="showFavoriteMenu($event, item)" @keydown.shift.f10.prevent.stop="showFavoriteMenu($event, item)">
         <button class="annotation-favorite-project" :aria-label="`定位项目 ${item.orderNo}`" @click="locateProject(item)"><span>{{ item.projectName || '未命名项目' }}</span><small>{{ orderLabel(item.orderNo) }} · {{ item.orderNo }}</small></button>
         <el-badge :value="item.mentionUnread" :hidden="!item.mentionUnread" :max="99"><el-button link type="primary" :aria-label="`沟通 ${item.orderNo}`" @click="open(item)">沟通</el-button></el-badge>
       </div>
     </div>
+    <ChatListPagination v-model:page="favoritesPage" v-model:page-size="favoritesPageSize" :total="followed.length" />
   </el-popover>
   <el-popover v-model:visible="favoriteMenuVisible" :virtual-ref="favoriteMenuAnchor" :z-index="favoriteMenuZ" virtual-triggering :trigger="[]" placement="bottom-start" :width="180">
     <el-button text :loading="unfollowing" :disabled="unfollowing" @click="unfollowFavorite">取消关注</el-button>
@@ -32,6 +33,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ChatAnnotationProjectPicker from './ChatAnnotationProjectPicker.vue'
 import ChatFavoriteRecovery from './ChatFavoriteRecovery.vue'
+import ChatListPagination from './ChatListPagination.vue'
 import { annotationChatRequest } from '@/api/projectChat'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 import { Star } from '@element-plus/icons-vue'
@@ -44,6 +46,9 @@ const favoritesZ = ref(2110)
 function toggleFavorites(event) { favoritesZ.value = chatOverlayZIndex(event.currentTarget); favoritesVisible.value = !favoritesVisible.value }
 const { openChat } = useProjectChatDock()
 const { followed, mentionTotal, error, refresh } = useAnnotationFollowed()
+const favoritesPage=ref(1),favoritesPageSize=ref(20)
+const pagedFavorites=computed(()=>followed.value.slice((favoritesPage.value-1)*favoritesPageSize.value,favoritesPage.value*favoritesPageSize.value))
+watch(()=>followed.value.length,total=>{favoritesPage.value=Math.min(favoritesPage.value,Math.max(1,Math.ceil(total/favoritesPageSize.value)))})
 const favoritesVisible = ref(false)
 const recoveryVisible = ref(false)
 const projectPickerVisible = ref(false), favoriteMenuVisible = ref(false), favoriteMenuAnchor = ref(null), favoriteMenuItem = ref(null), favoriteMenuZ = ref(2110), unfollowing = ref(false)

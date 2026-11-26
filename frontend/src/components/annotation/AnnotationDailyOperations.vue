@@ -18,7 +18,8 @@
       <p v-if="group.key==='in_progress'" class="operation-hint">可将待进行任务拖至此处开始进行。</p>
       <article v-for="row in items.filter(item=>item.stage===group.key)" :key="row.id" class="operation-card" :class="{'is-added':row.report_added}" :draggable="['pending','in_progress'].includes(row.stage)&&!row.report_added&&!busy" @dragstart="startDrag($event,row)" @dragend="draggedId=''">
         <el-tag size="small" class="operation-type">{{row.project_type==='非项目工作'?'非项目任务':row.project_type||'标注项目'}}</el-tag>
-        <strong>{{rowTitle(row)}}</strong>
+        <ProjectIdentityHeader v-if="row.project_id" :project-id="row.project_id" :project-type="row.project_type" :order-no="row.order_no" :project-name="row.project_name" :report-disabled="busy" />
+        <strong v-else>{{rowTitle(row)}}</strong>
         <p class="operation-content"><ScreenshotText :text="row.content" /></p>
         <p class="operation-hint">今日预计花费时间：{{durationLabel(row.estimated_minutes)}}<template v-if="row.stage==='performed'"> · 今日实际花费时间：{{durationLabel(row.actual_minutes)}} · 工作量：{{row.quantity??'-'}} {{row.unit}}</template></p>
         <div class="operation-actions">
@@ -39,7 +40,8 @@
       <div ref="editorBody">
         <AppForm ref="form" :model="draft" label-position="top" :disabled="busy">
           <section v-for="(project,p) in draft.projects" :key="project.project_id" class="operation-edit-project" data-dialog-field-search-group :data-dialog-field-search-group-title="project.name">
-            <h4>{{project.name}}</h4>
+            <ProjectIdentityHeader v-if="project.project_id" :project-id="project.project_id" :project-type="project.project_type" :order-no="project.order_no" :project-name="project.project_name" :report-disabled="busy" />
+            <h4 v-else>{{project.name}}</h4>
             <div v-for="(operation,i) in project.operations" :key="i" class="operation-edit-row" data-dialog-field-search-group :data-dialog-field-search-group-title="`${project.name} · 操作${i+1}`">
               <el-form-item label="具体操作" :prop="`projects.${p}.operations.${i}.content`" :rules="[{required:true,whitespace:true,message:'请填写具体操作',trigger:'blur'}]"><el-input v-model="operation.content" type="textarea" :rows="3" maxlength="10000" placeholder="填写具体内容" /></el-form-item>
               <el-row :gutter="16">
@@ -64,6 +66,7 @@
 
 <script setup>
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import ProjectIdentityHeader from '@/components/common/ProjectIdentityHeader.vue'
 import {computed,defineAsyncComponent,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {getAnnotationOperations,createAnnotationOperations,editAnnotationOperation,addAnnotationOperationReport,importTranslationOperations} from '@/api/projectArrangements'
@@ -90,7 +93,7 @@ let controller,requestId=0
 const emptyOperation=()=>({content:'',estimated_minutes:null})
 async function load(){controller?.abort();controller=new AbortController();const id=++requestId;loading.value=true;error.value='';try{const data=await getAnnotationOperations({signal:controller.signal});if(id!==requestId)return;items.value=data.items;projects.value=data.projects;workDate.value=data.work_date}catch(e){if(id===requestId&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取今日任务失败'}finally{if(id===requestId)loading.value=false}}
 async function togglePicker(stage){if(busy.value)return;pickerStage.value=pickerStage.value===stage?'':stage;selectedIds.value=[];if(pickerStage.value)await load()}
-function openCreate(){creationType.value='标注项目';creationStage.value=pickerStage.value;editing.value=null;addingReport.value=false;draft.projects=projects.value.filter(row=>selectedIds.value.includes(row.id)).map(row=>({project_id:row.id,name:`${row.orderNo} · ${row.projectName}`,operations:[emptyOperation()]}));if(!draft.projects.length)return;editorVisible.value=true}
+function openCreate(){creationType.value='标注项目';creationStage.value=pickerStage.value;editing.value=null;addingReport.value=false;draft.projects=projects.value.filter(row=>selectedIds.value.includes(row.id)).map(row=>({project_id:row.id,project_type:'annotation',order_no:row.orderNo,project_name:row.projectName,name:`${row.orderNo} · ${row.projectName}`,operations:[emptyOperation()]}));if(!draft.projects.length)return;editorVisible.value=true}
 async function openEntry(type,stage){
   if(busy.value||loading.value)return
   if(type==='标注项目')return togglePicker(stage)
@@ -103,8 +106,8 @@ async function openEntry(type,stage){
   if(type==='非项目任务'){draft.projects=[{project_id:null,name:'非项目任务',operations:[emptyOperation()]}];editorVisible.value=true}
   else projectPickerVisible.value=true
 }
-function selectProject(project){draft.projects=[{project_id:project.id,name:`${project.order_no} · ${project.project_name}`,operations:[emptyOperation()]}];editorVisible.value=true}
-function openEdit(row,report=false){editing.value=row;addingReport.value=report;draft.projects=[{project_id:row.project_id,name:rowTitle(row),operations:[{content:row.content,estimated_minutes:row.estimated_minutes,actual_minutes:row.actual_minutes||row.estimated_minutes,quantity:row.quantity??'',unit:row.unit||''}]}];editorVisible.value=true}
+function selectProject(project){draft.projects=[{project_id:project.id,project_type:creationType.value,order_no:project.order_no,project_name:project.project_name,name:`${project.order_no} · ${project.project_name}`,operations:[emptyOperation()]}];editorVisible.value=true}
+function openEdit(row,report=false){editing.value=row;addingReport.value=report;draft.projects=[{project_id:row.project_id,project_type:row.project_type,order_no:row.order_no,project_name:row.project_name,name:rowTitle(row),operations:[{content:row.content,estimated_minutes:row.estimated_minutes,actual_minutes:row.actual_minutes||row.estimated_minutes,quantity:row.quantity??'',unit:row.unit||''}]}];editorVisible.value=true}
 function quantityRule(_rule,value,done){done(value!==''&&value!=null&&validQuantity(value)?undefined:new Error('请填写非负数字工作量'))}
 const editPayload=(row,operation,stage=row.stage)=>({revision:row.revision,stage,content:operation.content,estimated_minutes:operation.estimated_minutes,actual_minutes:operation.actual_minutes??row.actual_minutes,quantity:operation.quantity===''||operation.quantity==null?null:operation.quantity,unit:operation.unit==='其他'?operation.unit_other:operation.unit||''})
 function replace(row){const index=items.value.findIndex(item=>item.id===row.id);if(index>=0)items.value[index]=row}

@@ -1,0 +1,152 @@
+"""会议安排、回执、会后报告使用隔离 SQLite，不访问业务数据库。"""
+from datetime import timedelta
+from uuid import uuid4
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+from test_chat_participant_access import environment
+from chat_time import now
+from models import AppNotification
+from meeting_models import Meeting, MeetingParticipant, MeetingActionTask
+import meeting_service as service
+from meeting_reports import ActualWrite, confirm
+
+
+@pytest.fixture
+def setup(environment, monkeypatch):
+    db, users = environment
+    # 使用真实可重复迁移创建两张表，包含SQLite自增编号及约束。
+    MeetingActionTask.__table__.drop(db.connection()); MeetingParticipant.__table__.drop(db.connection()); Meeting.__table__.drop(db.connection())
+    from tools.apply_meeting_migration import apply_migration
+    apply_migration(db.connection()); apply_migration(db.connection())
+    for user in users:
+        user.is_deleted = False
+    db.commit()
+    monkeypatch.setattr(service, 'publish', lambda events: None)
+    return db, users
+
+
+def payload(users, **values):
+    return service.MeetingWrite(client_id=uuid4(),meeting_type='管理会议',location='线上',
+        start_at=now()+timedelta(hours=1), end_at=now()+timedelta(hours=1,minutes=30),user_ids=[users[1].id],
+        **values)
+
+
+def test_invitation_idempotency_receipts_visibility_and_read_versions(setup):
+    db,(owner,member,outsider)=setup
+    data=payload([owner,member,outsider],agendas=[{'content':'检查进展','same_people':True}])
+    result=service.create(db,owner,data)
+    assert result['number']==1 and len(result['participants'])==1
+    assert service.create(db,owner,data)['id']==result['id']
+    assert db.query(AppNotification).count()==1
+    assert service.summary(db,member)['pending']==1
+    assert service.listing(db,outsider)['total']==0
+    with pytest.raises(HTTPException):service.detail(db,outsider,result['id'])
+    with pytest.raises(ValidationError):service.ReceiptWrite(response='declined',reason=' ',version=0)
+    response=service.receipt(db,member,result['id'],service.ReceiptWrite(response='declined',reason='已有客户安排',version=0))
+    assert response['my_version']==1
+    assert service.summary(db,owner)['unread_receipts']==1
+    service.read_receipts(db,owner,result['id'],{member.id:0})
+    assert service.summary(db,owner)['unread_receipts']==1
+    service.read_receipts(db,owner,result['id'],{member.id:1})
+    assert service.summary(db,owner)['unread_receipts']==0
+    with pytest.raises(HTTPException):service.receipt(db,owner,result['id'],service.ReceiptWrite(response='attending',version=0))
+    with pytest.raises(HTTPException):service.receipt(db,member,result['id'],service.ReceiptWrite(response='attending',version=0))
+    assert db.query(Meeting).count()==1
+
+
+def test_agenda_people_validation_and_all_people_dedup(setup):
+    db,users=setup;owner,member,outsider=users
+    data=payload(users,all_people=True,department_ids=[],agendas=[{'content':'全体议程'}, {'content':'成员专场','same_people':False,'user_ids':[member.id]}])
+    result=service.create(db,owner,data)
+    assert len(result['participants'])==3
+    assert len(result['agendas'][0]['user_ids'])==3
+    assert result['agendas'][1]['user_ids']==[str(member.id)]
+    with pytest.raises(HTTPException):service.create(db,owner,payload(users,agendas=[{'content':'错误人员','same_people':False,'user_ids':[outsider.id]}]))
+    assert db.query(Meeting).count()==1
+
+
+@pytest.mark.parametrize('minutes,expected',[(15,10),(30,10),(31,15),(60,15),(61,20),(180,20)])
+def test_reminder_boundaries(minutes,expected):
+    start=now();assert service.lead_minutes(start,start+timedelta(minutes=minutes))==expected
+
+
+def test_actual_confirm_appends_to_finalized_report_once_and_can_delete(setup,monkeypatch):
+    db,users=setup;owner,member,outsider=users
+    result=service.create(db,owner,payload(users,all_people=True,agendas=[{'content':'全体议程'}, {'content':'仅成员议程','same_people':False,'user_ids':[member.id]}]))
+    from task_models import DailyReport,DailyReportItem
+    from work_report_dates import report_business_date
+    start=now()-timedelta(hours=2);end=start+timedelta(minutes=31)
+    day=report_business_date(start)
+    existing=DailyReport(id=uuid4(),user_id=member.id,report_date=day,status='finalized')
+    db.add(existing);db.commit()
+    import consultation_work_report
+    monkeypatch.setattr(consultation_work_report,'publish_report_update',lambda *args:None)
+    actual=ActualWrite(start_at=start,end_at=end,user_ids=[member.id,owner.id])
+    with pytest.raises(HTTPException):confirm(db,outsider,result['id'],actual)
+    saved=confirm(db,owner,result['id'],actual)
+    assert saved['written_count']==2 and saved['duration_minutes']==31
+    assert existing.status=='finalized'
+    entries=db.query(DailyReportItem).all()
+    assert len(entries)==2
+    own_entry=next(e for e in entries if e.report.user_id==owner.id)
+    member_entry=next(e for e in entries if e.report.user_id==member.id)
+    assert '仅成员议程' not in own_entry.progress_content
+    assert '仅成员议程' in member_entry.progress_content
+    assert member_entry.source_type=='manual'
+    assert member_entry.display_metadata['report_types']==['会议::管理会议']
+    assert member_entry.display_metadata['quantity']==1
+    assert member_entry.display_metadata['quantity_unit']=='次'
+    db.delete(member_entry);db.commit()
+    assert confirm(db,owner,result['id'],actual)['already_confirmed']
+    assert db.query(DailyReportItem).count()==1
+
+
+def test_shared_categories_and_layout_presets_stay_private(environment,monkeypatch):
+    db,(owner,member,_)=environment
+    import work_report_categories as categories
+    monkeypatch.setattr(categories,'can_add_project_category',lambda *a:False)
+    categories.add_category_group(db,owner,'客户研究','资料核对')
+    categories.add_category(db,owner,'非项目工作','跨部门整理')
+    db.add(categories.WorkReportCategory(scope=str(owner.id),parent=categories.LAYOUT_PRESET_PARENT,name='个人固定选项'));db.commit()
+    catalog=categories.category_catalog(db,member)
+    assert catalog['work_categories']['客户研究']==['资料核对']
+    assert '跨部门整理' in catalog['work_categories']['非项目工作']
+    assert '个人固定选项' not in catalog['layout_task_presets']
+    assert '培训会议' not in catalog['work_categories']['会议']
+    assert '培训会议' in catalog['work_categories']['培训工作']
+
+
+def test_pure_minutes_and_multi_person_action_tasks_are_atomic_and_personal(setup):
+    db,users=setup;owner,member,outsider=users
+    from meeting_records import RecordWrite, save, tasks, status, StatusWrite
+    result=service.create(db,owner,payload(users))
+    meeting_id=result['id']
+    assert save(db,owner,meeting_id,RecordWrite(content='仅记录讨论，无任务',version=0))['version']==1
+    assert tasks(db,member,'','',1,10)['total']==0
+    with pytest.raises(HTTPException):save(db,member,meeting_id,RecordWrite(content='越权',version=1))
+    action={'client_id':uuid4(),'user_ids':[member.id,outsider.id],'category':'non_project','content':'整理会议结论','due_at':now()+timedelta(days=1)}
+    save(db,owner,meeting_id,RecordWrite(content='会议结论',version=1,actions=[action]))
+    assert tasks(db,member,'non_project','整理 结论',1,10)['total']==1
+    assert tasks(db,outsider,'non_project','',1,10)['total']==1
+    assert tasks(db,owner,'','',1,10)['total']==0
+    saved=tasks(db,member,'','',1,10)['items'][0]
+    assert saved['arranger_id']==owner.id and saved['arranger_name']==owner.full_name
+    with pytest.raises(HTTPException):status(db,outsider,saved['id'],StatusWrite(status='completed',revision=1))
+    assert status(db,member,saved['id'],StatusWrite(status='completed',revision=1))['completed_at']
+    with pytest.raises(HTTPException):save(db,owner,meeting_id,RecordWrite(content='旧记录',version=1))
+    assert service.detail(db,owner,meeting_id)['record_content']=='会议结论'
+
+
+def test_availability_checks_entire_meeting_shift_and_leave_overlap(setup,monkeypatch):
+    db,(owner,member,_)=setup
+    import attendance_service
+    from models import EmployeeLeave
+    moment=now().replace(hour=9,minute=0,second=0,microsecond=0)
+    monkeypatch.setattr(attendance_service,'shifts_for',lambda _db,people,day:{str(p.id):{'name':'早班','periods':['09:00–12:00']} for p in people})
+    db.add(EmployeeLeave(id=uuid4(),employee_id=member.id,employee_name=member.full_name,start_date=moment.replace(tzinfo=None)+timedelta(minutes=15),end_date=moment.replace(tzinfo=None)+timedelta(minutes=45)))
+    db.commit()
+    rows={r['user_id']:r for r in service.availability(db,moment,moment+timedelta(hours=1))}
+    assert rows[owner.id]['in_shift'] and not rows[owner.id]['on_leave']
+    assert rows[member.id]['on_leave']
+    assert not {r['user_id']:r for r in service.availability(db,moment,moment+timedelta(hours=4))}[owner.id]['in_shift']
