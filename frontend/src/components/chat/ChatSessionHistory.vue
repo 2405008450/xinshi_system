@@ -130,11 +130,11 @@ onBeforeUnmount(() => { ++generation; controller?.abort() })
 .chat-session-directory__loading{margin:0;padding:8px 10px;color:#64748b}
 
 .chat-history-session{position:relative;display:flex;box-sizing:border-box;width:100%;min-height:64px;padding:9px 10px;align-items:center;gap:10px;border-radius:8px;color:var(--chat-text);cursor:pointer;font:inherit;transition:background-color .14s ease,border-color .14s ease}
-.chat-history-session.is-pinned{background:#fef9c3;box-shadow:inset 3px 0 0 #eab308}
+.chat-history-session.is-pinned{background:var(--chat-bubble-mention-bg,#fef9ec);box-shadow:inset 3px 0 0 var(--chat-bubble-mention-accent,#d97706)}
 .chat-history-session:hover{background:var(--chat-hover-bg)}
-.chat-history-session.is-pinned:hover{background:#fef08a}
+.chat-history-session.is-pinned:hover{background:#fef3c7}
 .chat-history-session.is-active{background:var(--chat-active-bg)}
-.chat-history-session.is-pinned.is-active{background:#fde68a;box-shadow:inset 3px 0 0 #d97706}
+.chat-history-session.is-pinned.is-active{background:#fde68a;box-shadow:inset 3px 0 0 #b45309}
 .chat-history-session:focus-visible{outline:2px solid var(--color-primary);outline-offset:-2px}
 .chat-history-session.has-unread-mention .chat-history-session__title strong{color:#b91c1c}
 .chat-history-session__left{display:flex;flex:none;align-items:center;justify-content:center;width:36px}

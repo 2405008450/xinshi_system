@@ -849,3 +849,15 @@ test('会话支持标为未读并按用户持久化，重新点开或标为已�
   assert.match(workspace, /:aria-label="hasSessionUnread\(activeSession\) \? '标为已读' : '标为未读'"/)
   assert.deepEqual(sessionUnreadSignal({ unread: 0, mentionUnread: 0, manualUnread: true }), { mentions: 0, ordinary: true })
 })
+
+test('全部会话、我的项目、收藏夹与最近关闭均内联展示且不自动跳回近期会话，置顶色号与聊天框一致', () => {
+  assert.match(workspace, /\['all','mine','favorites','closed'\]\.includes\(sessionScope\.value\)/)
+  assert.match(workspace, /!external&&context\.projectType!=='direct'&&annotationMode\.value!=='direct'&&\(!selectedFolder\.value\|\|sessionMatchesFolder\(session,selectedFolder\.value,folderNodes\.value\)\)/)
+  assert.doesNotMatch(workspace, /watch\(\[annotationMode,\s*selectedFolder,\s*tab\],\s*\(\)\s*=>\s*\{\s*sessionScope\.value\s*=\s*'recent'\s*\}\)/)
+  assert.match(workspace, /@click="setSessionScope\('favorites'\)"/)
+  assert.match(workspace, /@click="setSessionScope\('closed'\)"/)
+  assert.match(workspace, /v-else-if="sessionScope === 'favorites'"/)
+  assert.match(workspace, /v-else-if="sessionScope === 'closed'"/)
+  assert.match(workspace, /\.chat-workspace__session\.is-pinned\{background:var\(--chat-bubble-mention-bg,#fef9ec\)/)
+  assert.match(workspace, /\.chat-workspace__session\.is-pinned:hover\{background:#fef3c7\}/)
+})

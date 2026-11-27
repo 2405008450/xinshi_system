@@ -180,8 +180,8 @@ watch(favoritesVisible, value => {
 .annotation-favorites-list{max-height:min(420px,calc(100vh - 180px));overflow-y:auto;padding:4px 0}
 .annotation-favorite-row{position:relative;display:flex;align-items:center;gap:10px;padding:9px 10px;margin-bottom:2px;border-radius:8px;transition:background-color .14s ease}
 .annotation-favorite-row:hover{background:#eef3f8}
-.annotation-favorite-row.is-pinned{background:#fef9c3;box-shadow:inset 3px 0 0 #eab308}
-.annotation-favorite-row.is-pinned:hover{background:#fef08a}
+.annotation-favorite-row.is-pinned{background:var(--chat-bubble-mention-bg,#fef9ec);box-shadow:inset 3px 0 0 var(--chat-bubble-mention-accent,#d97706)}
+.annotation-favorite-row.is-pinned:hover{background:#fef3c7}
 .annotation-favorite-pin-corner{position:absolute;top:4px;left:5px;font-size:11px;color:#d97706}
 .annotation-favorite-avatar{display:grid;flex:none;place-items:center;width:36px;height:36px;border-radius:10px;background:#e4ebf4;color:#3b526b;font-size:14px;font-weight:600}
 .annotation-favorite-avatar--annotation{background:#e2f0ea;color:#2b6b56}
