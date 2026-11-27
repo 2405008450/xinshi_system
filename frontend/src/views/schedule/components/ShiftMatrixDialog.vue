@@ -445,10 +445,6 @@ onBeforeUnmount(() => {
   z-index: 2200;
 }
 
-:global(.shift-matrix-scope-popper) {
-  z-index: 2300 !important;
-}
-
 .shift-matrix-host.is-modal {
   display: flex;
   align-items: flex-start;

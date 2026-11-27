@@ -29,9 +29,9 @@ def specs(db):
 
 def folder_catalog(db, user, active_category_ids):
     """展示时归入创建当天的每日文件夹，复用项目发送的日期目录 ID。"""
-    from discussion_chat_service import ANNOTATION_ROOT
+    from discussion_chat_service import ANNOTATION_ROOT, user_member_map
     rows = specs(db)
-    member_rooms = {str(room_id) for room_id, in db.query(DiscussionMember.room_id).filter_by(user_id=user.id)} if rows else set()
+    member_rooms = set(user_member_map(db, user.id)) if rows else set()
     overrides, folders, hidden = {}, {}, set()
     for row in rows:
         if row['id'] not in member_rooms:

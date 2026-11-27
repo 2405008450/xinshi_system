@@ -7,7 +7,7 @@ from models import AppUser
 from routers.auth import get_current_user
 from editor_screenshot_models import EditorScreenshot as Image,EditorScreenshotBlob as Blob
 import editor_screenshot_service as service
-from chat_image_policy import UPLOAD_MAX_BYTES, ORIGINAL_MAX_BYTES
+from chat_image_policy import UPLOAD_MAX_BYTES, ORIGINAL_MAX_BYTES, make_chat_thumbnail
 from starlette.concurrency import run_in_threadpool
 
 router=APIRouter(prefix='/editor-screenshots',tags=['editor_screenshots'])
@@ -55,7 +55,7 @@ async def upload_invoice_file(file, request_id, db, user, extension):
 
 
 @router.get('/{image_id}')
-def download(image_id:UUID,request:Request,chat_message_id:str|None=Query(None),chat_kind:str|None=Query(None),db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+def download(image_id:UUID,request:Request,chat_message_id:str|None=Query(None),chat_kind:str|None=Query(None),variant:str|None=Query(None),db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
     service.require_ready(db)
     tokens=request.headers.get('x-screenshot-grants','').split(',')
     if chat_message_id:service.check_chat_reference(db,user,image_id,chat_message_id,chat_kind)
@@ -63,10 +63,19 @@ def download(image_id:UUID,request:Request,chat_message_id:str|None=Query(None),
     row=db.get(Image,image_id)
     if not row:raise HTTPException(404,'截图不存在')
     if row.blob_sha256 is None or (row.expires_at and service.api_time(row.expires_at)<=service.now()):raise HTTPException(410,'聊天截图已超过30天保留期，文字记录仍保留')
-    blob=db.get(Blob,row.blob_sha256)
+    want_thumb = (variant or '').strip().lower() == 'thumb'
+    etag = f'"{row.blob_sha256}:{"thumb" if want_thumb else "orig"}"'
     grant,expires=service.grant(db,user.id,{image_id})
-    headers = {'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Screenshot-Grant':grant,'X-Screenshot-Grant-Expires':str(expires)}
-    if blob.content_type in ('application/pdf', 'application/ofd'):
-        extension = blob.content_type.split('/')[1]
+    headers = {'Cache-Control':'private, no-store','ETag':etag,'Vary':'Authorization','X-Content-Type-Options':'nosniff','X-Screenshot-Grant':grant,'X-Screenshot-Grant-Expires':str(expires)}
+    if_none_match = request.headers.get('if-none-match', '')
+    if if_none_match and (etag in {item.strip() for item in if_none_match.split(',')}):
+        return Response(status_code=304, headers=headers)
+    blob=db.get(Blob,row.blob_sha256)
+    body, media_type = (
+        make_chat_thumbnail(blob.content, blob.content_type, cache_key=row.blob_sha256)
+        if want_thumb else (blob.content, blob.content_type)
+    )
+    if media_type in ('application/pdf', 'application/ofd'):
+        extension = media_type.split('/')[1]
         headers['Content-Disposition'] = f'attachment; filename="invoice.{extension}"'
-    return Response(blob.content, media_type=blob.content_type, headers=headers)
+    return Response(body, media_type=media_type, headers=headers)

@@ -30,7 +30,7 @@ export function buildPreferredWorkTypeOptions(categories=defaultWorkCategories,r
 }
 export function buildWorkTypeOptions(categories=defaultWorkCategories,rows=[]) {
   const groups=Object.fromEntries(Object.entries({...defaultWorkCategories,...categories}).map(([parent,names])=>[parent,[...names]]))
-  for(const row of rows)for(const value of rowTypes(row))if(value.includes('::')){const [parent,name]=value.split('::');if(groups[parent]&&name!=='__custom__'&&!groups[parent].includes(name))groups[parent].push(name)}
+  for(const row of rows)for(const value of rowTypes(row))if(value.includes('::')){const [parent,name]=value.split('::');if(name!=='__custom__'){groups[parent]||=[];if(!groups[parent].includes(name))groups[parent].push(name)}}
   return Object.entries(groups).map(([parent,names])=>({value:parent,label:parent,children:[...names.map(name=>({value:categoryValue(parent,name),label:name})),...(parent!=='项目工作'?[{value:`${parent}::__custom__`,label:'其他（自定义）'}]:[]),...(rows.some(row=>rowTypes(row).includes(parent))?[{value:parent,label:parent}]:[])]}))
 }
 export const workTypeOptions = buildWorkTypeOptions()

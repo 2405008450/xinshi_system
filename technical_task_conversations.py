@@ -31,11 +31,14 @@ def require_category_access(db,user,category_id):
 
 @catalog_cached
 def restricted_ids(db):
+    from chat_session_category_service import all_categories, all_folders
     ids={UUID(ROOT_ID)}
-    if inspect(db.connection()).has_table(Folder.__tablename__):
-        locations=db.query(Folder).all()
-        for _ in range(3): ids.update(row.category_id for row in locations if row.parent_key in {str(uid) for uid in ids})
-    if inspect(db.connection()).has_table(Category.__tablename__): ids.update(uid for uid, in db.query(Category.id).filter(Category.name==GENERAL_NAME))
+    locations=all_folders(db)
+    if locations:
+        for _ in range(3):
+            id_strs={str(uid) for uid in ids}
+            ids.update(UUID(cid) for cid, parent_key in locations.items() if parent_key in id_strs)
+    ids.update(row.id for row in all_categories(db) if row.name==GENERAL_NAME)
     if ready(db): ids.update(uid for uid, in db.query(TaskConversation.room_id))
     return ids
 

@@ -2,17 +2,28 @@ import { nextTick, onBeforeUnmount, watch } from 'vue'
 
 // 持续跟随最新消息，覆盖图片异步加载、编辑器展开及窗口大小变化。
 export function useChatAutoScroll(getViewport, isActive) {
-  let viewport, resizeObserver, following = true, lastTop = 0
+  let viewport, resizeObserver, following = true, lastTop = 0, locked = false
   const scrollToBottom = () => {
+    if (locked) return
     following = true
     if (!viewport || !isActive() || !viewport.clientHeight) return
     viewport.scrollTop = viewport.scrollHeight
     lastTop = viewport.scrollTop
   }
   const pause = () => { following = false }
+  const setLocateLock = (active) => {
+    locked = !!active
+    if (locked) following = false
+    else if (viewport) lastTop = viewport.scrollTop
+  }
   const onScroll = () => {
     if (!isActive()) return
     const top = viewport.scrollTop
+    if (locked) {
+      following = false
+      lastTop = top
+      return
+    }
     const gap = viewport.scrollHeight - top - viewport.clientHeight
     // 高度变化产生的滚动事件不能取消跟随；用户向上滚动才暂停。
     if (top < lastTop && gap >= 4) following = false
@@ -30,7 +41,7 @@ export function useChatAutoScroll(getViewport, isActive) {
     lastTop = viewport.scrollTop
     viewport.addEventListener('scroll', onScroll, { passive: true })
     resizeObserver = new ResizeObserver(() => {
-      if (following) scrollToBottom()
+      if (following && !locked) scrollToBottom()
     })
     resizeObserver.observe(viewport)
     if (viewport.firstElementChild) resizeObserver.observe(viewport.firstElementChild)
@@ -38,6 +49,7 @@ export function useChatAutoScroll(getViewport, isActive) {
   onBeforeUnmount(disconnect)
   return {
     pause,
-    bottom: async () => { following = true; await nextTick(); scrollToBottom() },
+    setLocateLock,
+    bottom: async () => { locked = false; following = true; await nextTick(); scrollToBottom() },
   }
 }

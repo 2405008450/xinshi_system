@@ -3,7 +3,17 @@ import {newReportRow,rowTypes} from './workReportForm.js'
 export const reportRowKey=row=>row.display_metadata?._feedback_key||row.id
 export const parentRowKey=row=>row.display_metadata?.parent_item_key||''
 const orderKey=row=>String(row.display_metadata?.order_no||'').trim().toLocaleLowerCase()
-export function ensureReportKeys(rows){for(const row of rows){row.display_metadata||={};row.display_metadata._feedback_key||=row.id||crypto.randomUUID()}}
+function createFeedbackKey(){
+ if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID()
+ if(typeof globalThis.crypto?.getRandomValues==='function'){
+  const bytes=globalThis.crypto.getRandomValues(new Uint8Array(16))
+  bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128
+  const hex=[...bytes].map(b=>b.toString(16).padStart(2,'0')).join('')
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
+ }
+ return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2,14)}`
+}
+export function ensureReportKeys(rows){for(const row of rows){row.display_metadata||={};row.display_metadata._feedback_key||=row.id||createFeedbackKey()}}
 export function reportRoot(rows,row){const parent=parentRowKey(row);return parent?rows.find(item=>reportRowKey(item)===parent)||row:row}
 function inherit(child,parent){
  child.task_type=parent.task_type;child.task_name=parent.task_name

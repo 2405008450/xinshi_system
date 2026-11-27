@@ -146,6 +146,7 @@
             :access-pending="chatWindow.accessConfirmed === false"
             :room-title="chatWindow.title"
             :target-message-id="chatWindow.targetMessageId"
+            :target-message-seq="chatWindow.targetMessageSeq"
             :project-type="chatWindow.projectType"
             :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && ['topics','summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(workspacePane))"
             :history-placement="historyPlacement(chatWindow)"
@@ -536,13 +537,9 @@ const selectWorkspaceSession = (key) => {
 }
 
 const locateMention = async (item) => {
-  const existing = state.windows.find(row => row.key === item.key)
-  const repeated = existing?.targetMessageId === item.messageId
-  const key = openChat({ projectId: item.projectId, projectType: item.projectType,
+  openChat({ projectId: item.projectId, projectType: item.projectType,
     title: item.title, subtitle: item.subtitle, messageId: item.messageId })
   if (workspaceNarrow.value) sidebarOpen.value = false
-  // 再次点击同一条提及时，属性值未变化，仍需重新定位并高亮。
-  if (repeated) { await nextTick(); await panelRefs.get(key)?.locate?.(item.messageId) }
 }
 
 const onContactOpened = () => {

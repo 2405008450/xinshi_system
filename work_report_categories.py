@@ -1,4 +1,4 @@
-"""工作报告分类：分类及二级内容共享可选，排版固定任务仍按用户隔离。"""
+"""工作报告分类：系统默认与超级管理员全局项目分类共享，个人自定义分类及排版固定任务按用户隔离。"""
 from uuid import uuid4
 
 from sqlalchemy import String, UniqueConstraint, Uuid, inspect
@@ -77,7 +77,12 @@ def category_catalog(db, user):
     preferred=[]
     ready = inspect(db.connection()).has_table(WorkReportCategory.__tablename__)
     if ready:
-        rows = db.query(WorkReportCategory).order_by(WorkReportCategory.name, WorkReportCategory.id).all()
+        rows = (
+            db.query(WorkReportCategory)
+            .filter(WorkReportCategory.scope.in_(('*', str(user.id))))
+            .order_by(WorkReportCategory.name, WorkReportCategory.id)
+            .all()
+        )
         for row in rows:
             if row.parent==ROOT_CATEGORY_PARENT:groups.setdefault(row.name,[])
         for row in rows:
@@ -181,8 +186,38 @@ def frequent_report_types(groups, metadata_rows, limit=15):
     return ordered[:limit]
 
 
+def _user_legacy_categories(db, user):
+    """兼容改造前历史报告或草稿中已选用的他人自定义分类（仅允许保留已使用项，不允许新选用）。"""
+    from task_models import DailyReport, DailyReportItem
+    used = set()
+    for metadata, in db.query(DailyReportItem.display_metadata).join(DailyReport).filter(DailyReport.user_id == user.id).all():
+        for value in (metadata or {}).get('report_types') or []:
+            if isinstance(value, str) and '::' in value:
+                used.add(value)
+    if inspect(db.connection()).has_table('editor_draft'):
+        from editor_drafts import EditorDraft
+        for payload, in db.query(EditorDraft.payload).filter_by(user_id=user.id, namespace='work-report').all():
+            if not isinstance(payload, dict):
+                continue
+            for item in payload.get('items') or []:
+                if not isinstance(item, dict):
+                    continue
+                for value in (item.get('display_metadata') or {}).get('report_types') or []:
+                    if isinstance(value, str) and '::' in value:
+                        used.add(value)
+    if not used or not inspect(db.connection()).has_table(WorkReportCategory.__tablename__):
+        return set()
+    existing = {
+        f'{row.parent}::{row.name}'
+        for row in db.query(WorkReportCategory.parent, WorkReportCategory.name).all()
+        if row.parent not in (ROOT_CATEGORY_PARENT, LAYOUT_PRESET_PARENT, PREFERRED_TYPE_PARENT)
+    }
+    return used & existing
+
+
 def validate_categories(db, user, items):
     catalog = category_catalog(db, user)['work_categories']
+    legacy_allowed = None
     for item in items or []:
         if item.source_type == 'system_event':
             continue
@@ -190,7 +225,10 @@ def validate_categories(db, user, items):
             if '::' in value:
                 parent, name = value.split('::', 1)
                 if name not in catalog.get(parent, []):
-                    raise ValueError('工作分类不存在或无权使用，请重新选择')
+                    if legacy_allowed is None:
+                        legacy_allowed = _user_legacy_categories(db, user)
+                    if value not in legacy_allowed:
+                        raise ValueError('工作分类不存在或无权使用，请重新选择')
         custom = (item.display_metadata or {}).get('custom_project_type')
         if custom and not can_add_project_category(db, user):
             # 历史自定义项目可原样保留，普通用户不能借旧字段新增分类。

@@ -69,20 +69,36 @@ def schema_ready(db):
 
 
 @catalog_cached
+def all_member_room_ids(db):
+    return {str(room) for room, in db.query(Member.room_id).distinct()} if schema_ready(db) else set()
+
+
+@catalog_cached
+def user_member_map(db, user_id):
+    return {str(row.room_id): row for row in db.query(Member).filter_by(user_id=user_id)} if schema_ready(db) else {}
+
+
+@catalog_cached
 def room_specs(db):
+    from chat_session_category_service import all_categories, all_folders
+    categories = all_categories(db)
+    locations = all_folders(db)
     rows = [dict(id=row['id'], name=row['name']) for row in BUILTIN_FOLDERS if row['parentKey'] == RESOURCE_ROOT]
     if folder_schema_ready(db):
-        overrides = {str(row.id): row.name for row in db.query(Category).filter(Category.id.in_([UUID(row['id']) for row in rows]))}
+        by_id = {str(row.id): row for row in categories}
         for row in rows:
-            row['name'] = overrides.get(row['id'], row['name'])
+            override = by_id.get(row['id'])
+            if override is not None:
+                row['name'] = override.name
         existing = {row['id'] for row in rows}
-        rows.extend(dict(id=str(row.id), name=row.name, parent_key=location.parent_key if location else None) for row, location in db.query(Category, Folder).outerjoin(Folder).filter(
-            Category.active.is_(True),
-            db.query(Member.room_id).filter(Member.room_id == Category.id).exists()).order_by(Category.created_at, Category.id)
-                    if str(row.id) not in existing)
+        member_rooms = all_member_room_ids(db)
+        rows.extend(
+            dict(id=str(row.id), name=row.name, parent_key=locations.get(str(row.id)))
+            for row in categories
+            if row.active and str(row.id) in member_rooms and str(row.id) not in existing
+        )
     root_ids = {row['id'] for row in BUILTIN_FOLDERS if not row['parentKey']}
-    active_categories = {str(row.id) for row in db.query(Category).filter(Category.active.is_(True))}
-    locations = {str(row.category_id): str(row.parent_key) if row.parent_key else None for row in db.query(Folder)} if folder_schema_ready(db) else {}
+    active_categories = {str(row.id) for row in categories if row.active}
     visible = root_ids | {key for key in active_categories if not locations.get(key)}
     for _ in range(2):
         visible |= {key for key in active_categories if locations.get(key) in visible}
@@ -135,10 +151,11 @@ def catalog(db, user, *, recent_only=False, room_ids=None):
     ready = schema_ready(db)
     if not ready:
         return []
-    members_query = db.query(Member).filter_by(user_id=user.id)
-    if room_ids is not None:
-        members_query = members_query.filter(Member.room_id.in_(room_ids))
-    members = {str(row.room_id): row for row in members_query}
+    if room_ids is None:
+        members = user_member_map(db, user.id)
+    else:
+        wanted = {str(rid) for rid in room_ids}
+        members = {rid: row for rid, row in user_member_map(db, user.id).items() if rid in wanted}
     if not members:
         return []
     rooms = visible_room_specs(db, user, [row for row in room_specs(db) if row['id'] in members])
@@ -202,7 +219,7 @@ def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None, ac
     from chat_recall_policy import can_recall_own, can_edit_own
     from discussion_message_actions import load
     actions = {} if row.recalled_at else (action_cache if action_cache is not None else load(db,[row.id],user.id)).get(row.id,{})
-    return dict(**actions,mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
+    return dict(**actions,mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), client_message_id=str(row.client_message_id) if row.client_message_id else None, sender_user_id=str(row.sender_id), sender_name=row.sender_name,
         content='' if row.recalled_at else row.content, created_at=business_iso(row.created_at),
         recalled_at=business_iso(row.recalled_at), can_recall=can_recall_own(row.sender_id,user.id,row.created_at,row.recalled_at),
         edited_at=None if row.recalled_at else business_iso(row.edited_at),

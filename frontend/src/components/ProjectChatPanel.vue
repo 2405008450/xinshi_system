@@ -632,9 +632,11 @@ import { createChatImageQueue } from '@/utils/chatImageQueue'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
 import { richTextHasImages } from '@/utils/richTextImages'
+import { createChatMessageScroller } from '@/utils/chatMessageScroll'
 
 const props = defineProps({
   targetMessageId: { type: String, default: '' },
+  targetMessageSeq: { type: Number, default: 0 },
   projectId: { type: [String, Number], default: '' },
   projectType: { type: String, default: 'translation' },
   active: { type: Boolean, default: false },
@@ -788,7 +790,7 @@ async function markVisibleRead() {
   } catch { /* 下次回到前台时重试，不提前消除未读。 */ }
   finally { readBusy = false }
 }
-watch(() => props.targetMessageId, id => { if (id) locateMessage(id) })
+watch(() => [props.targetMessageId, props.targetMessageSeq], ([id]) => { if (id) locateMessage(id) })
 const conversationFiltersVisible = ref(false)
 const mentionPopoverVisible = ref(false)
 const automaticMentionActive = ref(false)
@@ -1063,7 +1065,8 @@ const isConversationAtBottom = () => {
 }
 
 const autoScroll = useChatAutoScroll(getScrollWrap, () => props.active && props.conversationMode)
-const scrollConversationToBottom = () => autoScroll.bottom()
+const messageScroller = createChatMessageScroller({ onLockChange: locked => autoScroll.setLocateLock(locked) })
+const scrollConversationToBottom = () => { messageScroller.stop(); return autoScroll.bottom() }
 
 const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
   if (!props.projectId) {
@@ -1236,7 +1239,7 @@ const mergeLatestConversationMessages = async () => {
 
 const handleConversationScroll = ({ scrollTop }) => {
   if (!props.conversationMode) return
-  if (scrollTop <= 2) loadEarlierMessages()
+  if (scrollTop <= 2 && !messageScroller.isLocating()) loadEarlierMessages()
   if (isConversationAtBottom()) pendingNewCount.value = 0
   scheduleRead()
 }
@@ -1282,13 +1285,18 @@ const openSearch = async () => {
 
 const locateMessage = async (messageId) => {
   autoScroll.pause()
-  if (!messageId || !props.projectId) return
+  autoScroll.setLocateLock(true)
+  messageScroller.stop()
+  if (!messageId || !props.projectId) { autoScroll.setLocateLock(false); return }
   const version = ++conversationLoadVersion
   messagesLoading.value = true
   try {
     const res = await getProjectChatMessages(props.projectId, { around: messageId, limit: 40 }, props.projectType)
     if (version !== conversationLoadVersion) return
+    if (typeof res?.enabled === 'boolean') settings.enabled = res.enabled
+    if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     messages.value = Array.isArray(res?.items) ? res.items : []
+    timelineReady.value = true
     pagination.total = Number(res?.total || messages.value.length)
     viewingHistory.value = true
     historyHasOlder.value = !!res?.hasOlder
@@ -1296,13 +1304,19 @@ const locateMessage = async (messageId) => {
     await ensureAttachmentUrls(messages.value)
     await nextTick()
     if (version !== conversationLoadVersion) return
-    const target = getScrollWrap()?.querySelector(`[data-message-id="${messageId}"]`)
-    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const findTarget = () => getScrollWrap()?.querySelector(`[data-message-id="${messageId}"]`)
+    const target = findTarget()
+    if (target) {
+      messageScroller.scrollTo(getScrollWrap, findTarget)
+    } else {
+      autoScroll.setLocateLock(false)
+    }
     highlightedMessageId.value = String(messageId)
     window.clearTimeout(highlightTimer)
     highlightTimer = window.setTimeout(() => { highlightedMessageId.value = '' }, 1800)
   } catch (error) {
     if (version !== conversationLoadVersion) return
+    autoScroll.setLocateLock(false)
     ElMessage.error(getLocalizedErrorMessage(error, '定位消息失败'))
   } finally {
     if (version === conversationLoadVersion) { messagesLoading.value = false; scheduleRead() }
@@ -1537,7 +1551,10 @@ const loadMessages = async () => {
 
 const refreshChat = async () => {
   if (!props.projectId) return
-  if (props.conversationMode) return loadMessages()
+  if (props.conversationMode) {
+    if (props.targetMessageId) return locateMessage(props.targetMessageId)
+    return loadMessages()
+  }
   await Promise.all([loadSettings(), ensureUsersLoaded()])
   await loadMessages()
 }
@@ -1868,6 +1885,7 @@ watch(() => [props.projectId, props.projectType], async () => {
 
 watch(() => props.active, () => {
   if (!props.active) {
+    messageScroller.stop()
     // 浮窗最小化保留草稿；真正关闭时由卸载清理。
     if (!props.conversationMode) clearComposerImages()
     clearProgressSelection(true)
@@ -1900,7 +1918,7 @@ onMounted(() => {
   refreshTopics().catch(() => {})
   window.addEventListener('chat-topic-message-changed', localTopicChanged)
   unsubscribeTopicChanged = subscribe('chat_message_topic_changed', realtimeTopicChanged)
-  if (props.targetMessageId) locateMessage(props.targetMessageId)
+  if (props.targetMessageId && !props.conversationMode) locateMessage(props.targetMessageId)
   document.addEventListener('visibilitychange', scheduleRead)
   window.addEventListener('focus', scheduleRead)
   unsubscribeMembersChanged = subscribe('chat_sessions_changed', event => {
@@ -1916,6 +1934,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  messageScroller.stop()
   ++userOptionsVersion
   ++conversationLoadVersion
   window.removeEventListener('chat-topic-message-changed', localTopicChanged)

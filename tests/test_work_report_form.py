@@ -127,22 +127,33 @@ def test_category_migration_repeatable_in_isolated_database():
     engine.dispose()
 
 
-def test_category_permissions_persistence_and_shared_choices(environment,monkeypatch):
+def test_category_permissions_persistence_and_user_isolation(environment,monkeypatch):
     db,(owner,other,_)=environment
     import work_report_categories as categories
+    from task_models import DailyReport, DailyReportItem
+    import datetime
     monkeypatch.setattr(categories,'can_add_project_category',lambda db,user:user.id==owner.id)
     with pytest.raises(PermissionError):categories.add_category(db,other,'项目工作','测试新项目')
     categories.add_category(db,owner,'项目工作','测试新项目')
     categories.add_category(db,other,'外勤工作','展会')
     categories.add_category(db,other,'外勤工作',' 展会 ')
+    # 超级管理员新增的项目工作分类全员共享
     assert '测试新项目' in categories.category_catalog(db,other)['work_categories']['项目工作']
-    assert categories.category_catalog(db,other)['work_categories']['外勤工作'].count('展会')==1
-    assert '展会' in categories.category_catalog(db,owner)['work_categories']['外勤工作']
     categories.validate_categories(db,other,[row(report_types=['项目工作::测试新项目'])])
+    # 个人新增的非项目分类仅本人可见，不污染其他用户的选项列表
+    assert categories.category_catalog(db,other)['work_categories']['外勤工作'].count('展会')==1
+    assert '展会' not in categories.category_catalog(db,owner)['work_categories']['外勤工作']
+    with pytest.raises(ValueError):categories.validate_categories(db,owner,[row(report_types=['外勤工作::展会'])])
+    # 历史兼容：改造前已在本人历史报告中选用过的他人自定义分类仍允许保留修订
+    from uuid import uuid4
+    legacy_report=DailyReport(id=uuid4(),user_id=owner.id,report_date=datetime.date(2026,11,20),status='finalized')
+    db.add(legacy_report);db.flush()
+    db.add(DailyReportItem(id=uuid4(),report_id=legacy_report.id,sort_order=0,source_type='manual',task_type='外勤工作',task_name='历史外勤',progress_content='内容',duration_minutes=30,display_metadata={'report_types':['外勤工作::展会']}))
+    db.commit()
     categories.validate_categories(db,owner,[row(report_types=['外勤工作::展会'])])
 
 
-def test_custom_root_category_requires_saved_content_and_is_shared(environment,monkeypatch):
+def test_custom_root_category_requires_saved_content_and_is_isolated(environment,monkeypatch):
     import work_report_categories as categories
     db,(owner,other,_)=environment
     monkeypatch.setattr(categories,'can_add_project_category',lambda *_:False)
@@ -151,10 +162,10 @@ def test_custom_root_category_requires_saved_content_and_is_shared(environment,m
     categories.add_category(db,owner,'质量工作','检查格式')
     categories.add_category_group(db,owner,'质量工作','核对术语')
     assert set(categories.category_catalog(db,owner)['work_categories']['质量工作'])=={'核对术语','检查格式'}
-    assert '质量工作' in categories.category_catalog(db,other)['work_categories']
+    assert '质量工作' not in categories.category_catalog(db,other)['work_categories']
     item=row(report_types=['质量工作::核对术语'])
     categories.validate_categories(db,owner,[item])
-    categories.validate_categories(db,other,[item])
+    with pytest.raises(ValueError):categories.validate_categories(db,other,[item])
     with pytest.raises(ValueError):categories.add_category_group(db,owner,'项目工作','绕过限制')
     with pytest.raises(ValueError):categories.add_category_group(db,owner,'自定义',' ')
 

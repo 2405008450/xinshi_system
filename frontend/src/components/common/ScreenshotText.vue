@@ -6,8 +6,9 @@
         <template v-for="id in [part.id]" :key="id">
         <a v-if="files[id]?.extension" class="screenshot-document" :class="{'invoice-drag-handle':invoiceDrag}" :href="files[id].url"
           :download="invoiceFilename(id,ids.indexOf(id))" :draggable="invoiceDrag" @click.stop @dragstart="dragInvoice($event,id,ids.indexOf(id))">{{invoiceDrag?'下载或拖动':'下载'}} {{ files[id].extension.toUpperCase() }} 发票</a>
-        <el-image v-else-if="files[id]" :src="files[id].url" :preview-src-list="imageUrls" :z-index="previewZIndex" :initial-index="imageUrls.indexOf(files[id].url)" preview-teleported fit="contain" @click.stop />
-        <span v-else>{{ errors[id] || '正在加载附件…' }}</span>
+        <el-image v-else-if="files[id]" :src="files[id].url" :preview-src-list="imageUrls" :z-index="previewZIndex" :initial-index="imageUrls.indexOf(previewUrls[id] || files[id].url)" preview-teleported fit="contain" @click.stop />
+        <span v-else-if="errors[id]" class="screenshot-error">{{ errors[id] }}</span>
+        <span v-else :class="useThumbnail ? 'screenshot-placeholder' : ''">正在加载附件…</span>
         <button v-if="removable" type="button" class="screenshot-remove-btn" :aria-label="files[id]?.extension ? '移除发票附件' : '移除截图'" @click.stop="$emit('remove',id)">×</button>
         <template v-if="invoiceDrag && files[id]?.fileExtension">
           <a v-if="!files[id].extension" class="invoice-drag-handle" :href="files[id].url" :download="invoiceFilename(id,ids.indexOf(id))" draggable="true"
@@ -23,28 +24,76 @@
   </span>
 </template>
 <script setup>
-import { computed,onBeforeUnmount,ref,watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useZIndex, ElMessage } from 'element-plus'
 import api from '@/api'
-import { invoiceDragType,screenshotIds,screenshotParts } from '@/utils/screenshotReferences'
-const props=defineProps({text:{type:String,default:''},showText:{type:Boolean,default:true},removable:Boolean,chatMessageId:[String,Number],chatKind:String,invoiceDrag:Boolean,invoiceOrderNo:String})
+import { invoiceDragType, screenshotIds, screenshotParts } from '@/utils/screenshotReferences'
+import { buildScreenshotCacheKey, screenshotCache } from '@/utils/screenshotCache'
+const props = defineProps({ text: { type: String, default: '' }, showText: { type: Boolean, default: true }, removable: Boolean, chatMessageId: [String, Number], chatKind: String, invoiceDrag: Boolean, invoiceOrderNo: String })
 defineEmits(['remove'])
 const parts = computed(() => screenshotParts(props.text))
-const ids=computed(()=>screenshotIds(props.text)),files=ref({}),errors=ref({})
-const imageUrls = computed(() => ids.value.filter(id => files.value[id] && !files.value[id].extension).map(id => files.value[id].url))
-const documentExtensions = {'application/pdf':'pdf','application/ofd':'ofd'}
-const root=ref(null),previewZIndex=ref(),{nextZIndex}=useZIndex()
-function preparePreview(event){
-  if(!event.target.closest('.el-image'))return
-  // 预览挂到 body，必须高于进度窗口及其嵌套弹窗的自定义层级。
-  let level=nextZIndex()
-  for(let element=root.value;element;element=element.parentElement){
-    const parentLevel=Number.parseInt(getComputedStyle(element).zIndex,10)
-    if(Number.isFinite(parentLevel))level=Math.max(level,parentLevel+1)
-  }
-  previewZIndex.value=level
+const ids = computed(() => screenshotIds(props.text)), files = ref({}), previewUrls = ref({}), errors = ref({})
+const useThumbnail = computed(() => Boolean(props.chatMessageId) && !props.invoiceDrag)
+const imageUrls = computed(() => ids.value.filter(id => files.value[id] && !files.value[id].extension).map(id => previewUrls.value[id] || files.value[id].url))
+const documentExtensions = { 'application/pdf': 'pdf', 'application/ofd': 'ofd' }
+const root = ref(null), previewZIndex = ref(), { nextZIndex } = useZIndex()
+const shouldLazyLoad = computed(() => Boolean(props.chatMessageId) && !props.invoiceDrag && typeof IntersectionObserver !== 'undefined')
+const inViewport = ref(!shouldLazyLoad.value)
+let observer = null
+
+function currentUserId() {
+  try { return localStorage.getItem('user_id') || '' } catch { return '' }
 }
-const imageExtensions = {'image/png':'png','image/jpeg':'jpg'}
+
+function buildRequestParams(variant) {
+  const params = {}
+  if (props.chatMessageId) {
+    params.chat_message_id = props.chatMessageId
+    params.chat_kind = props.chatKind || 'project'
+  }
+  if (variant === 'thumb') params.variant = 'thumb'
+  return params
+}
+
+async function fetchImageEntry(id, variant, { retainBlob = false } = {}) {
+  const key = buildScreenshotCacheKey({ userId: currentUserId(), id, variant, retainBlob })
+  return screenshotCache.fetch(
+    key,
+    () => api.get(`/editor-screenshots/${id}`, {
+      responseType: 'blob',
+      timeout: 60000,
+      screenshotIds: [id],
+      params: buildRequestParams(variant),
+    }),
+    { retainBlob },
+  )
+}
+
+function upgradePreviewOriginals() {
+  if (!useThumbnail.value) return
+  for (const id of ids.value) {
+    const currentFile = files.value[id]
+    if (!currentFile || currentFile.extension || previewUrls.value[id]) continue
+    void fetchImageEntry(id, 'original').then(entry => {
+      if (ids.value.includes(id)) {
+        previewUrls.value = { ...previewUrls.value, [id]: entry.url }
+      }
+    }).catch(() => { /* 原图升级失败时保留缩略图预览，不打断查看。 */ })
+  }
+}
+
+function preparePreview(event) {
+  if (!event.target.closest('.el-image')) return
+  // 预览挂到 body，必须高于进度窗口及其嵌套弹窗的自定义层级。
+  let level = nextZIndex()
+  for (let element = root.value; element; element = element.parentElement) {
+    const parentLevel = Number.parseInt(getComputedStyle(element).zIndex, 10)
+    if (Number.isFinite(parentLevel)) level = Math.max(level, parentLevel + 1)
+  }
+  previewZIndex.value = level
+  upgradePreviewOriginals()
+}
+const imageExtensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
 const desktopDrag = Boolean(window.xinshiDesktop?.prepareInvoiceFile && window.xinshiDesktop?.dragStatementFile)
 
 function invoiceStem(index) {
@@ -97,38 +146,66 @@ function dragNativeInvoice(event, id) {
   event.stopPropagation()
   window.xinshiDesktop.dragStatementFile(files.value[id].nativeToken)
 }
-let version=0
-watch([() => ids.value.join(','), () => props.chatMessageId, () => props.chatKind], async () => {
+let version = 0
+
+function observeViewport() {
+  if (!shouldLazyLoad.value || inViewport.value || !root.value) return
+  if (observer) return
+  observer = new IntersectionObserver(
+    entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        inViewport.value = true
+        observer?.disconnect()
+        observer = null
+      }
+    },
+    { rootMargin: '240px 0px' },
+  )
+  observer.observe(root.value)
+}
+
+onMounted(() => {
+  observeViewport()
+})
+
+watch([() => ids.value.join(','), () => props.chatMessageId, () => props.chatKind, () => inViewport.value, () => useThumbnail.value], async () => {
   const current = ++version
-  for (const [id, file] of Object.entries(files.value)) {
+  for (const id of Object.keys(files.value)) {
     if (ids.value.includes(id)) continue
-    URL.revokeObjectURL(file.url)
     delete files.value[id]
   }
+  for (const id of Object.keys(previewUrls.value)) {
+    if (ids.value.includes(id)) continue
+    delete previewUrls.value[id]
+  }
+  if (!ids.value.length) return
+  if (shouldLazyLoad.value && !inViewport.value) {
+    observeViewport()
+    return
+  }
+  const variant = useThumbnail.value ? 'thumb' : 'original'
   await Promise.all(ids.value.map(async id => {
     if (files.value[id]) return
     try {
-      const blob = await api.get(`/editor-screenshots/${id}`, {
-        responseType:'blob', timeout:60000, screenshotIds:[id],
-        params:props.chatMessageId ? {chat_message_id:props.chatMessageId,chat_kind:props.chatKind || 'project'} : {},
-      })
+      const entry = await fetchImageEntry(id, variant, { retainBlob: props.invoiceDrag })
       if (current === version) {
-        const extension = documentExtensions[blob.type]
+        const extension = documentExtensions[entry.type]
         files.value[id] = {
-          url: URL.createObjectURL(blob),
-          blob: props.invoiceDrag ? blob : undefined,
+          url: entry.url,
+          blob: props.invoiceDrag ? entry.blob : undefined,
           extension,
-          fileExtension: extension || imageExtensions[blob.type],
+          fileExtension: extension || imageExtensions[entry.type],
         }
       }
     } catch (e) {
-      if (current === version) errors.value[id] = [404,410].includes(e.response?.status || e.status) ? '附件已过期或不存在' : e.detail || '请重新打开记录以查看附件'
+      if (current === version) errors.value[id] = [404, 410].includes(e.response?.status || e.status) ? '附件已过期或不存在' : e.detail || '请重新打开记录以查看附件'
     }
   }))
-}, {immediate:true})
+}, { immediate: true })
 onBeforeUnmount(() => {
   ++version
-  for (const file of Object.values(files.value)) URL.revokeObjectURL(file.url)
+  observer?.disconnect()
+  observer = null
 })
 </script>
 <style scoped>
@@ -136,4 +213,4 @@ onBeforeUnmount(() => {
 .invoice-drag-handle { cursor: grab; padding: 5px 8px; color: var(--el-color-primary); border: 1px solid var(--el-border-color); border-radius: 4px; }
 .invoice-drag-handle:active { cursor: grabbing; }
 </style>
-<style scoped>.screenshot-text--with-images{display:inline-flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:100%;white-space:normal;vertical-align:top}.screenshot-plain{white-space:pre-wrap;overflow-wrap:anywhere}.screenshot-preview{position:relative;display:inline-flex;flex-direction:column;align-self:flex-start;width:fit-content;max-width:280px;min-width:80px;font-size:11px;color:#94a3b8}.screenshot-preview .el-image{max-width:280px;height:130px;border:1px solid #e2e8f0;border-radius:6px}.screenshot-preview .screenshot-remove-btn{position:absolute;right:4px;top:4px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid #cbd5e1;border-radius:50%;background:rgba(255,255,255,.94);color:#475569;font-size:14px;line-height:1;box-shadow:0 1px 3px rgba(15,23,42,.12);cursor:pointer;transition:color .15s ease,border-color .15s ease,background-color .15s ease}.screenshot-preview .screenshot-remove-btn:hover{color:#ef4444;border-color:#fca5a5;background:#fef2f2}</style>
+<style scoped>.screenshot-text--with-images{display:inline-flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:100%;white-space:normal;vertical-align:top}.screenshot-plain{white-space:pre-wrap;overflow-wrap:anywhere}.screenshot-preview{position:relative;display:inline-flex;flex-direction:column;align-self:flex-start;width:fit-content;max-width:280px;min-width:80px;font-size:11px;color:#94a3b8}.screenshot-preview .el-image{max-width:280px;height:130px;border:1px solid #e2e8f0;border-radius:6px}.screenshot-placeholder{display:inline-flex;align-items:center;justify-content:center;width:180px;max-width:100%;height:130px;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;color:#94a3b8;font-size:11px}.screenshot-error{font-size:11px;color:#94a3b8}.screenshot-preview .screenshot-remove-btn{position:absolute;right:4px;top:4px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid #cbd5e1;border-radius:50%;background:rgba(255,255,255,.94);color:#475569;font-size:14px;line-height:1;box-shadow:0 1px 3px rgba(15,23,42,.12);cursor:pointer;transition:color .15s ease,border-color .15s ease,background-color .15s ease}.screenshot-preview .screenshot-remove-btn:hover{color:#ef4444;border-color:#fca5a5;background:#fef2f2}</style>

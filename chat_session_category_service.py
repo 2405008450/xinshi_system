@@ -36,6 +36,16 @@ def schema_ready(db):
     return all(inspector.has_table(name) for name in ('chat_session_category', 'chat_session_category_link'))
 
 
+@catalog_cached
+def all_categories(db):
+    return db.query(Category).order_by(Category.created_at, Category.id).all() if schema_ready(db) else []
+
+
+@catalog_cached
+def all_folders(db):
+    return {str(row.category_id): str(row.parent_key) if row.parent_key else None for row in db.query(Folder)} if folder_schema_ready(db) else {}
+
+
 def require_ready(db):
     if not schema_ready(db):
         raise HTTPException(503, '团队会话分类尚未完成数据库迁移')
@@ -49,13 +59,12 @@ def serialize(row):
 def catalog(db, user):
     ready = schema_ready(db)
     hierarchy_ready = ready and folder_schema_ready(db)
-    parents = {str(row.category_id): row.parent_key for row in db.query(Folder)} if hierarchy_ready else {}
-    from discussion_chat_service import schema_ready as discussion_ready
-    from discussion_chat_models import DiscussionMember
-    rooms = {str(room) for room, in db.query(DiscussionMember.room_id).distinct()} if ready and discussion_ready(db) else set()
+    parents = all_folders(db) if hierarchy_ready else {}
+    from discussion_chat_service import schema_ready as discussion_ready, all_member_room_ids, user_member_map
+    rooms = all_member_room_ids(db) if ready and discussion_ready(db) else set()
     # 目录与消息接口共用参与人及业务范围边界，不能泄露其他人的群聊入口。
     from discussion_chat_service import visible_room_specs
-    member_rooms = {str(room) for room, in db.query(DiscussionMember.room_id).filter_by(user_id=user.id)} if ready and discussion_ready(db) else set()
+    member_rooms = set(user_member_map(db, user.id)) if ready and discussion_ready(db) else set()
     accessible_rooms = {row['id'] for row in visible_room_specs(db, user)} & member_rooms if rooms else set()
     from technical_task_conversations import can_access, restricted_ids, specs
     technical_access=can_access(db,user)
@@ -64,7 +73,7 @@ def catalog(db, user):
     from translation_chat_delivery import aliases as translation_aliases
     from project_delivery import aliases as project_aliases
     titles={**translation_aliases(db),**project_aliases(db)}
-    categories = db.query(Category).order_by(Category.created_at, Category.id).all() if ready else []
+    categories = all_categories(db) if ready else []
     from technical_requirements import folder_catalog
     technical_rooms, daily_folders, hidden_technical = folder_catalog(db, user, {str(row.id) for row in categories if row.active}) if ready and discussion_ready(db) else ({}, [], set())
     hidden.update(hidden_technical)

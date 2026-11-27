@@ -16,6 +16,7 @@ const SIZE_MODES = ['small', 'medium', 'large']
 
 let sequence = 0
 let duplicateSequence = 0
+let targetMessageSequence = 0
 let zSequence = DOCK_Z_BASE
 
 const state = reactive({
@@ -303,7 +304,10 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
   const existing = !allowDuplicate && (state.windows.find(item => item.key === state.activeKey && item.projectType === projectType && item.projectId === String(projectId)) || state.windows.find(item => item.projectType === projectType && item.projectId === String(projectId)))
   if (existing) {
     if(deletionProtected)existing.deletionProtected=true
-    if (messageId) existing.targetMessageId = messageId
+    if (messageId) {
+      existing.targetMessageId = messageId
+      existing.targetMessageSeq = ++targetMessageSequence
+    }
     if (title) existing.title = title
     if (subtitle) existing.subtitle = subtitle
     if (projectStatus) existing.projectStatus = projectStatus
@@ -331,6 +335,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     accessConfirmed: false,
     projectStatus,
     targetMessageId: messageId,
+    targetMessageSeq: messageId ? ++targetMessageSequence : 0,
     title: title || (needsMeta ? '正在加载项目信息…' : '项目沟通'),
     subtitle,
     minimized: false,

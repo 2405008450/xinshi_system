@@ -276,3 +276,56 @@ def test_separate_backend_instances_share_image_bytes_and_grants(environment, mo
     # 密钥不一致时保持拒绝授权，不能为兼容多部署而绕过签名检查。
     monkeypatch.setattr('routers.auth.SECRET_KEY', 'isolated-test-different-instance-secret')
     assert 'x-screenshot-grant' not in second.get('/business-record', headers={'Authorization': 'Bearer member'}).headers
+
+
+def test_download_thumbnail_variant_and_etag_304(environment):
+    db, (owner, *_) = environment
+    from routers.editor_screenshots import router
+    from routers.auth import get_current_user
+    from database import get_db
+    from PIL import Image as PilImage
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: owner
+    client = TestClient(app)
+
+    # 构造一张 1200x900 且体积大于 32KB 的 PNG，验证缩略图尺寸与体积显著下降。
+    import random
+    rng = random.Random(42)
+    raw_rgb = rng.randbytes(1200 * 900 * 3)
+    large_img = PilImage.frombytes('RGB', (1200, 900), raw_rgb)
+    buf = BytesIO()
+    large_img.save(buf, format='PNG')
+    original_bytes = buf.getvalue()
+    assert len(original_bytes) > 64 * 1024
+
+    uploaded = client.post('/editor-screenshots', files={'file': ('big.png', original_bytes, 'image/png')}, data={'retention': 'chat'})
+    assert uploaded.status_code == 201
+    uid = uploaded.json()['id']
+
+    thumb = client.get(f'/editor-screenshots/{uid}', params={'variant': 'thumb'})
+    assert thumb.status_code == 200
+    assert thumb.headers['content-type'] == 'image/webp'
+    assert thumb.headers['cache-control'] == 'private, no-store'
+    assert thumb.headers['vary'] == 'Authorization'
+    assert thumb.headers.get('etag')
+    assert len(thumb.content) < len(original_bytes) // 4
+    with PilImage.open(BytesIO(thumb.content)) as parsed:
+        assert max(parsed.width, parsed.height) <= 480
+
+    # 带 ETag 再次请求时返回 304，零图片流量。
+    not_modified = client.get(
+        f'/editor-screenshots/{uid}',
+        params={'variant': 'thumb'},
+        headers={'If-None-Match': thumb.headers['etag']},
+    )
+    assert not_modified.status_code == 304
+    assert not_modified.content == b''
+
+    # 请求原图时 ETag 与缩略图不同且返回完整原字节。
+    full = client.get(f'/editor-screenshots/{uid}')
+    assert full.status_code == 200
+    assert full.headers['etag'] != thumb.headers['etag']
+    assert full.content == original_bytes

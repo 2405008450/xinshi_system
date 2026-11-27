@@ -102,16 +102,19 @@ def test_actual_confirm_appends_to_finalized_report_once_and_can_delete(setup,mo
     assert db.query(DailyReportItem).count()==1
 
 
-def test_shared_categories_and_layout_presets_stay_private(environment,monkeypatch):
+def test_custom_categories_and_layout_presets_stay_private(environment,monkeypatch):
     db,(owner,member,_)=environment
     import work_report_categories as categories
     monkeypatch.setattr(categories,'can_add_project_category',lambda *a:False)
     categories.add_category_group(db,owner,'客户研究','资料核对')
     categories.add_category(db,owner,'非项目工作','跨部门整理')
     db.add(categories.WorkReportCategory(scope=str(owner.id),parent=categories.LAYOUT_PRESET_PARENT,name='个人固定选项'));db.commit()
+    owner_catalog=categories.category_catalog(db,owner)
+    assert owner_catalog['work_categories']['客户研究']==['资料核对']
+    assert '跨部门整理' in owner_catalog['work_categories']['非项目工作']
     catalog=categories.category_catalog(db,member)
-    assert catalog['work_categories']['客户研究']==['资料核对']
-    assert '跨部门整理' in catalog['work_categories']['非项目工作']
+    assert '客户研究' not in catalog['work_categories']
+    assert '跨部门整理' not in catalog['work_categories']['非项目工作']
     assert '个人固定选项' not in catalog['layout_task_presets']
     assert '培训会议' not in catalog['work_categories']['会议']
     assert '培训会议' in catalog['work_categories']['培训工作']

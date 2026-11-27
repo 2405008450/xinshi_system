@@ -17,11 +17,12 @@
       <p v-if="error" role="alert">{{ error }} <el-button link @click="refresh">重试</el-button></p>
       <el-empty v-else-if="!starredSessions.length" description="在会话列表右键或点击 ⋯ 选择“收藏”，即可把常用群聊保存到这里" :image-size="50" />
       <div class="annotation-favorites-list">
-        <div v-for="item in pagedStarred" :key="item.key" class="annotation-favorite-row">
+        <div v-for="item in pagedStarred" :key="item.key" class="annotation-favorite-row" :class="{ 'is-pinned': item.pinned }">
+          <el-icon v-if="item.pinned" class="annotation-favorite-pin-corner" title="已置顶"><Top /></el-icon>
+          <span class="annotation-favorite-avatar" :class="`annotation-favorite-avatar--${item.kind}`" aria-hidden="true">{{ chatAvatarText(item.title || item.subtitle || '会') }}</span>
           <button type="button" class="annotation-favorite-project" :aria-label="`打开会话 ${item.title}`" @click="openStarredSession(item)">
             <span class="annotation-favorite-title">
-              <el-icon v-if="item.pinned" class="annotation-favorite-pin" title="已置顶"><Top /></el-icon>
-              <span>{{ item.title || '未命名会话' }}</span>
+              <strong>{{ item.title || '未命名会话' }}</strong>
             </span>
             <small>{{ sessionKindLabel(item.kind) }}<template v-if="item.subtitle"> · {{ item.subtitle }}</template></small>
           </button>
@@ -42,8 +43,10 @@
       <p v-if="error" role="alert">{{ error }} <el-button link @click="refresh">重试</el-button></p>
       <el-empty v-else-if="!followed.length" description="在项目沟通中点击关注，即可在这里快速找到" :image-size="50" />
       <div class="annotation-favorites-list">
-        <div v-for="item in pagedFavorites" :key="item.projectId" class="annotation-favorite-row" @contextmenu.prevent.stop="showFavoriteMenu($event, item)" @keydown.shift.f10.prevent.stop="showFavoriteMenu($event, item)">
-          <button class="annotation-favorite-project" :aria-label="`定位项目 ${item.orderNo}`" @click="locateProject(item)"><span>{{ item.projectName || '未命名项目' }}</span><small>{{ orderLabel(item.orderNo) }} · {{ item.orderNo }}</small></button>
+        <div v-for="item in pagedFavorites" :key="item.projectId" class="annotation-favorite-row" :class="{ 'is-pinned': item.pinned }" @contextmenu.prevent.stop="showFavoriteMenu($event, item)" @keydown.shift.f10.prevent.stop="showFavoriteMenu($event, item)">
+          <el-icon v-if="item.pinned" class="annotation-favorite-pin-corner" title="已置顶"><Top /></el-icon>
+          <span class="annotation-favorite-avatar annotation-favorite-avatar--annotation" aria-hidden="true">{{ chatAvatarText(item.projectName || item.orderNo || '标') }}</span>
+          <button class="annotation-favorite-project" :aria-label="`定位项目 ${item.orderNo}`" @click="locateProject(item)"><strong>{{ item.projectName || '未命名项目' }}</strong><small>{{ orderLabel(item.orderNo) }} · {{ item.orderNo }}</small></button>
           <el-badge :value="item.mentionUnread" :hidden="!item.mentionUnread" :max="99"><el-button link type="primary" :aria-label="`沟通 ${item.orderNo}`" @click="open(item)">沟通</el-button></el-badge>
         </div>
       </div>
@@ -65,6 +68,7 @@ import ChatAnnotationProjectPicker from './ChatAnnotationProjectPicker.vue'
 import ChatFavoriteRecovery from './ChatFavoriteRecovery.vue'
 import ChatListPagination from './ChatListPagination.vue'
 import { annotationChatRequest, chatRequest } from '@/api/projectChat'
+import { chatAvatarText } from '@/utils/chatLayout'
 import { compareSessionActivity } from '@/utils/chatSessionList'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 import { Star, Top } from '@element-plus/icons-vue'
@@ -173,14 +177,19 @@ watch(favoritesVisible, value => {
 .annotation-favorites-recovery{display:flex;justify-content:flex-end;padding:8px 0}
 .annotation-favorites-heading{display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px;border-bottom:1px solid #eef2f6}
 .annotation-favorites-heading span{font-size:12px;color:#94a3b8}
-.annotation-favorites-list{max-height:min(420px,calc(100vh - 180px));overflow-y:auto}
-.annotation-favorite-row{display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid #f1f5f9;border-radius:6px}
-.annotation-favorite-row:hover{background:#f8fafc}
-.annotation-favorite-project{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px;text-align:left;background:none;border:0;padding:0;cursor:pointer;color:#334155;font:inherit}
+.annotation-favorites-list{max-height:min(420px,calc(100vh - 180px));overflow-y:auto;padding:4px 0}
+.annotation-favorite-row{position:relative;display:flex;align-items:center;gap:10px;padding:9px 10px;margin-bottom:2px;border-radius:8px;transition:background-color .14s ease}
+.annotation-favorite-row:hover{background:#eef3f8}
+.annotation-favorite-row.is-pinned{background:#fef9c3;box-shadow:inset 3px 0 0 #eab308}
+.annotation-favorite-row.is-pinned:hover{background:#fef08a}
+.annotation-favorite-pin-corner{position:absolute;top:4px;left:5px;font-size:11px;color:#d97706}
+.annotation-favorite-avatar{display:grid;flex:none;place-items:center;width:36px;height:36px;border-radius:10px;background:#e4ebf4;color:#3b526b;font-size:14px;font-weight:600}
+.annotation-favorite-avatar--annotation{background:#e2f0ea;color:#2b6b56}
+.annotation-favorite-avatar--direct{border-radius:50%;background:#ebe6f5;color:#62508a}
+.annotation-favorite-project{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px;text-align:left;background:none;border:0;padding:0;cursor:pointer;color:#334155;font:inherit}
 .annotation-favorite-title{display:flex;align-items:center;gap:4px;min-width:0}
-.annotation-favorite-pin{flex:none;font-size:12px;color:var(--color-primary, #2563eb)}
-.annotation-favorite-project span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.annotation-favorite-project small{color:#94a3b8;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.annotation-favorite-project:hover span{color:var(--color-primary-hover)}
+.annotation-favorite-project strong{font-size:13px;font-weight:600;color:var(--color-text-primary, #1e293b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.annotation-favorite-project small{color:#94a3b8;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.annotation-favorite-project:hover strong{color:var(--color-primary-hover)}
 .annotation-favorite-actions{display:flex;flex:none;align-items:center;gap:6px}
 </style>

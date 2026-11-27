@@ -319,8 +319,8 @@ async function save(finalize) {
   const amendment = amending.value
   validating.value = true
   submitNotice.value = ''
-  cacheDraft(date,true)
   try {
+    cacheDraft(date,true)
     try {
       if (!idleTimeRef.value || !await idleTimeRef.value.validate()) {
         throw new Error('请填写空闲时间并确认声明')
@@ -354,6 +354,7 @@ async function save(finalize) {
       submissionNotice('尚未提交：请补全任务类型、具体任务及必填的项目名称')
       return
     }
+    validating.value = false
     if (finalize) await ElMessageBox.confirm(`报告日期：${date}。`+(amending.value?'保存后将更新已提交的工作报告，并用完本日报告的一次修改机会，修改记录对查看人可见。是否保存？':'确认后将保存并发送该日期的工作报告，接收人可在系统「查看工作报告」中查看。确认后仅有一次修订机会，是否继续？'), '确认报告', { type: 'warning' })
     if (date !== props.reportDate) {
       submissionNotice('报告日期已变化，请核对当前日期后重新提交')

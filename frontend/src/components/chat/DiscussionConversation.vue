@@ -88,7 +88,9 @@ import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
 import { loadOutboxMessages, markOutboxInFlight, removeOutboxMessage, sendWithAutoRetry, unmarkOutboxInFlight, upsertOutboxMessage } from '@/utils/chatOutbox'
-const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, accessPending: Boolean, targetMessageId: { type: String, default: '' } })
+import { trimMessageWindow } from '@/utils/chatMessageWindow'
+import { createChatMessageScroller } from '@/utils/chatMessageScroll'
+const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, accessPending: Boolean, targetMessageId: { type: String, default: '' }, targetMessageSeq: { type: Number, default: 0 } })
 const TechnicalTaskDialog = defineAsyncComponent(() => import('@/views/technology/TechnicalDevelopment.vue'))
 const taskDraft = ref(null)
 const canCreateDevelopmentTask = computed(() => props.roomTitle.replace(/\s/g, '') === '技术/开发沟通' && canViewTechnicalDevelopment())
@@ -173,7 +175,16 @@ async function markRead() {
   try { await chatRequest(`${base}/preferences`, { method: 'put', data: { readMessageId: last } }); readVersion = last } catch { /* 下轮重试，不能提前清除未读。 */ } finally { reading = false }
 }
 const autoScroll = useChatAutoScroll(() => list.value, () => props.active)
-async function goBottom() { await autoScroll.bottom(); pendingNew.value = false; await markRead() }
+const messageScroller = createChatMessageScroller({ onLockChange: locked => autoScroll.setLocateLock(locked) })
+let locatedTarget = ''
+function pruneMessageWindow() {
+  if (keyword.value || favoritesOnly.value || editingMessageId.value) return
+  const result = trimMessageWindow(messages.value)
+  if (!result.trimmed) return
+  messages.value = result.messages
+  hasEarlier.value = true
+}
+async function goBottom() { messageScroller.stop(); await autoScroll.bottom(); pendingNew.value = false; pruneMessageWindow(); await markRead() }
 function onScroll() { if (atBottom()) { pendingNew.value = false; markRead() } }
 async function refresh(reset = false) {
   if (!props.active || disposed || ((loading.value || loadingEarlier.value) && !reset)) return
@@ -181,7 +192,8 @@ async function refresh(reset = false) {
   const signal = controller.signal
   if (reset) { pendingFilterReset = false; messageFreshness.invalidate() }
   const markFresh = messageFreshness.begin()
-  const follow = reset || atBottom(), previousLast = [...messages.value].reverse().find(row => !row?.optimisticStatus)?.id
+  const hasPendingLocate = Boolean(props.targetMessageId && locatedTarget !== `${props.targetMessageId}:${props.targetMessageSeq}`)
+  const follow = !messageScroller.isLocating() && ((reset && !hasPendingLocate) || (!reset && atBottom())), previousLast = [...messages.value].reverse().find(row => !row?.optimisticStatus)?.id
   if (reset) { loading.value = true; messages.value = []; replyTo.value = null; pendingNew.value = false }
   try {
     const data = await chatRequest(`${base}/messages`, { params: { keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined }, signal })
@@ -372,7 +384,7 @@ watch(() => props.active, active => {
     else if (messageFreshness.isStale()) void messageRefresh.schedule({ immediate: true })
     else if (atBottom()) void markRead()
     pollTimer = setInterval(() => messageRefresh.schedule(), 15000 + Math.floor(Math.random() * 5000))
-  } else { controller?.abort(); ++requestVersion; loading.value = false }
+  } else { messageScroller.stop(); controller?.abort(); ++requestVersion; loading.value = false; pruneMessageWindow() }
 }, { immediate: true })
 const cleanup = [
   subscribe('chat_sessions_changed', event => {
@@ -390,25 +402,36 @@ const cleanup = [
     else if (atBottom()) void markRead()
   }),
 ]
-let locatedTarget = ''
-watch(() => [props.active, props.targetMessageId, loading.value, storageReady.value], ([active, id, busy, ready]) => {
-  if (active && id && !busy && ready && locatedTarget !== id) { locatedTarget = id; locate(id) }
+watch(() => [props.active, props.targetMessageId, props.targetMessageSeq, loading.value, storageReady.value], ([active, id, seq, busy, ready]) => {
+  const key = id ? `${id}:${seq}` : ''
+  if (active && id && !busy && ready && locatedTarget !== key) { locatedTarget = key; locate(id) }
 }, { flush: 'post' })
 const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => {
+  messageScroller.stop()
   disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer)
   messageRefresh.stop(); cleanup.forEach(unsubscribe => unsubscribe())
 })
 async function locate(id) {
   autoScroll.pause()
+  autoScroll.setLocateLock(true)
+  messageScroller.stop()
   try {
     const target=String(id)
     if(!messages.value.some(row=>row.id===target)){
       const [older,newer]=await Promise.all([chatRequest(`${base}/messages`,{params:{before:(BigInt(target)+1n).toString(),limit:30}}),chatRequest(`${base}/messages`,{params:{after:target,limit:30}})])
       merge([...(older.items||[]),...(newer.items||[])])
     }
-    await nextTick();const element=list.value?.querySelector(`[data-message-id="${target}"]`);element?.scrollIntoView({block:'center'});element?.animate([{background:'#fef3c7'},{background:'transparent'}],{duration:2200})
-  }catch(e){error.value=e.detail||e.message||'定位消息失败'}
+    await nextTick()
+    const findTarget = () => list.value?.querySelector(`[data-message-id="${target}"]`)
+    const element = findTarget()
+    if (element) {
+      messageScroller.scrollTo(() => list.value, findTarget)
+      element.animate?.([{background:'#fef3c7'},{background:'transparent'}],{duration:2200})
+    } else {
+      autoScroll.setLocateLock(false)
+    }
+  }catch(e){autoScroll.setLocateLock(false);error.value=e.detail||e.message||'定位消息失败'}
 }
 defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 </script>

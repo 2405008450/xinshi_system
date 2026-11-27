@@ -64,6 +64,7 @@ import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
 import { loadOutboxMessages, markOutboxInFlight, removeOutboxMessage, sendWithAutoRetry, unmarkOutboxInFlight, upsertOutboxMessage } from '@/utils/chatOutbox'
+import { trimMessageWindow } from '@/utils/chatMessageWindow'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
@@ -77,10 +78,12 @@ import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
+import { createChatMessageScroller } from '@/utils/chatMessageScroll'
 
 const props = defineProps({
   projectType: { type: String, default: 'annotation' },
   targetMessageId: { type: String, default: '' },
+  targetMessageSeq: { type: Number, default: 0 },
   projectId: [String, Number],
   active: Boolean,
   accessPending: Boolean,
@@ -158,6 +161,7 @@ const ready = new Promise(resolve => { resolveReady = resolve })
 function cancelLocate() {
   ++locateVersion
   highlighted.value = ''
+  messageScroller.stop()
   if (locateController) { ++generation; locateController.abort(); locateController = null }
 }
 watch(() => props.active, active => { if (!active) cancelLocate() })
@@ -165,7 +169,8 @@ let lastRead = 0, readBusy = false
 const visibleMessages = new Map(), observedElements = new WeakSet(), cleanup = []
 const atBottom = () => !!list.value && list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 45
 const autoScroll = useChatAutoScroll(() => list.value, () => props.active)
-const bottom = async () => { await autoScroll.bottom(); pendingNew.value = 0 }
+const messageScroller = createChatMessageScroller({ onLockChange: locked => autoScroll.setLocateLock(locked) })
+const bottom = async () => { messageScroller.stop(); await autoScroll.bottom(); pendingNew.value = 0 }
 
 
 const { sessions: followed, refresh: refreshSessions } = useAnnotationFollowed()
@@ -195,7 +200,7 @@ async function startDirect(member) {
     await refreshSessions()
   } catch (e) { ElMessage.error(detail(e)) }
 }
-watch(() => props.targetMessageId, id => { if (id) locate(id) })
+watch(() => [props.targetMessageId, props.targetMessageSeq], ([id]) => { if (id) locate(id) })
 
 const messageFreshness = createChatWindowFreshness(CHAT_WINDOW_REFRESH_MS)
 const memberFreshness = createChatWindowFreshness(CHAT_MEMBERS_REFRESH_MS)
@@ -259,7 +264,7 @@ function merge(rows, options = {}) {
     }
   })
 }
-async function search() {
+async function search({ scrollToBottom = true } = {}) {
   if (initialized) cancelLocate()
   clearTimeout(searchTimer)
   searchController?.abort()
@@ -275,7 +280,7 @@ async function search() {
     syncedSequence = data.items.at(-1)?.sequenceNo || 0
     timelineReady.value = true
     markFresh()
-    await bottom()
+    if (scrollToBottom) await bottom()
   } catch (e) { if (version === generation && !searchController.signal.aborted) error.value = detail(e) }
   finally { if (version === generation) loading.value = false }
 }
@@ -330,11 +335,13 @@ async function sync() {
 async function returnLatest() { await search(); await bottom() }
 async function locate(id) {
   autoScroll.pause()
+  autoScroll.setLocateLock(true)
   const requestVersion = ++locateVersion
   locateController?.abort()
   await ready
-  if (disposed || requestVersion !== locateVersion) return false
+  if (disposed || requestVersion !== locateVersion) { autoScroll.setLocateLock(false); return false }
   autoScroll.pause()
+  autoScroll.setLocateLock(true)
   const version = ++generation
   searchController?.abort()
   loading.value = false
@@ -343,16 +350,17 @@ async function locate(id) {
     try {
       const data = await request(props.projectId, 'timeline', { params: { around: id }, signal: controller.signal })
       if (version !== generation || disposed || requestVersion !== locateVersion) return false
-      if (!data.items?.some(m => m.id === id && !m.recalledAt)) return false
+      if (!data.items?.some(m => m.id === id && !m.recalledAt)) { autoScroll.setLocateLock(false); return false }
       messages.value = []; visibleMessages.clear(); merge(data.items); hasEarlier.value = true; viewingHistory.value = true
-    } catch (e) { if (!controller.signal.aborted && requestVersion === locateVersion) ElMessage.error(detail(e)); return false }
+    } catch (e) { autoScroll.setLocateLock(false); if (!controller.signal.aborted && requestVersion === locateVersion) ElMessage.error(detail(e)); return false }
     finally { if (locateController === controller) locateController = null }
   }
   await nextTick()
   if (disposed || requestVersion !== locateVersion || version !== generation) return false
-  const target = list.value?.querySelector(`[data-message-id="${id}"]`)
-  if (!target || messages.value.find(m => m.id === id)?.recalledAt) return false
-  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const findTarget = () => list.value?.querySelector(`[data-message-id="${id}"]`)
+  const target = findTarget()
+  if (!target || messages.value.find(m => m.id === id)?.recalledAt) { autoScroll.setLocateLock(false); return false }
+  messageScroller.scrollTo(() => list.value, findTarget)
   highlighted.value = id
   setTimeout(() => { if (requestVersion === locateVersion) highlighted.value = '' }, 1800)
   return true
@@ -685,9 +693,22 @@ function foreground(force = false) {
   if (memberFreshness.isStale()) void groupRefresh.schedule()
 }
 function topicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
+function pruneMessageWindow() {
+  if (viewingHistory.value || editingMessageId.value || selected.value.length) return
+  const result = trimMessageWindow(messages.value)
+  if (!result.trimmed) return
+  messages.value = result.messages
+  hasEarlier.value = true
+  const validImages = new Set(messages.value.flatMap(m => m.attachments || []).map(f => f.id))
+  Object.keys(imageUrls).forEach(id => {
+    if (!validImages.has(id)) {
+      URL.revokeObjectURL(imageUrls[id]); delete imageUrls[id]
+    }
+  })
+}
 watch(() => props.active, active => {
   if (active && initialized) foreground()
-  else if (!active) closeMention()
+  else if (!active) { closeMention(); pruneMessageWindow() }
 })
 async function initializeConversation() {
   if (initialized) return search()
@@ -697,10 +718,13 @@ async function initializeConversation() {
   try {
     if (!isDirect.value) await annotationChatRequest(props.projectId, 'start', { method: 'post' })
     if (disposed) return
-    await Promise.all([loadGroup(), search()])
+    await Promise.all([loadGroup(), search({ scrollToBottom: !props.targetMessageId })])
     if (disposed) return
     initialized = true; resolveReady()
-    if (props.targetMessageId) await locate(props.targetMessageId)
+    if (props.targetMessageId) {
+      const located = await locate(props.targetMessageId)
+      if (!located && !disposed) await bottom()
+    }
     // 实时事件即时同步，低频轮询覆盖连接恢复前的断线间隔。
     let pollCount = 0
     if (!disposed) syncTimer = setInterval(() => {
