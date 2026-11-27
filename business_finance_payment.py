@@ -22,7 +22,7 @@ class Registration(StrictInput):
 def registration(payload):
     if payload.get('payment_registration') is not None:
         return deepcopy(payload['payment_registration'])
-    settlement = payload.get('settlement', {})
+    settlement = payload.get('settlement') or {}
     old = settlement.get('payments', [])
     full = settlement.get('payment_status') == 'full' and len(old) <= 1
     paid = settlement.get('payment_status', 'unrecorded') != 'unrecorded' or bool(old)

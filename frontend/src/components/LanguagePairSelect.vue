@@ -81,15 +81,20 @@
       </el-popover>
     </div>
     <el-button v-if="loadingFailed" link type="primary" @click="loadLanguages">重新加载语种</el-button>
-    <div v-if="showHint" class="language-pair-select__hint">{{ hintText }}</div>
+    <details v-if="showHint" ref="hintDetails" class="language-pair-select__hint">
+      <summary>翻译方向填写提示</summary>
+      <p>{{ hintText }}</p>
+      <slot name="hint" />
+    </details>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { buildLanguagePairOptions } from '@/utils/languagePairOptions'
 import { ElMessage } from 'element-plus'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
+import { TRANSLATION_SERVICE_TASKS } from '@/utils/translationServiceContent'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -99,6 +104,7 @@ const props = defineProps({
   allowProofreading: Boolean,
   dropdownWidth: {type:[Boolean,Number],default:true},
   allowCreate: {type:Boolean,default:true},
+  hintResetKey: [Boolean, String, Number],
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -109,6 +115,8 @@ const loadingFailed = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
 const newDirection = ref({ source: '', target: '' })
+const hintDetails = ref(null)
+watch(() => props.hintResetKey, () => { if (hintDetails.value) hintDetails.value.open = false }, { flush: 'post' })
 
 // 常用笔译方向固定前置；同一语种对按“简中译外语、外语译简中”相邻排列。
 const COMMON_LANGUAGE_PAIR_CODES = [
@@ -201,7 +209,7 @@ const loadLanguages = async () => {
   loading.value = true
   loadingFailed.value = false
   try {
-    languages.value = await getProjectLanguages()
+    languages.value = (await getProjectLanguages()).filter(item => !TRANSLATION_SERVICE_TASKS.includes(item.label))
     loadingFailed.value = languages.value.length === 0
   } catch {
     languages.value = []
@@ -234,6 +242,9 @@ const handleCreateDirection = async () => {
   const sourceLabel = normalizeLanguageLabel(newDirection.value.source)
   const targetLabel = normalizeLanguageLabel(newDirection.value.target)
   if (!sourceLabel || !targetLabel) return ElMessage.warning('请选择或输入原文语种和译文语种')
+  if ([sourceLabel, targetLabel].some(label => TRANSLATION_SERVICE_TASKS.includes(label))) {
+    return ElMessage.warning('校对、盖章、润色、审核请在服务内容中选择')
+  }
   if (isSameLanguage(sourceLabel, targetLabel)) return ElMessage.warning('原文语种和译文语种不能相同')
   if (/[→；;,，、\r\n]/.test(sourceLabel) || /[→；;,，、\r\n]/.test(targetLabel)) {
     return ElMessage.warning('语种名称不能包含箭头或列表分隔符')
@@ -262,6 +273,8 @@ onMounted(loadLanguages)
 .language-pair-select__row { width: 100%; }
 .language-pair-select__row { display: flex; gap: 8px; align-items: flex-start; }
 .language-pair-select__hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.language-pair-select__hint summary { cursor: pointer; width: fit-content; }
+.language-pair-select__hint p { margin: 4px 0; }
 .language-pair-option { display: flex; align-items: center; width: 100%; min-width: 0; }
 .language-pair-option__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .language-pair-shortcut { flex: none; margin-left: auto; padding-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }

@@ -24,9 +24,10 @@
 <script setup>
 import {onBeforeUnmount, ref, watch} from 'vue'
 import {getSubClientPeriodProjects} from '@/api/translationCustomerFinance'
+import {readOralPeriodProjects} from '@/api/interpretationSettlementSettings'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 
-const props=defineProps({projectId:{type:String,required:true},periodKey:String})
+const props=defineProps({projectId:{type:String,required:true},periodKey:String,module:{type:String,default:'translation'}})
 const visible=ref(false), loading=ref(false), error=ref(''), result=ref(null)
 let request
 async function load(){
@@ -37,7 +38,7 @@ async function load(){
   error.value=''
   result.value=null
   try{
-    const data=await getSubClientPeriodProjects(props.projectId,current.signal)
+    const data=await (props.module==='interpretation'?readOralPeriodProjects(props.projectId,current.signal):getSubClientPeriodProjects(props.projectId,current.signal))
     if(!current.signal.aborted)result.value=data
   }catch(cause){
     if(!current.signal.aborted)error.value=getLocalizedErrorMessage(cause,'同期项目加载失败')

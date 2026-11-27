@@ -51,10 +51,11 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { getSubClientFinancePreferences, saveSubClientFinancePreferences, getSubClientSettlementParty, saveSubClientSettlementParty } from '@/api/translationCustomerFinance'
+import {readOralPreferences,saveOralPreferences,readOralParty,saveOralParty} from '@/api/interpretationSettlementSettings'
 import { connectInvoiceParties, invoicePartiesEvent, notifyInvoiceParties } from '@/api/invoiceParties'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
-const props = defineProps({ subClientId: String, canWrite: Boolean, month: String, period: Number, hideTax: Boolean })
+const props = defineProps({ subClientId: String, canWrite: Boolean, month: String, period: Number, hideTax: Boolean,module:{type:String,default:'translation'} })
 const documentFields = [
   {key:'quotation_required',kind:'quotation',noteLabel:'报价单',label:'是否需报价单',fallback:'按订单设置'},
   {key:'statement_required',kind:'statement',noteLabel:'对账单',label:'是否需对账单',fallback:'按计费口径'},
@@ -71,7 +72,7 @@ async function loadParty() {
   const request = new AbortController()
   partyController = request
   try {
-    const result = await getSubClientSettlementParty(props.subClientId, {month:props.month,period:props.period}, request.signal)
+    const result = await (props.module==='interpretation'?readOralParty:getSubClientSettlementParty)(props.subClientId, {month:props.month,period:props.period}, request.signal)
     if (!request.signal.aborted) party.value = result.party
   } catch (cause) {
     if (!request.signal.aborted) error.value = getLocalizedErrorMessage(cause,'读取账期结算对象失败')
@@ -91,9 +92,9 @@ async function changeParty(value) {
       `切换为${name}结算`, {type:'warning',confirmButtonText:'确认切换',cancelButtonText:'取消'},
     ).catch(() => false)
     if (!confirmed || subClientId !== props.subClientId || month !== props.month || period !== props.period) return
-    const result = await saveSubClientSettlementParty(subClientId, {month,period,party:value,expected_party:previous})
+    const result = await (props.module==='interpretation'?saveOralParty:saveSubClientSettlementParty)(subClientId, {month,period,party:value,expected_party:previous})
     if (subClientId === props.subClientId && month === props.month && period === props.period) party.value = result.party
-    notifyInvoiceParties({kind:'sub-client-finance',subClientId,clientId:result.client_id})
+    notifyInvoiceParties({kind:'sub-client-finance',subClientId,clientId:result.client_id});if(props.module==='interpretation')window.dispatchEvent(new CustomEvent('interpretation-settlement-settings-changed',{detail:{clientId:result.client_id}}))
   } catch (cause) {
     if (cause.response?.status === 409) await loadParty()
     error.value = getLocalizedErrorMessage(cause,'保存账期结算对象失败')
@@ -109,7 +110,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const result = await getSubClientFinancePreferences(props.subClientId, {signal:request.signal})
+    const result = await (props.module==='interpretation'?readOralPreferences('sub-client',props.subClientId,{signal:request.signal}):getSubClientFinancePreferences(props.subClientId, {signal:request.signal}))
     if (!request.signal.aborted) settings.value = result
   } catch (cause) {
     if (!request.signal.aborted) error.value = getLocalizedErrorMessage(cause,'读取子客户结算设置失败')
@@ -124,11 +125,11 @@ async function save(field, value) {
   error.value = ''
   const id = props.subClientId
   try {
-    const result = await saveSubClientFinancePreferences(id, {
+    const result = await (props.module==='interpretation'?((id,data)=>saveOralPreferences('sub-client',id,data)):saveSubClientFinancePreferences)(id, {
       revision:settings.value.revision, [field]:value === 'default' ? null : value,
     })
     if (id === props.subClientId) settings.value = result
-    notifyInvoiceParties({kind:'sub-client-finance',subClientId:id,clientId:result.client_id})
+    notifyInvoiceParties({kind:'sub-client-finance',subClientId:id,clientId:result.client_id});if(props.module==='interpretation')window.dispatchEvent(new CustomEvent('interpretation-settlement-settings-changed',{detail:{clientId:result.client_id}}))
   } catch (cause) {
     const message = getLocalizedErrorMessage(cause,'保存子客户结算设置失败')
     if (cause.response?.status === 409) await load()

@@ -1309,6 +1309,7 @@
 
 <script setup>
 import {pairedProjectTypes} from "@/utils/annotationPaired"
+import { TRANSLATION_SERVICE_TASKS } from '@/utils/translationServiceContent'
 import { projectTypeOptions as interpretationTypeOptions } from '@/utils/interpretationProjectDetail'
 import InterpretationTypeHelp from '@/components/interpretation/InterpretationTypeHelp.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
@@ -1945,7 +1946,7 @@ const annotationTypeOptions = [
   { value: 'translation', label: '翻译' },
   { value: 'ai_evaluation', label: 'ai评测' },
 ]
-const serviceContentOptions = ['翻译', '排版']
+const serviceContentOptions = ['翻译', ...TRANSLATION_SERVICE_TASKS, '排版']
 const priorityOptions = ['低', '中', '高', '紧急']
 // 共用笔译表单的业务类型沿用同一份输入；其余类型分别保存。
 const consultationIntakeType = (type) => isTranslationConsultationType(type)

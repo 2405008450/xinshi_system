@@ -1,5 +1,6 @@
 import {taxPriceForm,taxPricePayload,taxPriceSummary} from './taxPrices.js'
 import {quotationLineCents,quotationMoney} from './quotation.js'
+import {businessPaymentForm,businessPaymentPayload,legacyBusinessPaymentRegistration} from './businessFinancePayment.js'
 export const interpretationUnits = ['月','周','天','半天','小时']
 export const interpretationCurrencies = ['CNY','USD','EUR','HKD','GBP','JPY','KRW','AUD','CAD','SGD']
 export const emptyInterpretationFinance = () => ({
@@ -9,9 +10,11 @@ export const emptyInterpretationFinance = () => ({
 })
 
 export function interpretationFinancePayload(draft){
+  const {paymentConfirmation,paymentDraft,paymentLegacyFullReceivedOn,...fields}=draft
   const money = ({taxPrices,tax_prices,...row}) => ({...row,tax_prices:taxPricePayload(taxPrices)})
   return {
-    ...draft,
+    ...fields,
+    ...(paymentConfirmation?{payment_registration:businessPaymentPayload(draft)}:{}),
     settlement:{...draft.settlement,payments:draft.settlement.payments.map(row=>({...row,received_on:row.received_on||null})),billing_month:draft.settlement.billing_month||null},
     rates:draft.rates.map(money),
     adjusted_totals:draft.adjusted_totals.map(money),
@@ -97,5 +100,25 @@ export function financeDraft(data){
   draft.fixed_totals=draft.fixed_totals.map(row=>({...row,taxPrices:taxPriceForm(row.tax_prices),amount:Number(row.amount)}))
   draft.settlement.payments=draft.settlement.payments.map(row=>({...row,amount:row.amount==null?undefined:Number(row.amount)}))
   for(const row of draft.settlement_adjustments||[])for(const key of Object.keys(row))if(key!=='currency'&&row[key]!=null)row[key]=Number(row[key])
+  if(draft.settlement.pricing_mode!=='fixed'&&draft.adjusted_totals.length){
+    // 旧版手工总价合并到同一调整入口，按原最终金额转换，避免丢失历史折扣效果。
+    const bases=[['excl','excl_tax','totalExclTax'],['incl','incl_tax','totalInclTax'],['legacy','legacy',null]]
+    const totals=Object.fromEntries(bases.map(([key,basis])=>[key,interpretationFinanceTotals(draft,basis)]))
+    for(const old of draft.adjusted_totals){
+      let target=draft.settlement_adjustments.find(row=>row.currency===old.currency)
+      if(!target){target={currency:old.currency};draft.settlement_adjustments.push(target)}
+      for(const [key,,field] of bases)if((field?old.taxPrices?.[field]:old.amount)!=null&&target[key+'_amount']==null&&totals[key][old.currency]!=null)target[key+'_amount']=Number(totals[key][old.currency])
+    }
+    draft.adjusted_totals=[]
+  }
+  Object.assign(draft,businessPaymentForm(legacyBusinessPaymentRegistration(draft)))
+  if(draft.paymentConfirmation.isPaid&&(draft.paymentConfirmation.paymentOption==='full'||draft.paymentConfirmation.fullPaymentSource==='details')){
+    const code=draft.paymentConfirmation.fullPaymentCurrency||'CNY'
+    if(interpretationFinanceTotals(draft)[code]!=null)draft.paymentConfirmation.fullPaymentTotalKey=`billing:${code}`
+  }
+  if(draft.paymentConfirmation.isPaid&&draft.paymentConfirmation.paymentOption==='deposit'){
+    if(!draft.paymentDraft.length)draft.paymentDraft.push({stage_type:'deposit',stage_no:1,currency:draft.paymentConfirmation.fullPaymentCurrency||'CNY',planned_amount:undefined,actual_amount:undefined,payment_time:null,payment_method:draft.paymentConfirmation.paymentAccount||'',proofs:draft.paymentConfirmation.proofs||'',matched_order_ids:[],confirmed_by_name:null,confirmed_at:null})
+    if(!draft.paymentDraft[0].payment_method)draft.paymentDraft[0].payment_method=draft.paymentConfirmation.paymentAccount||''
+  }
   return draft
 }

@@ -145,16 +145,26 @@ def finance_context(scope, entity, available, row, reference=None, *, include_qu
     if row:
         payload.update(deepcopy(row.payload))
     quotation = payload.pop('quotation', None)
-    payload.pop('invoice', None)
+    if scope == 'project':
+        from sqlalchemy.orm import object_session
+        from interpretation_settlement_settings import effective
+        session=object_session(entity) if hasattr(entity,'_sa_instance_state') else None
+        if session:payload=effective(session,entity,payload)
+    invoice=payload.pop('invoice', None)
     payload.pop('_oral_workspace', None)
     payload.pop('_oral_invoice_requests', None)
+    payload.pop('_oral_settlement_settings', None)
     result = dict(ready=available, revision=row.revision if row else 0, payload=payload, **calculate(payload))
     if scope == 'project':
+        from business_finance_payment import registration
+        payload['payment_registration'] = registration(payload)
+        result['invoice']=InterpretationInvoice.model_validate(invoice or {}).model_dump(mode='json')
         result.update(id=str(entity.id), order_no=entity.order_no, project_name=entity.project_name,
                       client_short_name=entity.client_short_name or entity.client_full_name,
                       parent_client_short_name=entity.parent_client_short_name,
                       sub_client_name=entity.sub_client_name,
                       project_status=entity.project_status,
+                      client_manager=entity.current_client_manager,
                       directions=[{'id': str(item.id), 'label': ' ↔ '.join(item.language_labels)} for item in entity.language_directions])
         if include_quotation and quotation is not None:
             result['quotation'] = quotation
@@ -167,6 +177,12 @@ def finance_context(scope, entity, available, row, reference=None, *, include_qu
                 payload['rates'] = oral_defaults(entity,result['reference_rates'])
                 result.update(calculate(payload))
         result['billing_totals'] = billing_totals(payload, result)
+        if entity.client_id:
+            from interpretation_settlement_settings import state,preferences,party_value
+            preferences_state=state(object_session(entity),entity.client_id)
+            result['collection_terms']=preferences(preferences_state,'client',entity.client_id).get('collection_terms','')
+            from interpretation_statements import billing_month as project_month
+            result['settlement_party']=party_value(preferences_state,entity.sub_client_id,project_month(entity,payload),settlement(payload).period_number) if entity.sub_client_id else 'client'
         received={}
         for payment in settlement(payload).payments:received[payment.currency]=received.get(payment.currency,Decimal(0))+payment.amount
         result['received_totals']={key:format(value,'.2f') for key,value in received.items()}
@@ -228,7 +244,7 @@ def save(db, user, scope, target, data, *, commit=True):
     payload = data.model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed','quotation_draft','library_client_id'})
     row = record(db, scope, target)
     before = row.payload if row else {}
-    for key in ('_oral_workspace','_oral_invoice_requests'):
+    for key in ('_oral_workspace','_oral_invoice_requests','_oral_settlement_settings'):
         if key in before:payload[key]=before[key]
     if scope == 'project':
         if data.settlement is None and 'settlement' in before:
@@ -240,6 +256,7 @@ def save(db, user, scope, target, data, *, commit=True):
         if quotation is not None:
             payload['quotation'] = quotation.model_dump(mode='json')
     if scope == 'client':
+        payload.pop('payment_registration', None)
         payload.pop('settlement', None)
         payload.pop('fixed_totals', None)
         payload.pop('settlement_adjustments', None)
@@ -249,6 +266,16 @@ def save(db, user, scope, target, data, *, commit=True):
         from customer_finance_sync import oral_key
         keys=[oral_key(item) for item in payload['rates']]
         if len(keys)!=len(set(keys)):raise HTTPException(422,'同方向、货币、单位及时长的客户参考价不能重复')
+    if scope == 'project':
+        if data.payment_registration is not None:
+            payload['settlement'] = settlement(payload).model_dump(mode='json')
+            from interpretation_payment_registration import prepare
+            prepare(payload, before, billing_totals(payload, calculate(payload)))
+        elif before.get('payment_registration') is not None:
+            # 旧窗口只能修改原有收费字段，不能清空新版付款登记。
+            payload['payment_registration'] = before['payment_registration']
+            for key in ('payments','payment_status','payment_note'):
+                payload['settlement'][key] = before.get('settlement',{}).get(key, InterpretationSettlement().model_dump()[key])
     if row:
         count = db.query(InterpretationCustomerFinance).filter_by(id=row.id, revision=data.revision).update(
             {'revision': data.revision + 1, 'payload': payload}, synchronize_session=False)
@@ -286,13 +313,16 @@ def save(db, user, scope, target, data, *, commit=True):
         if len(set(keys))!=len(keys):raise HTTPException(422,'同方向及单位存在多条单价，请先整理项目价格')
         from copy import deepcopy
         old=deepcopy(reference.payload) if reference else FinanceWrite(revision=0).model_dump(mode='json',exclude={'revision','update_library','library_revision','sync_confirmed'})
-        merged={oral_key(item):item for item in old['rates']}
+        merged={oral_key(item):item for item in old.get('rates',[])}
         for item in payload['rates']:
             merged[oral_key(item)]={**item,'quantity':'1','tax_prices':reference_tax_prices(item.get('tax_prices'))}
         if len(merged)>100:raise HTTPException(422,'客户参考价不能超过100条')
         updated={**old,'rates':list(merged.values())}
         store_oral(db,user,'client',client_id,updated,reference)
-        auto_oral(db,user,client_id,old['rates'],updated['rates'])
+        auto_oral(db,user,client_id,old.get('rates',[]),updated['rates'])
+    if scope=='project' and data.settlement is not None:
+        from interpretation_settlement_settings import sync_project
+        sync_project(db,user,entity,before,payload)
     if commit:
         db.commit()
         db.expire_all()
@@ -368,6 +398,22 @@ def change_settlement_mode(target: UUID, data: InterpretationSettlementModeWrite
         store_oral(db, user, 'project', target, {**payload, 'settlement': setting.model_dump(mode='json')}, current)
         db.commit()
     return context(db, 'project', target)
+
+
+@router.get('/project/{target}/payment-history')
+def payment_history(target:UUID,page:int=Query(1,ge=1),db=Depends(get_db),user=Depends(get_current_user)):
+    permission(db,user,'project')
+    owner(db,'project',target)
+    from interpretation_payment_registration import payment_history as read_history
+    return read_history(db,target,page)
+
+
+from interpretation_payment_registration import PaymentConfirm
+@router.post('/project/{target}/confirm-payment')
+def confirm_payment(target:UUID,data:PaymentConfirm,db=Depends(get_db),user=Depends(get_current_user)):
+    permission(db,user,'project',True)
+    from interpretation_payment_registration import confirm
+    return confirm(db,user,target,data)
 
 
 @router.get('/{scope}/{target}/history')
@@ -460,9 +506,15 @@ def invoice_context(project, row):
     payload = row.payload if row else {}
     setting = settlement(payload)
     document = InterpretationInvoice.model_validate(payload.get('invoice') or {})
+    sub_client_id=project.sub_client_id
+    if sub_client_id:
+        from sqlalchemy.orm import object_session
+        from interpretation_settlement_settings import state,party_value
+        from interpretation_statements import billing_month
+        if party_value(state(object_session(project),project.client_id),sub_client_id,billing_month(project,payload),setting.period_number)=='client':sub_client_id=None
     return dict(id=str(project.id), order_no=project.order_no, project_name=project.project_name,
                 client_id=str(project.client_id) if project.client_id else None,
-                sub_client_id=str(project.sub_client_id) if project.sub_client_id else None,
+                sub_client_id=str(sub_client_id) if sub_client_id else None,
                 revision=row.revision if row else 0, required=setting.invoice_required,
                 totals=calculate(payload)['totals_incl_tax'], **document.model_dump())
 
@@ -535,3 +587,7 @@ router.include_router(statement_workspace_router)
 
 from interpretation_invoice_requests import router as interpretation_invoice_requests_router
 router.include_router(interpretation_invoice_requests_router)
+from interpretation_settlement_settings import router as settlement_settings_router
+router.include_router(settlement_settings_router)
+from interpretation_board_payments import router as board_payments_router
+router.include_router(board_payments_router)

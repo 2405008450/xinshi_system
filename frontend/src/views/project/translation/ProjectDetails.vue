@@ -372,11 +372,11 @@
                     <el-col :xs="24" :md="8">
                       <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                         <div class="client-autocomplete-field">
-                          <el-autocomplete
+                          <ExistingClientAutocomplete
                             v-model="form.clientShortName"
                             :fetch-suggestions="fetchParentClientSuggestions"
                             value-key="client_short_name"
-                            placeholder="选择已有客户，或直接输入新客户简称"
+                            placeholder="搜索并选择已有客户简称"
                             clearable
                             :debounce="300"
                             :trigger-on-focus="true"
@@ -391,13 +391,13 @@
                                 <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}</span>
                               </div>
                             </template>
-                          </el-autocomplete>
+                          </ExistingClientAutocomplete>
                         </div>
-                      <ClientNameGuidance create-on-save />
+                      <ClientNameGuidance />
 </el-form-item>
                     </el-col><el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientName" data-field-key="clientName">
-                        <ClientFullNameInput v-model="form.clientName" :client-id="form.clientId" @select="handleClientSelect" />
-                      </el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户来源" prop="clientSource"><el-input v-model="form.clientSource" maxlength="500" placeholder="请输入客户来源（选填）" /></el-form-item></el-col>
+                        <ClientFullNameInput existing-only v-model="form.clientName" :client-id="form.clientId" @select="handleClientSelect" />
+                      </el-form-item></el-col>
 
                     <el-col v-if="form.subClientShortName" :xs="24" :md="12">
                       <el-form-item label="子客户" prop="subClientShortName" data-field-key="subClientShortName">
@@ -468,8 +468,7 @@
                     </el-col>
                     <el-col :xs="24" :md="12">
                       <el-form-item label="翻译方向" prop="languagePair" data-field-key="languagePair">
-                        <div class="language-pair-history-row"><LanguagePairSelect allow-proofreading v-model="form.languagePair" /><el-button v-if="canWriteProjects" :disabled="!form.clientId" :title="form.clientId?'从同客户历史项目同步翻译方向':'请先选择已登记客户'" @click="directionHistoryVisible=true">同客户历史项目</el-button></div>
-                        <div class="form-tip">选择多个方向，保存时按方向自动拆分为一级子订单；已有文件子订单的，拆分为其下的二级子订单。</div>
+                        <div class="language-pair-history-row"><LanguagePairSelect v-model="form.languagePair" :hint-reset-key="dialogVisible"><template #hint><p>选择多个方向，保存时按方向自动拆分为一级子订单；已有文件子订单的，拆分为其下的二级子订单。服务内容中的校对、盖章、润色、审核不作为拆单方向。</p></template></LanguagePairSelect><el-button v-if="canWriteProjects" :disabled="!form.clientId" :title="form.clientId?'从同客户历史项目同步翻译方向':'请先选择已登记客户'" @click="directionHistoryVisible=true">同客户历史项目</el-button></div>
                       <OrderFieldHint :order="form" field="languagePair" /></el-form-item>
                     </el-col>
                   </el-row>
@@ -1014,6 +1013,8 @@
 </template>
 
 <script setup>
+import { TRANSLATION_SERVICE_TASKS } from '@/utils/translationServiceContent'
+import ExistingClientAutocomplete from '@/components/common/ExistingClientAutocomplete.vue'
 import TranslationProjectProgressDialog from '@/components/common/TranslationProjectProgressDialog.vue'
 import { listResultTicket } from '@/utils/listResultCache'
 const listRefreshing = ref(false)
@@ -1227,6 +1228,7 @@ const projectStatusOptions = getProjectStatusOptions('translation')
 const priorityOptions = ['低', '中', '高', '紧急']
 const serviceContentOptions = [
   '翻译',
+  ...TRANSLATION_SERVICE_TASKS,
   'Word排版',
   'PPT排版',
   'InDesign排版',
@@ -1294,7 +1296,7 @@ async function applyDocumentDefaults(){
 }
 function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
 const customerTypes = CUSTOMER_TYPES
-const createEmptyProjectForm = () => ({...emptyProjectContactDetails(),clientSource:'', selectedSourceFiles: [], motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountByDirection: [], wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({...emptyProjectContactDetails(),selectedSourceFiles: [], motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountByDirection: [], wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'suborder', wordCountByDirection: [], wordCountParentOrderNo: null, wordCountMatchesParent: false, customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const directionHistoryVisible=ref(false)
@@ -1701,7 +1703,7 @@ const rules = {
   contactName: [{ required: true, validator: requiredTextValidator('请选择或填写客户联系人'), trigger: ['blur','change'] }],
   clientName: [{ required: true, validator: requiredTextValidator('请输入客户全称'), trigger: ['blur', 'change'] }],
   subClientName: [],
-  clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  clientShortName: [{ required: true, validator: requiredTextValidator('请在 新咨询管理/客户管理 先输入客户名称，再选择已有客户'), trigger: ['blur', 'change'] }],
   serviceContent: [{ required: true, validator: requiredTextValidator('请选择或输入服务内容'), trigger: ['blur', 'change'] }],
   customerType: [{ required: true, message: '请选择客户类型', trigger: 'change' }],
   statementRequired: [{ required: true, type: 'boolean', message: '请选择是否需对账单', trigger: 'change' }],
@@ -1920,7 +1922,8 @@ const handlePageSizeChange = () => {
   applyPagination()
 }
 const cleanPayload = (payload) => {
-  const result = { ...payload, ...projectContactPayload(payload), clientSource: String(payload.clientSource || '').trim() }
+  const result = { ...payload, ...projectContactPayload(payload) }
+  delete result.clientSource
   if (Object.hasOwn(result, 'sourceFileName')) {
     result.sourceFileName = String(result.sourceFileName || '').trim()
     result.projectName = result.sourceFileName

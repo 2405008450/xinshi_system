@@ -40,7 +40,7 @@ def test_invitation_idempotency_receipts_visibility_and_read_versions(setup):
     assert service.create(db,owner,data)['id']==result['id']
     assert db.query(AppNotification).count()==1
     assert service.summary(db,member)['pending']==1
-    assert service.listing(db,outsider)['total']==0
+    assert service.listing(db,outsider,anchor=result['start_at'].date())['total']==1
     with pytest.raises(HTTPException):service.detail(db,outsider,result['id'])
     with pytest.raises(ValidationError):service.ReceiptWrite(response='declined',reason=' ',version=0)
     response=service.receipt(db,member,result['id'],service.ReceiptWrite(response='declined',reason='已有客户安排',version=0))
@@ -150,3 +150,86 @@ def test_availability_checks_entire_meeting_shift_and_leave_overlap(setup,monkey
     assert rows[owner.id]['in_shift'] and not rows[owner.id]['on_leave']
     assert rows[member.id]['on_leave']
     assert not {r['user_id']:r for r in service.availability(db,moment,moment+timedelta(hours=4))}[owner.id]['in_shift']
+
+
+def test_meeting_numbers_daily_sequence_legacy_search_and_all_organizers(setup, monkeypatch):
+    from datetime import datetime, date
+    from chat_time import BUSINESS_TIMEZONE
+    from meeting_numbering import code_for, codes_query
+    from sqlalchemy.dialects import postgresql
+    from types import SimpleNamespace
+    db, users = setup
+    owner, member, outsider = users
+    clock = datetime(2026, 11, 26, 9, tzinfo=BUSINESS_TIMEZONE)
+    monkeypatch.setattr(service, 'now', lambda: clock)
+    def new(organizer):
+        return service.create(db, organizer, service.MeetingWrite(client_id=uuid4(), meeting_type='管理会议', location='线上', topic='编号验证',
+            start_at=clock+timedelta(hours=1), end_at=clock+timedelta(hours=2), user_ids=[member.id]))
+    first = new(owner)
+    row = db.query(Meeting).filter_by(id=first['id']).one()
+    row.association = {}; db.commit()  # 兼容此前没有编号快照的会议
+    assert code_for(db, row) == 'MT-261126-001'
+    second = new(outsider)
+    assert second['meeting_no'] == 'MT-261126-002'
+    assert service.listing(db, member, anchor=date(2026, 11, 26))['total'] == 2
+    found = service.listing(db, owner, 'MT-261126-002', anchor=date(2026, 11, 26))
+    assert found['total'] == 1 and found['items'][0]['organizer_id'] == outsider.id
+    assert not found['items'][0]['is_organizer'] and found['items'][0]['my_response'] is None
+    with pytest.raises(HTTPException): service.detail(db, owner, second['id'])
+    clock += timedelta(days=1)
+    third = new(owner)
+    assert third['meeting_no'] == 'MT-261127-001'
+    assert service.listing(db, member, period='week', anchor=date(2026, 11, 26))['total'] == 3
+    assert service.listing(db, member, period='month', anchor=date(2026, 11, 1))['total'] == 3
+    assert service.listing(db, member, period='year', anchor=date(2026, 1, 1))['total'] == 3
+    assert service.listing(db, member, anchor=date(2026, 11, 28))['total'] == 0
+    compiled = str(codes_query(SimpleNamespace(bind=SimpleNamespace(dialect=SimpleNamespace(name='postgresql')))).select().compile(dialect=postgresql.dialect()))
+    assert 'timezone(' in compiled and 'row_number() OVER' in compiled and ' || ' in compiled
+
+
+def test_meeting_range_utc8_week_month_year_boundaries():
+    from datetime import date
+    for period, anchor, left, right in [
+        ('day', date(2026,11,26), '2026-11-26', '2026-11-27'),
+        ('week', date(2026,11,29), '2026-11-23', '2026-11-30'),
+        ('month', date(2024,2,15), '2024-02-01', '2024-03-01'),
+        ('year', date(2026,12,31), '2026-01-01', '2027-01-01'),
+    ]:
+        start, end = service.period_bounds(period, anchor)
+        assert start.date().isoformat() == left and end.date().isoformat() == right
+        assert start.utcoffset() == end.utcoffset() == timedelta(hours=8)
+
+
+def test_manual_status_clock_conflict_boundaries_and_permissions(setup, monkeypatch):
+    from datetime import datetime
+    from chat_time import BUSINESS_TIMEZONE
+    db, users = setup
+    owner, member, outsider = users
+    clock = datetime(2026,11,26,9,tzinfo=BUSINESS_TIMEZONE)
+    monkeypatch.setattr(service, 'now', lambda: clock)
+    data = service.MeetingWrite(client_id=uuid4(), meeting_type='管理会议', location='线上', topic='状态测试',
+        start_at=clock+timedelta(hours=1), end_at=clock+timedelta(hours=2), user_ids=[member.id])
+    meeting = service.create(db,owner,data)
+    assert meeting['status']=='pending' and meeting['status_started_at'] is None
+    assert len(service.location_conflicts(db,'线上',data.start_at,data.end_at)) == 1
+    assert service.location_conflicts(db,'线上',data.end_at,data.end_at+timedelta(hours=1)) == []
+    assert service.location_conflicts(db,'广州公司内会议室（+线上）',data.start_at,data.end_at) == []
+    for user in (member, outsider):
+        with pytest.raises(HTTPException): service.change_status(db,user,meeting['id'],service.StatusWrite(status='in_progress',version=0))
+    running=service.change_status(db,owner,meeting['id'],service.StatusWrite(status='in_progress',version=0))
+    assert running['status_started_at'] == clock.isoformat()
+    assert running['status_version']==1 and running['meeting_no']==meeting['meeting_no']
+    clock+=timedelta(days=1)
+    assert service.summary(db,owner)['upcoming'][0]['status']=='in_progress'  # 不随计划结束时间自动结束
+    with pytest.raises(HTTPException): service.change_status(db,owner,meeting['id'],service.StatusWrite(status='ended',version=0))
+    ended=service.change_status(db,owner,meeting['id'],service.StatusWrite(status='ended',version=1))
+    assert ended['status']=='ended' and service.summary(db,owner)['upcoming']==[]
+    cancelled=service.change_status(db,owner,meeting['id'],service.StatusWrite(status='cancelled',version=2))
+    assert cancelled['status']=='cancelled'
+    assert service.location_conflicts(db,'线上',data.start_at,data.end_at)==[]
+    reset=service.change_status(db,owner,meeting['id'],service.StatusWrite(status='pending',version=3))
+    assert reset['status_started_at'] is None
+    assert len(service.location_conflicts(db,'线上',data.start_at,data.end_at))==1
+    again=service.change_status(db,owner,meeting['id'],service.StatusWrite(status='in_progress',version=4))
+    assert again['status_started_at']==clock.isoformat()
+    assert len(service.location_conflicts(db,'线上',data.start_at+timedelta(minutes=1),data.end_at))==1

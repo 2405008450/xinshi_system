@@ -1,4 +1,5 @@
 """会后确认与逐人报告追加在同一事务完成；可删除、不重复生成。"""
+from meeting_numbering import code_for
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, model_validator
@@ -56,7 +57,7 @@ def confirm(db, user, meeting_id, data):
             report = DailyReport(id=uuid4(), user_id=person.id, report_date=day, status='draft', generated_at=moment.replace(tzinfo=None), created_at=moment.replace(tzinfo=None), updated_at=moment.replace(tzinfo=None))
             db.add(report); db.flush()
         agendas = [a['content'] for a in row.agendas if str(person.id) in a['user_ids']]
-        content = f'{actor_name}召开的会议：第{row.number}个会议 · {row.topic}'
+        content = f'{actor_name}召开的会议：{code_for(db, row)} · {row.topic}'
         if agendas:
             content += '\n会议议程：\n' + '\n'.join(f'{i+1}. {text}' for i, text in enumerate(agendas))
         training = row.meeting_type == '培训会议'

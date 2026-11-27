@@ -34,11 +34,11 @@
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">
         <span class="chat-workspace__user-avatar" title="我的沟通">{{ chatAvatarText(currentUserName) }}</span>
         <button v-for="item in panes" :key="item.key" type="button" :title="item.key === 'messages' && mentionTotal ? `${mentionTotal} 条未读提及，点击查看` : item.label" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">
-          <el-badge :value="item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small>{{ item.shortLabel || item.label }}</small>
+          <el-badge :value="item.key === 'meetings' ? meetingAttentionCount : item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'meetings' ? !meetingAttentionCount : item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'notifications' && meetingAttentionCount" class="chat-meeting-notice">会</b><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.shortLabel || item.label }}</small>
         </button>
       </nav>
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" @dragover="sessionPanelDragOver" @drop="dropSessionPanel($event, 'bottom')" :style="{ width: `${sessionWidth}px` }">
-        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.shortLabel || item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
+        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.shortLabel || item.label }}</span><b v-if="['meetings','notifications'].includes(item.key)&&meetingAttentionCount" class="chat-meeting-notice">会</b><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
         <div v-else class="chat-workspace__brand">
           <div class="chat-workspace__brand-title">
             <strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? (annotationMode === 'mention-all' ? '@所有人' : showMentions ? '@我' : '提及') : panes.find(item => item.key === pane)?.label }}</strong>
@@ -160,7 +160,7 @@
         <div v-if="!narrow" class="chat-workspace__split-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整会话列表与聊天区域宽度" :aria-valuenow="sessionWidth" :aria-valuemin="220" :aria-valuemax="splitMaximum" title="左右拖动调整分区；双击恢复默认；左右方向键微调" @pointerdown.stop="emit('split-start', $event)" @keydown="emit('split-keydown', $event)" @dblclick.stop="emit('split-reset')" />
       </aside>
       <div ref="middleHost" v-show="middleList || panelDragging" class="chat-session-middle-host" :class="{ 'is-drop-target': panelDragging }" @dragover.prevent @drop.prevent="dropSessionPanel($event, 'middle')"><span v-if="panelDragging && !middleList">放在分组与聊天之间</span></div>
-      <div class="chat-workspace__stage" @dragover="sessionPanelDragOver" @drop="dropSessionPanel($event, 'middle')"><template v-if="['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane)"><div v-if="!maximized||narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" :aria-label="item.label" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">{{ item.label }}<span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">@{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div><div class="chat-summary-content"><ChatRequestNotifications v-if="pane==='notifications'" :feed="notificationFeed" /><ChatAnnotationProjects v-else-if="pane==='annotation-projects'" :key="`annotation:${projectMine}`" :my-projects="projectMine" @navigate="emit('project-navigate')" @open-conversation="pane='messages'" /><ChatManagedProjects v-else-if="isProjectPane(pane)" :key="`${pane}:${projectMine}`" :module="projectModule(pane)" :my-projects="projectMine" /><DevelopmentIssuePanel v-else :open-issue-id="summaryIssueId" /></div></template><div v-else-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
+      <div class="chat-workspace__stage" @dragover="sessionPanelDragOver" @drop="dropSessionPanel($event, 'middle')"><template v-if="['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane)"><div v-if="!maximized||narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" :aria-label="item.label" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">{{ item.label }}<b v-if="['meetings','notifications'].includes(item.key)&&meetingAttentionCount" class="chat-meeting-notice">会</b><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">@{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div><div class="chat-summary-content"><ChatRequestNotifications v-if="pane==='notifications'" :feed="notificationFeed" /><ChatAnnotationProjects v-else-if="pane==='annotation-projects'" :key="`annotation:${projectMine}`" :my-projects="projectMine" @navigate="emit('project-navigate')" @open-conversation="pane='messages'" /><ChatManagedProjects v-else-if="isProjectPane(pane)" :key="`${pane}:${projectMine}`" :module="projectModule(pane)" :my-projects="projectMine" /><DevelopmentIssuePanel v-else :open-issue-id="summaryIssueId" /></div></template><div v-else-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
       <el-popover v-model:visible="projectMenuVisible" :virtual-ref="projectMenuAnchor" virtual-triggering :trigger="[]" placement="right-start" :width="150" :z-index="100050"><el-button text @click="selectMyProjects">我的项目</el-button></el-popover>
       <el-popover v-model:visible="sessionMenuVisible" :virtual-ref="sessionMenuAnchor" virtual-triggering :trigger="[]" placement="bottom-start" :width="156" :z-index="sessionMenuZ" popper-class="chat-session-popover chat-session-context-popover">
         <div v-if="sessionMenuSession" class="chat-session-groups">
@@ -208,7 +208,7 @@ import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort
 import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity } from '@/utils/chatSessionList'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { Bell, ArrowDown, ArrowLeft, ArrowRight, ChatDotRound, Collection, Headset, Filter, Message, MoreFilled, Search, Setting, Star, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
+import { Bell, ArrowDown, ArrowLeft, ArrowRight, ChatDotRound, Collection, Headset, Filter, Message, MoreFilled, Search, Setting, Star, StarFilled, Top, User, EditPen, Microphone, Phone, Calendar } from '@element-plus/icons-vue'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 const DevelopmentIssuePanel=defineAsyncComponent(()=>import('@/views/resource/components/DevelopmentIssuePanel.vue'))
 import ChatSettings from './ChatSettings.vue'
@@ -220,6 +220,7 @@ import ChatWindowControls from './ChatWindowControls.vue'
 import ChatRequestNotifications from './ChatRequestNotifications.vue'
 import { useChatRequestNotifications } from '@/composables/useChatRequestNotifications'
 const notificationFeed = useChatRequestNotifications()
+import {meetingAttentionCount} from '@/utils/meetingAttention'
 import ChatConversationParticipants from './ChatConversationParticipants.vue'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'
 import { formatBusinessDateTime } from '@/utils/dateTime'
@@ -273,14 +274,14 @@ const emit = defineEmits([
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen', 'contact-opened',
 ])
 
-const panes = [{ key: 'messages', label: '消息', icon: ChatDotRound }, { key: 'contacts', label: '通讯录', icon: User }, { key: 'summary', label: '总结', icon: Collection }, { key: 'notifications', label: '通知', icon: Bell }, ...(hasPermission('projects:read') ? [{ key: 'annotation-projects', label: '标注项目', icon: Headset },{key:'translation-projects',label:'笔译项目',icon:EditPen},{key:'interpretation-projects',label:'口译项目',icon:Microphone}] : []), ...(hasPermission('consultations:read')?[{key:'consultations',label:'新咨询管理',shortLabel:'新咨询',icon:Phone}]:[]), { key: 'settings', label: '设置', icon: Setting }]
+const panes = [{ key: 'messages', label: '消息', icon: ChatDotRound }, { key: 'contacts', label: '通讯录', icon: User }, { key: 'summary', label: '总结', icon: Collection }, { key: 'notifications', label: '通知', icon: Bell }, ...(hasPermission('projects:read') ? [{ key: 'annotation-projects', label: '标注项目', icon: Headset },{key:'translation-projects',label:'笔译项目',icon:EditPen},{key:'interpretation-projects',label:'口译项目',icon:Microphone}] : []), ...(hasPermission('consultations:read')?[{key:'consultations',label:'新咨询管理',shortLabel:'新咨询',icon:Phone}]:[]), { key: 'meetings', label: '会议', icon: Calendar }, { key: 'settings', label: '设置', icon: Setting }]
 const isUrgentPreview = text => /^\s*\*\*急\*\*/.test(String(text || ''))
 const cleanPreviewText = text => screenshotPreview(String(text || '').replace(/^\s*\*\*急\*\*\s*/, ''))
 const paneStorageKey = `xinshi.chatPane.${localStorage.getItem('user_id') || 'anonymous'}`
 const currentUserName = localStorage.getItem('user_full_name') || localStorage.getItem('user_name') || '我'
 let savedPane = 'messages'
 try { savedPane = localStorage.getItem(paneStorageKey) || 'messages' } catch { /* 存储不可用时仍允许切换面板。 */ }
-const pane = ref(panes.some(item => item.key === savedPane) ? savedPane : 'messages')
+const pane = ref(panes.some(item => item.key === savedPane && item.key !== 'meetings') ? savedPane : 'messages')
 const sessionList = ref(null)
 const summaryIssueId=ref('')
 watch(pane, value => { try { localStorage.setItem(paneStorageKey, value) } catch { /* 本次选择仍然生效。 */ } })
@@ -297,14 +298,15 @@ const mobileProjectKeys = ['annotation-projects', 'translation-projects', 'inter
 const mobileTabs = computed(() => [
   { key: 'messages', label: '消息', icon: ChatDotRound, badge: messageBadgeTotal.value },
   { key: 'contacts', label: '通讯录', icon: User, badge: 0 },
-  { key: 'notifications', label: '通知', icon: Bell, badge: notificationFeed.unread.value },
+  { key: 'notifications', label: '通知', icon: Bell, badge: notificationBadgeTotal.value },
 ])
 const mobileGroups = computed(() => [
   { label: '项目', icon: Headset, items: panes.filter(item => mobileProjectKeys.includes(item.key)) },
-  { label: '更多', icon: MoreFilled, items: panes.filter(item => ['summary', 'settings'].includes(item.key)) },
+  { label: '更多', icon: MoreFilled, items: panes.filter(item => ['summary', 'meetings', 'settings'].includes(item.key)) },
 ].filter(group => group.items.length))
 const mobileGroupVisible = reactive({})
 function mobileSelectPane(key) {
+  if (key === 'meetings') { selectPane(key); return }
   projectMine.value = false; projectMenuVisible.value = false
   if (key === 'summary') summaryIssueId.value = ''
   if (key === 'notifications') notificationFeed.refresh()
@@ -350,6 +352,7 @@ const projectModule=key=>key==='translation-projects'?'translation':key==='inter
 function openProjectMenu(event,key){if(!isProjectPane(key))return;event.preventDefault();event.stopPropagation();projectMenuKey.value=key;projectMenuAnchor.value=event.currentTarget;projectMenuVisible.value=true}
 function selectMyProjects(){projectMenuVisible.value=false;projectMine.value=true;pane.value=projectMenuKey.value}
 function selectPane(key) {
+  if(key==='meetings'){window.dispatchEvent(new CustomEvent('meeting-open'));return}
   projectMine.value=false;projectMenuVisible.value=false
   if(key==='summary')summaryIssueId.value=''
   if(key==='notifications')notificationFeed.refresh()
@@ -989,3 +992,4 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 </style>
 
 <style scoped src="./chatSidebar.css" />
+<style scoped>.chat-meeting-notice{color:#dc2626;font-size:11px;margin-right:3px;border:1px solid #fecaca;background:#fff1f2;border-radius:3px;padding:0 2px}</style>

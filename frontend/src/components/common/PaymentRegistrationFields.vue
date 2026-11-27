@@ -11,7 +11,7 @@
           </template>
         </PaymentConfirmationFields>
         <TranslationSettlementNumbers v-if="projectId && !depositSelected" :project-id="projectId" :show-empty="isFull" />
-        <el-form-item v-if="currencyOptions&&depositSelected" label="付款币种"><el-select v-model="confirmation.fullPaymentCurrency"><el-option v-for="currency in currencyOptions" :key="currency" :value="currency" /></el-select></el-form-item>
+        <el-form-item v-if="showDepositCurrency&&currencyOptions&&depositSelected" label="付款币种"><el-select v-model="confirmation.fullPaymentCurrency"><el-option v-for="currency in currencyOptions" :key="currency" :value="currency" /></el-select></el-form-item>
         <el-form-item v-if="currencyOptions&&hasFinal&&new Set(payments.map(item=>item.currency)).size>1" label="付款差异说明" :prop="`${prefix}.mismatchReason`"><el-input v-model="confirmation.mismatchReason" type="textarea" :rows="2" maxlength="2000" placeholder="多币种尾款与项目计费合计不一致时填写原因" /></el-form-item>
         <p v-if="isFull" class="payment-help">已确认全款，无需填写分期明细；切换时确认清除的明细会记入历史。</p>
         <template v-if="depositSelected">
@@ -77,7 +77,7 @@ import TranslationSettlementNumbers from './TranslationSettlementNumbers.vue'
 import {collectMatchTotals,formatMatchTotals} from '@/utils/paymentOrderMatching'
 import {paymentConfirmationForm,fixFirstDepositStage,clearPaymentSelection} from '@/utils/paymentConfirmation'
 const form=defineModel({type:Object,required:true})
-const props=defineProps({sectionPrefix:{type:String,default:''},projectId:String,draftTotals:{type:Array,default:null},summaryLabel:String,prefix:{type:String,default:'paymentConfirmation'},canConfirm:Boolean,confirmDisabled:Boolean,matchOrders:{type:Array,default:()=>[]},matchLabel:String,historyUrl:{type:String,default:''},currencyOptions:{type:Array,default:null}})
+const props=defineProps({sectionPrefix:{type:String,default:''},projectId:String,draftTotals:{type:Array,default:null},summaryLabel:String,prefix:{type:String,default:'paymentConfirmation'},canConfirm:Boolean,confirmDisabled:Boolean,matchOrders:{type:Array,default:()=>[]},matchLabel:String,historyUrl:{type:String,default:''},currencyOptions:{type:Array,default:null},showDepositCurrency:{type:Boolean,default:true}})
 const emit=defineEmits(['confirm-payment'])
 const confirmation=computed({get:()=>form.value.paymentConfirmation,set:value=>{form.value.paymentConfirmation=value}})
 const payments=computed({get:()=>form.value.paymentDraft||[],set:value=>{form.value.paymentDraft=value}})

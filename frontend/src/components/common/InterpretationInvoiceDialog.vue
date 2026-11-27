@@ -14,7 +14,7 @@
         <p>{{[scope.client_name,scope.month,settlementModeLabels[scope.mode]].filter(Boolean).join(' · ')}}</p>
         <div v-if="scope.mode==='special'" class="invoice-actions">
           <el-button :disabled="!scope.month||busy" @click="navigate('statement')">特殊结算对账单</el-button>
-          <el-button :disabled="busy" @click="navigate('price')">价格与收费</el-button>
+          <el-button :disabled="busy" @click="navigate('price')">价格与付款</el-button>
         </div>
         <template v-if="grouped">
           <p>本期需开票项目的含税合计：{{formatFinanceAmounts(scope.totals)}}</p>

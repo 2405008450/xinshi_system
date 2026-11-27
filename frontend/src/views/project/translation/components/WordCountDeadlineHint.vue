@@ -1,7 +1,7 @@
 <template>
   <div v-if="!historyOnly || result?.first_overdue?.[kind]" class="word-count-deadline">
-    <template v-if="!historyOnly">
-    <strong>{{ label }}填写要求</strong>
+    <details v-if="!historyOnly" class="word-count-deadline__help">
+    <summary>{{ label }}填写要求</summary>
     <ul>
       <li>10 份以内且不多于 5 万字，第二个工作日内填完。</li>
       <li>11–50 份且超过 5 万字、不多于 10 万字，第四个工作日内填完。</li>
@@ -9,14 +9,16 @@
     </ul>
     <div>恰好 10 份、恰好 5 万字，或份数和字数分属不同档，均按第二个工作日执行。</div>
     <div>从客户接单次日起算，客户经理请假、休假等不计入工作日。</div>
-    </template>
-    <div class="word-count-deadline__result" role="status">
-      <template v-if="!historyOnly">
-      <strong v-if="result?.due_on">{{ label }}填写截止日 {{ result.due_on }}（第 {{ result.workdays }} 个工作日）</strong>
-      <span v-else-if="result?.calendar_error">{{ result.calendar_error }}</span>
+    <div v-if="!result?.due_on">
+      <span v-if="result?.calendar_error">{{ result.calendar_error }}</span>
       <span v-else-if="error">{{ error }}</span>
       <span v-else-if="loading">正在计算填写截止日…</span>
       <span v-else>有接单日期、客户经理、份数和字数后，系统将自动显示填写截止日。</span>
+    </div>
+    </details>
+    <div class="word-count-deadline__result" role="status">
+      <template v-if="!historyOnly">
+      <strong v-if="result?.due_on">{{ label }}填写截止日 {{ result.due_on }}（第 {{ result.workdays }} 个工作日）</strong>
       <div v-if="result?.overdue?.[kind]" class="deadline-overdue">{{ label }}填写已逾期</div>
       </template>
       <div v-if="result?.first_overdue?.[kind]">首次逾期 {{ result.first_overdue[kind].overdue_on }}（原截止日 {{ result.first_overdue[kind].due_on }}）</div>
@@ -96,6 +98,7 @@ watch([receivedOn, () => props.managerId, fileCount, wordCount, () => props.proj
   margin: 4px 0;
   padding-inline-start: 18px;
 }
+.word-count-deadline__help summary { cursor: pointer; width: fit-content; font-weight: 600; }
 .word-count-deadline__result {
   margin-top: 4px;
 }

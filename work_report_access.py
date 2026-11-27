@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import Boolean, DateTime, Integer, JSON, String, Uuid, inspect, or_
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String, Uuid, inspect, or_, case, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, joinedload, mapped_column, selectinload
 
@@ -210,7 +210,11 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
         DailyReportIdleDeclaration.confirmed.is_(True),
         DailyReportIdleDeclaration.idle_minutes > IDLE_WARNING_MINUTES,
     ).count()
-    rows = query.order_by(DailyReport.report_date.desc(), DailyReport.id).offset((page - 1) * page_size).limit(page_size).all()
+    from department_service import alias_map
+    aliases = alias_map(db)
+    primary_department = func.coalesce(func.nullif(func.trim(AppUser.department), ''), '未分配部门')
+    department_order = case(aliases, value=primary_department, else_=primary_department) if aliases else primary_department
+    rows = query.join(DailyReport.user).order_by(department_order, DailyReport.report_date.desc(), AppUser.full_name, DailyReport.id).offset((page - 1) * page_size).limit(page_size).all()
     period_totals = totals_for_reports(db, rows)
     from attendance_service import shifts_for
     people_by_day = {}
@@ -222,6 +226,7 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
     }
     return {'total': total, 'idle_over_limit_count': over_limit_count, 'items': [{
         'id': row.id, 'user_name': row.user.full_name or row.user.username, 'report_date': row.report_date,
+        'department_name': aliases.get((row.user.department or '').strip(), (row.user.department or '').strip()) or '未分配部门',
         'finalized_at': api_time(row.finalized_at), 'duration_minutes': sum(item.duration_minutes for item in row.items),
         'saved_at': api_time(row.updated_at),
         'shift': report_shifts[row.report_date].get(str(row.user_id)),
@@ -238,7 +243,8 @@ def received_report(db, user, report_id):
     if not row:
         raise HTTPException(404, '报告不存在或无权查看')
     from task_service import serialize_report
-    return api_time(serialize_report(row))
+    from attendance_service import shift_for
+    return api_time({**serialize_report(row), 'shift': shift_for(db, row.user, row.report_date)})
 
 
 def can_statistics(db,user):
@@ -294,5 +300,26 @@ def report_statistics(db,user,anchor,period,department_id=None,keyword=None,send
         written=[str(p.id) for p in required if (p.id,day) in confirmed]
         missing=[str(p.id) for p in required if (p.id,day) not in confirmed]
         daily.append({'date':day,'expected_count':len(required),'written_ids':written,'missing_ids':missing})
-    rows=[{'id':str(p.id),'name':p.full_name or p.username,'expected_count':sum(expected(p,day) for day in days),'missing_dates':[day for day in days if expected(p,day) and (p.id,day) not in confirmed]} for p in people]
-    return {'date_from':start,'date_to':end if end>=start else None,'days':daily,'people':rows,'calendar_sources':list(dict.fromkeys(CALENDARS[d.year]['source'] for d in days)),'basis':'法定工作日（含调休）；仅已确认算已写；当前启用人员，自账号创建日开始统计，未来日期不计入。'}
+    from department_service import alias_map
+    aliases=alias_map(db)
+    rows=[{'id':str(p.id),'name':p.full_name or p.username,'department_name':aliases.get((p.department or '').strip(),(p.department or '').strip()) or '未分配部门','expected_count':sum(expected(p,day) for day in days),'missing_dates':[day for day in days if expected(p,day) and (p.id,day) not in confirmed]} for p in people]
+    return {'date_from':start,'date_to':end if end>=start else None,'days':daily,'people':rows,'departments':group_report_statistics(daily,rows),'calendar_sources':list(dict.fromkeys(CALENDARS[d.year]['source'] for d in days)),'basis':'法定工作日（含调休）；仅已确认算已写；当前启用人员，自账号创建日开始统计，未来日期不计入。按人员主部门统计，跨部门人员不重复计数。'}
+
+
+def group_report_statistics(days,people):
+    groups={}
+    for person in people:
+        name=person['department_name']
+        groups.setdefault(name,[]).append(person)
+    result=[]
+    for name,members in sorted(groups.items()):
+        ids={person['id'] for person in members}
+        daily=[]
+        for day in days:
+            written=[uid for uid in day['written_ids'] if uid in ids]
+            missing=[uid for uid in day['missing_ids'] if uid in ids]
+            daily.append({'date':day['date'],'expected_count':len(written)+len(missing),'written_ids':written,'missing_ids':missing})
+        expected_count=sum(person['expected_count'] for person in members)
+        missing_count=sum(len(person['missing_dates']) for person in members)
+        result.append({'name':name,'people':members,'days':daily,'people_count':len(members),'expected_count':expected_count,'written_count':expected_count-missing_count,'missing_count':missing_count})
+    return result
