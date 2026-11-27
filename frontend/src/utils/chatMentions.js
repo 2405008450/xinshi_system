@@ -1,7 +1,7 @@
 // 只按服务端提及关系高亮当前用户，不把普通的 @ 文本误认成提醒。
 export function mentionParts(message, userId) {
   const recipient = (message.mentions || []).find(m => String(m.mentionedUserId) === String(userId))
-  const name = recipient && (message.metadata?.mentionAll || message.metadata?.mention_all) && message.content?.includes('@所有人') ? '所有人' : recipient?.mentionedUserName
+  const name = recipient && message.content?.includes('@所有项目经理+客户经理')?'所有项目经理+客户经理':recipient && (message.metadata?.mentionAll || message.metadata?.mention_all) && message.content?.includes('@所有人') ? '所有人' : recipient?.mentionedUserName
   const content = message.content || ''
   if (!name) return [{ text: content, highlight: false }]
   const token = `@${name}`
@@ -10,7 +10,7 @@ export function mentionParts(message, userId) {
 
 export function mentionedDocument(message, userId) {
   const recipient = (message.mentions || []).find(m => String(m.mentionedUserId) === String(userId))
-  const name = recipient && (message.metadata?.mentionAll || message.metadata?.mention_all) && message.content?.includes('@所有人') ? '所有人' : recipient?.mentionedUserName
+  const name = recipient && message.content?.includes('@所有项目经理+客户经理')?'所有项目经理+客户经理':recipient && (message.metadata?.mentionAll || message.metadata?.mention_all) && message.content?.includes('@所有人') ? '所有人' : recipient?.mentionedUserName
   if (!name) return message.contentJson
   const document = message.contentJson || { type: 'doc', content: [{ type: 'paragraph', content: message.content ? [{ type: 'text', text: message.content }] : [] }] }
   const token = `@${name}`
@@ -31,6 +31,7 @@ export function undisplayedMentions(message,userId){
   if(message.recalledAt||message.recalled_at)return []
   const mentions=message.mentions||[],content=message.content||''
   if(!mentions.length)return []
+  if(content.includes('@所有项目经理+客户经理'))return []
   const all=mentions.some(item=>item.isAll||item.is_all)||message.metadata?.mentionAll||message.metadata?.mention_all
   if(all)return content.includes('@所有人')||content.includes('@全体')?[]:[{id:'all',label:'@所有人',highlight:mentions.some(item=>String(item.mentionedUserId??item.mentioned_user_id)===String(userId))}]
   const unique=new Map()

@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {mergeSavedRecord,sameSavedValue} from '../src/utils/savedDataMerge.js'
+import * as mergeTools from '../src/utils/savedDataMerge.js'
+import {savedConflictFieldLabel,savedConflictText} from '../src/utils/savedConflictPresentation.js'
+import {readFileSync} from 'node:fs'
+import vm from 'node:vm'
+import {reactive,ref,markRaw,unref,isRef,isReadonly} from 'vue'
 test('未修改字段自动接收最新保存值，snake与camel字段共用规则',()=>{
  const target={id:'one',projectName:'旧名称',projectStatus:'confirmed',remark:'我的草稿'},changes=[]
  mergeSavedRecord(target,{id:'one',project_name:'旧名称',project_status:'confirmed',remark:'旧备注'},{id:'one',project_name:'新名称',project_status:'sent_to_client',remark:'他人保存的备注'},(...args)=>changes.push(args))
@@ -66,4 +71,57 @@ test('未持久化的单价行只在双方计价值有分歧时提示冲突',()=
  assert.equal(changes.length,1)
  assert.equal(changes[0][0],'prices')
  assert.equal(target.prices[0].amount,0.22)
+})
+
+test('空白译员占位行等于尚未安排，清空及无关状态更新不制造冲突',()=>{
+ const empty={translatorId:'',clientSelected:false,customerRating:'',evaluationNote:''}
+ const target={interpreterAssignments:[empty],projectStatus:'initial_follow_up'},changes=[]
+ mergeSavedRecord(target,{interpreter_assignments:[{id:'old',translator_id:'removed'}],project_status:'initial_follow_up'},{interpreter_assignments:[],project_status:'candidates_provided'},(...args)=>changes.push(args))
+ assert.deepEqual(changes,[])
+ assert.equal(target.projectStatus,'candidates_provided')
+})
+
+test('选择译员保存并自动改变状态，数据库行编号及只读名称不算冲突',()=>{
+ const row={translatorId:'person',clientSelected:true,customerRating:'',evaluationNote:''}
+ const target={interpreterAssignments:[row],projectStatus:'initial_follow_up'},changes=[]
+ const saved={id:'row-id',sequence_no:1,translator_id:'person',translator_name:'测试译员',client_selected:true,customer_rating:null,evaluation_note:null}
+ mergeSavedRecord(target,{interpreter_assignments:[],project_status:'initial_follow_up'},{interpreter_assignments:[saved],project_status:'client_selected'},(...args)=>changes.push(args))
+ assert.deepEqual(changes,[])
+ assert.equal(target.interpreterAssignments[0],row)
+ assert.equal(target.projectStatus,'client_selected')
+})
+
+test('译员安排真正被双方改动时保留本地，并对人选、客户选定、评价分别保护',()=>{
+ for(const changed of [{translator_id:'other'},{client_selected:true},{customer_rating:'satisfied'},{evaluation_note:'他人备注'}]){
+  const target={interpreterAssignments:[{translatorId:'mine',clientSelected:false,customerRating:'',evaluationNote:''}]},changes=[]
+  mergeSavedRecord(target,{interpreter_assignments:[]},{interpreter_assignments:[{translator_id:'original',...changed}]},(...args)=>changes.push(args))
+  assert.equal(changes.length,1)
+  assert.equal(target.interpreterAssignments[0].translatorId,'mine')
+ }
+ const target={interpreterAssignments:[]},changes=[]
+ mergeSavedRecord(target,{interpreter_assignments:[{translator_id:'original'}]},{interpreter_assignments:[{translator_id:'other'}]},(...args)=>changes.push(args))
+ assert.equal(changes.length,1) // 本地删除不能被他人换人覆盖。
+})
+
+test('未改动译员时接收最新安排；已存在的空白误报不再阻止保存',()=>{
+ const target={interpreterAssignments:[{translatorId:'original',customerRating:'',evaluationNote:''}]}
+ mergeSavedRecord(target,{interpreter_assignments:[{id:'old',translator_id:'original'}]},{interpreter_assignments:[{id:'new',translator_id:'other',translator_name:'新译员'}]},()=>assert.fail('未修改安排不应冲突'))
+ assert.equal(target.interpreterAssignments[0].translatorId,'other')
+ const source=readFileSync(new URL('../src/utils/savedDataRegistry.js',import.meta.url),'utf8').replace(/^import .*$/gm,'').replace(/^export /gm,'')
+ const ctx={...mergeTools,reactive,ref,markRaw,unref,isRef,isReadonly,model:reactive({interpreterAssignments:[{translatorId:'',clientSelected:false,customerRating:'',evaluationNote:''}]})}
+ vm.createContext(ctx)
+ vm.runInContext(source+`\nconflicts.set(model,new Map([['interpreterAssignments',{path:'interpreterAssignments',current:model.interpreterAssignments,latest:[],before:[{translatorId:'old'}]}]]));globalThis.result=modelSavedConflicts(model)`,ctx)
+ assert.equal(ctx.result.length,0)
+})
+
+test('译员冲突展示业务中文，不再显示字段名、空数组或原始JSON',()=>{
+ assert.equal(savedConflictFieldLabel('interpreterAssignments'),'译员安排')
+ assert.equal(savedConflictText('interpreterAssignments',[]),'尚未安排译员')
+ assert.equal(savedConflictText('interpreter_assignments',[{translatorId:''}]),'尚未安排译员')
+ const text=savedConflictText('interpreterAssignments',[{translator_id:'person',translator_name:'测试译员',client_selected:true,customer_rating:'satisfied',evaluation_note:'备注'}])
+ assert.match(text,/译员 1：测试译员/)
+ assert.match(text,/客户选定：是/)
+ assert.match(text,/客户评价：满意/)
+ assert.match(text,/评价\/备注：备注/)
+ assert.equal(text.includes('translator_id'),false)
 })

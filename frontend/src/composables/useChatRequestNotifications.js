@@ -1,13 +1,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { getNotificationPage, getUnreadNotificationCount, markNotificationRead } from '@/api/notifications'
+import { getNotificationPage, getNotificationFilterOptions, getUnreadNotificationCount, markNotificationRead } from '@/api/notifications'
 import { subscribe } from '@/utils/realtimeSocket'
 import { CONVERSATION_NOTIFICATION_TYPES, isBusinessNotification } from '@/utils/notificationChannels'
 
-const types = [...CONVERSATION_NOTIFICATION_TYPES, 'meeting_invitation', 'meeting_receipt', 'meeting_task']
-export function useChatRequestNotifications({ allBusiness = false } = {}) {
-  const params = allBusiness ? { channel: 'business' } : { channel: 'business', notification_types: types }
+const types = [...CONVERSATION_NOTIFICATION_TYPES, 'meeting_invitation', 'meeting_task']
+export function useChatRequestNotifications({ allBusiness = false, channel = 'business' } = {}) {
+  const params = allBusiness || channel==='system' ? { channel } : { channel, notification_types: types }
   const items = ref([]), unread = ref(0), loading = ref(false), error = ref(''), total = ref(0), page = ref(1), pageSize = ref(30)
-  const defaults = { keyword: '', notificationType: '', readStatus: 'all', category: '', summaryCategory: '' }
+  const options=ref({senders:[],types:[]})
+  const defaults = { keyword: '', notificationType: '', readStatus: 'all', category: '', summaryCategory: '', senderUserId:'', executionStatus:'' }
   const filters = reactive({ ...defaults })
   const hasMore = computed(() => page.value * pageSize.value < total.value)
   let sequence = 0, timer, debounceTimer, controller, unsubscribe, unsubscribeSnapshot, disposed = false
@@ -17,6 +18,7 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
     if (disposed || !localStorage.getItem('token')) return
     controller?.abort(); controller = new AbortController()
     const current = ++sequence
+    const identity=localStorage.getItem('user_id')
     loading.value = true
     try {
       const [result, count] = await Promise.all([
@@ -24,7 +26,7 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
         // 导航未读数字始终覆盖整个通知模块，不受搜索条件影响。
         allBusiness ? null : getUnreadNotificationCount(params, { signal: controller.signal }),
       ])
-      if (disposed || current !== sequence) return
+      if (disposed || current !== sequence || identity!==localStorage.getItem('user_id')) return
       const last = Math.max(1, Math.ceil(result.total / pageSize.value))
       if (page.value > last) { page.value = last; return await refresh() }
       items.value = result.items
@@ -38,7 +40,8 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
     clearTimeout(debounceTimer); debounceTimer = null
     applied = { keyword: filters.keyword.trim() || undefined, read_status: filters.readStatus,
       notification_type: filters.notificationType || undefined, category: filters.category || undefined,
-      summary_category: filters.category === 'conversation_saved' ? filters.summaryCategory || undefined : undefined }
+      summary_category: filters.category === 'conversation_saved' ? filters.summaryCategory || undefined : undefined,
+      sender_user_id:filters.senderUserId||undefined,execution_status:filters.executionStatus||undefined }
     page.value = 1
     return refresh()
   }
@@ -60,6 +63,7 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
     }
   }
   onMounted(() => {
+    refreshOptions()
     reload()
     timer = window.setInterval(reload, 10000)
     unsubscribe = subscribe('notification', ({ notification } = {}) => {
@@ -75,5 +79,7 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
     window.removeEventListener('business-notifications-changed', reload)
     window.removeEventListener('focus', reload)
   })
-  return { items, unread, loading, error, hasMore, total, page, pageSize, filters, refresh, read, query, keywordInput, reset, pageChanged, pageSizeChanged }
+  let optionsSequence=0
+  async function refreshOptions(){const version=++optionsSequence;try{const result=await getNotificationFilterOptions(params);if(!disposed&&version===optionsSequence)options.value=result}catch{ /* 下拉再次打开时重试。 */ }}
+  return { items, unread, loading, error, hasMore, total, page, pageSize, filters, options, refreshOptions, refresh, read, query, keywordInput, reset, pageChanged, pageSizeChanged }
 }

@@ -245,7 +245,7 @@ watch([() => props.annotationProject, () => props.reportDate, loadedDate, loadin
   const type = project.type || 'annotation'
   const category = projectTypeNames[type]
   let index = rows.findIndex(row => row.source_type === 'manual' &&
-    (row.display_metadata?.project_id === project.id || type === 'annotation' && row.display_metadata?.chat_annotation_project_id === project.id) &&
+    (project.id ? (row.display_metadata?.project_id === project.id || type === 'annotation' && row.display_metadata?.chat_annotation_project_id === project.id) : project.orderNo && row.display_metadata?.order_no === project.orderNo) &&
     row.display_metadata.report_types?.includes(category) && !row.progress_content?.trim())
   if (index === -1) {
     const row = newReportRow()
@@ -255,8 +255,9 @@ watch([() => props.annotationProject, () => props.reportDate, loadedDate, loadin
   }
   const row = rows[index]
   if (!row.task_name?.trim()) row.task_name = Array.from(project.name).slice(0, 255).join('')
-  Object.assign(row.display_metadata, { project_id: project.id, selected_project_type: category, selected_project_name: project.name, order_no: project.orderNo || row.display_metadata.order_no || '' })
-  if (type === 'annotation') row.display_metadata.chat_annotation_project_id = project.id
+  Object.assign(row.display_metadata, { selected_project_type: category, selected_project_name: project.name, order_no: project.orderNo || row.display_metadata.order_no || '' })
+  if (project.id) row.display_metadata.project_id = project.id
+  if (type === 'annotation' && project.id) row.display_metadata.chat_annotation_project_id = project.id
   report.items = rows
   await nextTick()
   onEditorChange(Math.max(1, dirtyCount.value))

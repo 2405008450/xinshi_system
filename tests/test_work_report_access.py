@@ -142,6 +142,24 @@ def test_department_grouping_is_sorted_before_pagination_without_duplicates(envi
     assert access.received_reports(db,viewer,None,None,sender.id,1,20)['items'][0]['department_name']=='未分配部门'
 
 
+def test_multi_day_reports_stay_together_by_department_person_then_date_across_pages(environment):
+    db,(owner,viewer,sender)=environment
+    configure_user(db,owner)
+    owner.department='IT部';viewer.department='IT部';sender.department='HR部'
+    owner.full_name=viewer.full_name=sender.full_name='同名人员';viewer.username='aaa'
+    db.commit()
+    access.save_rule(db,owner,access.AccessRuleWrite(name='多日报告排列',viewer_ids=[viewer.id],senders_all=True))
+    for person,days in [(owner,[26,24]),(viewer,[25,23]),(sender,[24])]:
+        for day in days:report(db,person,date(2026,11,day))
+    first=access.received_reports(db,viewer,date(2026,11,1),date(2026,11,30),None,1,3)
+    second=access.received_reports(db,viewer,date(2026,11,1),date(2026,11,30),None,2,3)
+    items=first['items']+second['items']
+    assert first['total']==second['total']==5
+    assert [item['user_id'] for item in items]==[sender.id,viewer.id,viewer.id,owner.id,owner.id]
+    assert [item['report_date'].day for item in items]==[24,25,23,26,24]
+    assert len({item['id'] for item in items})==5
+
+
 def test_finalized_reports_only_and_revoke_detail_access(environment):
     db,(owner,viewer,sender)=environment
     configure_user(db,owner)

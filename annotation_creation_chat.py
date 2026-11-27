@@ -12,6 +12,7 @@ def creation_card(project):
         ('客户简称',project.client_short_name),('语言方向',project.language_items_display),
         ('任务提交时间',business_iso(project.task_submitted_at) if project.task_submitted_at else '待定'),
         ('客户单价',project.customer_price_summary),('具体任务',project.task_description)]
+    if getattr(project,'project_path',None):pairs.append(('项目路径',project.project_path))
     return {'type':'annotation_creation','title':'新建标注项目','fields':[{'label':label,'value':str(value or '-')} for label,value in pairs]}
 
 
@@ -19,5 +20,7 @@ def send_creation(db,project,user_id,delivery):
     if not delivery or not delivery.send_to_chat:return
     card=creation_card(project)
     content='新建标注项目\n'+'\n'.join(f"{row['label']}：{row['value']}" for row in card['fields'])
+    from automatic_project_notice import mark_automatic
+    content=mark_automatic(content)
     enqueue(db,project.id,user_id,delivery,track='creation',note=content,effective_on=project.created_at,
         attachment_ids=chat_attachments(db,project,user_id),content_json=card)

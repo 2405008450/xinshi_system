@@ -30,6 +30,21 @@ class ClassifiedNotificationResponse(NotificationResponse):
     category: NotificationCategory
     summary_category: SummaryCategory | None = None
 
+ExecutionStatus = Literal['pending','received','in_progress','completed','cancelled','not_applicable']
+
+@router.get('/filter-options')
+def notification_filter_options(channel: NotificationChannel = 'all', notification_types: list[str] | None = Query(None,max_length=20),
+                                db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from crud import _notification_query
+    from models import AppNotification
+    from notification_execution_filters import expressions
+    base=_notification_query(db,current_user.id,channel=channel,notification_types=notification_types)
+    sender,_=expressions(db,AppNotification)
+    ids=base.with_entities(sender.label('sender_id')).subquery()
+    people=db.query(AppUser.id,AppUser.full_name,AppUser.username).filter(AppUser.id.in_(db.query(ids.c.sender_id))).order_by(AppUser.full_name,AppUser.username).all()
+    types=[value for value, in base.with_entities(AppNotification.notification_type).distinct().order_by(AppNotification.notification_type)]
+    return dict(senders=[dict(id=str(uid),name=name or username) for uid,name,username in people],types=types)
+
 
 @router.get('/page', response_model=PageResponse[ClassifiedNotificationResponse])
 def notification_page(
@@ -41,11 +56,12 @@ def notification_page(
     notification_types: list[str] | None = Query(None, max_length=20),
     category: NotificationCategory | None = None,
     summary_category: SummaryCategory | None = None,
+    sender_user_id: UUID | None = None, execution_status: ExecutionStatus | None = None,
     db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user),
 ):
     filters = dict(keyword=keyword, read_status=read_status, channel=channel,
                    notification_type=notification_type, notification_types=notification_types,
-                   category=category, summary_category=summary_category)
+                   category=category, summary_category=summary_category, sender_user_id=sender_user_id, execution_status=execution_status)
     return {'items': get_notifications(db, current_user.id, skip=skip, limit=limit, include_classification=True, **filters),
             'total': count_notifications(db, current_user.id, **filters)}
 

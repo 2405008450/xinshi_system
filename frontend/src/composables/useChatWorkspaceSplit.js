@@ -1,14 +1,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-export function useChatWorkspaceSplit(root, active, narrow, maximized) {
-  const key = `xinshi.chatWorkspaceSplit.${localStorage.getItem('user_id') || 'anonymous'}`
+export function useChatWorkspaceSplit(root, active, narrow, maximized, options={}) {
+  const key = options.storageKey || `xinshi.chatWorkspaceSplit.${localStorage.getItem('user_id') || 'anonymous'}`
   const preferred = ref(null), containerWidth = ref(0), dragging = ref(false)
   try {
     const value = JSON.parse(localStorage.getItem(key) || 'null')
     if (typeof value === 'number' && Number.isFinite(value) && value >= 220) preferred.value = value
   } catch { /* 无效配置使用默认分区。 */ }
-  const defaultWidth = computed(() => maximized.value ? 300 : 280)
-  const maximum = computed(() => Math.max(220, containerWidth.value - (maximized.value ? 56 : 0) - 320))
+  const defaultWidth = computed(() => options.defaultWidth ?? (maximized.value ? 300 : 280))
+  const maximum = computed(() => Math.max(220, containerWidth.value - (maximized.value ? 56 : 0) - 320 - (options.reservedWidth?.()||0)))
   const clamp = value => Math.round(Math.max(220, Math.min(maximum.value, value)))
   const width = computed(() => narrow.value ? 0 : clamp(preferred.value ?? defaultWidth.value))
   let observer, stopDrag

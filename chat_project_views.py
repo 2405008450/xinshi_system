@@ -52,6 +52,18 @@ def discussion_sources(db, room_ids):
     return result
 
 
+def work_report_context(db, user, kind, conversation_id):
+    from chat_message_interactions import scope
+    scope(db, kind, conversation_id, user)
+    source = discussion_sources(db, [conversation_id]).get(str(conversation_id)) if kind == 'discussion' else (kind, conversation_id)
+    if not source or source[0] not in MODELS:
+        return dict(project=None)
+    module, project_id = source
+    project = db.get(MODELS[module], project_id)
+    return dict(project=dict(id=str(project.id), type=module, name=project.project_name or project.order_no,
+                             order_no=project.order_no) if project else None)
+
+
 def owned_discussion_ids(db, user, room_ids):
     sources = discussion_sources(db, room_ids)
     owned = set()

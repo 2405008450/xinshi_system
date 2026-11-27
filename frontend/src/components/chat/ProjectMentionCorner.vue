@@ -4,9 +4,9 @@
     <template v-else>
       <span class="mention-position">{{ model.index >= 0 ? `@我 ${model.index + 1}/${model.total}` : `@我 ${count} 条` }}</span>
       <button type="button" class="mention-arrow" :aria-label="olderLabel" :title="olderLabel"
-        :disabled="model.loading || (model.index >= 0 && model.index >= model.total - 1)" @click="older">↑</button>
+        :disabled="model.loading || model.total===1" @click="older">↑</button>
       <button type="button" class="mention-arrow" aria-label="更新的提及" title="更新的提及"
-        :disabled="model.loading || model.index <= 0" @click="activateMove(-1)">↓</button>
+        :disabled="model.loading || model.index < 0 || model.total===1" @click="activateMove(-1)">↓</button>
       <ProjectMentionPopover :session="session" :model="model" compact @browse="browse" @select="select"
         @more="model.loadMore" @retry="model.refresh" />
       <button type="button" class="mention-close" aria-label="收起提及导航" title="收起提及导航" @click="collapsed = true">×</button>

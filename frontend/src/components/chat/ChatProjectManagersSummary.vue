@@ -20,6 +20,7 @@ import { getAnnotationProject } from '@/api/annotationProjects'
 import { getProject } from '@/api/projects'
 import { subscribeAnnotationManagersUpdated, notifyAnnotationManagersUpdated } from '@/utils/annotationManagerSync'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
+const emit = defineEmits(['project-state'])
 const props = defineProps({ projectId: { type: String, required: true }, projectType: { type: String, required: true } })
 const AnnotationManagerTransferDialog = defineAsyncComponent(() => import('@/components/annotation/AnnotationManagerTransferDialog.vue'))
 const canAdjust = computed(() => hasPermission('projects:read') || hasPermission('projects:write'))
@@ -36,11 +37,11 @@ const names = computed(() => {
 let controller, generation = 0
 async function load() {
   controller?.abort(); controller = new AbortController(); const version = ++generation
-  project.value = null; error.value = false; loading.value = true
+  project.value = null; error.value = false; loading.value = true; emit('project-state',{loading:true})
   try {
     const result = await (props.projectType === 'annotation' ? getAnnotationProject : getProject)(props.projectId, { signal: controller.signal })
-    if (version === generation) project.value = result
-  } catch (e) { if (version === generation && e.code !== 'ERR_CANCELED') error.value = true }
+    if (version === generation) { project.value = result; emit('project-state',{status:result.projectStatus}) }
+  } catch (e) { if (version === generation && e.code !== 'ERR_CANCELED') {error.value = true; emit('project-state',{error:true})} }
   finally { if (version === generation) loading.value = false }
 }
 watch(() => [props.projectId, props.projectType], load, { immediate: true })

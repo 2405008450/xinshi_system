@@ -229,6 +229,7 @@ def get_interpretation_project(db: Session, project_id: UUID) -> Optional[Interp
     )
 
     if project:
+        project.status_change_id=None
         from project_client_manager import attach
         attach(db, 'interpretation', [project])
         attach_schedule_groups(db, [project])
@@ -470,7 +471,7 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
-NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "interpreter_requirements", "role_assignments", "finance_draft"}
+NESTED_FIELDS = {"status_change_reason", "client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "interpreter_requirements", "role_assignments", "finance_draft"}
 
 
 def _save_finance_draft(db, project, draft, actor_id):
@@ -543,10 +544,16 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
         directions.append(direction)
     project.language_directions = directions
     save_schedule_groups(db, project, payload.time_ranges)
+    translators={row.id:row for row in db.query(Translator).filter(Translator.id.in_(set(translator_ids_by_resource.values())))} if translator_ids_by_resource else {}
+    if set(translator_ids_by_resource.values())-translators.keys():
+        raise ValueError('所选译员关联已失效，请重新选择')
     project.interpreter_assignments = [
-        InterpretationProjectInterpreter(sequence_no=index, **{**item.model_dump(exclude={'client_selected'}),'translator_id':translator_ids_by_resource[item.translator_id]})
+        InterpretationProjectInterpreter(sequence_no=index,translator=translators[translator_ids_by_resource[item.translator_id]], **{**item.model_dump(exclude={'client_selected'}),'translator_id':translator_ids_by_resource[item.translator_id]})
         for index, item in enumerate(payload.interpreter_assignments, start=1)
     ]
+    # 实际服务 autoflush=False；状态及通知读取姓名、客户选定前必须完成本事务内的同步。
+    # flush 不提交事务，后续校验失败时仍与项目资料一起回滚。
+    db.flush()
 
 
 def create_interpretation_project(
@@ -579,7 +586,8 @@ def create_interpretation_project(
         project_id=project.id,
         from_status=None,
         to_status=project.project_status,
-        effective_on=datetime.now(),
+        effective_on=project_progress_datetime(business_now()),
+        changed_at=project_progress_datetime(business_now()),
         changed_by=created_by,
     ))
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
@@ -587,8 +595,16 @@ def create_interpretation_project(
     validate_assignment_map(db, assignments)
     ensure_project_responsibilities(db, 'interpretation', project.id, assignments)
     _sync_nested(db, project, payload)
+    from interpretation_candidate_status import apply as apply_candidate_status
+    old_status=project.project_status
+    apply_candidate_status(db,project,set())
+    if project.project_status!=old_status:
+        db.add(InterpretationProjectStatusHistory(project_id=project.id,from_status=old_status,
+            to_status=project.project_status,effective_on=project_progress_datetime(business_now()),changed_by=created_by,
+            changed_at=project_progress_datetime(business_now()),
+            change_note='保存译员安排后自动调整项目状态'))
     _save_finance_draft(db, project, payload.finance_draft, created_by)
-    project.updated_at = datetime.now()
+    project.updated_at = project_progress_datetime(business_now())
     record_project_operation(
         db, project_type="interpretation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
@@ -624,25 +640,35 @@ def update_interpretation_project(
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     previous_status = project.project_status
+    status_event=None
+    from interpretation_candidate_status import selected_ids,apply as apply_candidate_status
+    previous_selected=selected_ids(db,project)
     for key, value in data.items():
         setattr(project, key, value)
+    _sync_nested(db, project, payload)
+    apply_candidate_status(db,project,previous_selected)
     if project.project_status != previous_status:
-        db.add(InterpretationProjectStatusHistory(
+        from interpretation_status_notice import automatic_reason
+        status_event=InterpretationProjectStatusHistory(
             project_id=project.id,
             from_status=previous_status,
             to_status=project.project_status,
-            effective_on=datetime.now(),
+            effective_on=project_progress_datetime(business_now()),
+            changed_at=project_progress_datetime(business_now()),
             changed_by=changed_by,
-        ))
+            change_note=(payload.status_change_reason or '').strip() or (automatic_reason(project) if project.project_status in {'candidates_provided','client_selected','client_changed'} else '在项目编辑窗口调整状态'),
+        )
+        db.add(status_event)
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
     validate_assignment_map(db, assignments)
     ensure_active_project_responsibilities(db, 'interpretation', project.id, project.project_status, assignments)
-    _sync_nested(db, project, payload)
     _save_finance_draft(db, project, payload.finance_draft, changed_by)
-    project.updated_at = datetime.now()
+    project.updated_at = project_progress_datetime(business_now())
     db.commit()
-    return get_interpretation_project(db, project.id)
+    result=get_interpretation_project(db, project.id)
+    result.status_change_id=status_event.id if status_event else None
+    return result
 
 
 def update_interpretation_project_status(
@@ -670,19 +696,22 @@ def update_interpretation_project_status(
     if not progress_only:
         project.project_status = project_status
     project.updated_at = project_progress_datetime(business_now())
-    db.add(InterpretationProjectStatusHistory(
+    status_event=InterpretationProjectStatusHistory(
         project_id=project.id,
         from_status=project_status if progress_only else previous_status,
         to_status=project_status,
         effective_on=project_progress_datetime(effective_on or business_now()),
         changed_by=changed_by,
         change_note=change_note,
-    ))
+    )
+    db.add(status_event)
     if not progress_only:
         from project_workbench_service import ensure_active_project_responsibilities
         ensure_active_project_responsibilities(db, 'interpretation', project.id, project_status)
     db.commit()
-    return get_interpretation_project(db, project.id)
+    result=get_interpretation_project(db, project.id)
+    result.status_change_id=status_event.id if not progress_only and previous_status!=project_status else None
+    return result
 
 
 def list_interpretation_project_status_history(db: Session, project_id: UUID) -> list[dict]:

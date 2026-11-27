@@ -79,3 +79,14 @@ test('所有聊天家族按命名边界统一识别，新增会话类型也不�
  for(const kind of ['workflow_chatty_update','chat_summary','resource_request_dispatch']) assert.equal(isChatNotification({notification_type:kind}),false,kind)
  assert.equal(isSystemNotification({notification_type:'workflow_chatty_update'}),true)
 })
+
+
+test('会议回执只在会议内查看，不进入系统或桌面通知；邀请和任务继续通知',()=>{
+ for(const type of ['meeting_receipt',' MEETING_RECEIPT ']){
+  const item={notification_type:type,is_read:false}
+  assert.equal(isBusinessNotification(item),false)
+  assert.equal(isSystemNotification(item),false)
+  assert.equal(isDesktopAttentionNotification(item),false)
+ }
+ for(const type of ['meeting_invitation','meeting_task'])assert.equal(isDesktopAttentionNotification({notification_type:type,is_read:false}),true)
+})

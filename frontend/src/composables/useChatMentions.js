@@ -5,6 +5,7 @@ import { subscribe } from '@/utils/realtimeSocket'
 export function useChatMentions(keyword, active, filters = ref({}), anchor = ref('')) {
   const items = ref([])
   const total = ref(0)
+  const senders = ref([])
   const loading = ref(false)
   const error = ref('')
   const hasMore = ref(false)
@@ -24,7 +25,7 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
     const userId = localStorage.getItem('user_id')
     const params = { keyword: keyword.value, project_type: filters.value.projectType || undefined,
       project_status: filters.value.projectStatus || undefined, project_id: filters.value.projectId || undefined, sort: filters.value.sort || undefined,
-      mention_kind: filters.value.mentionKind || undefined }
+      mention_kind: filters.value.mentionKind || undefined, sender_name: filters.value.senderName || undefined, include_senders: filters.value.includeSenders || undefined }
     const target = background ? Math.max(50, items.value.length) : 50
     const collected = []
     let before = append ? nextBefore : null
@@ -44,6 +45,7 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
       const rows = append ? [...items.value, ...collected] : collected
       items.value = [...new Map(rows.map(row => [row.messageId, row])).values()]
       total.value = data.total || 0
+      senders.value = data.senders || []
       hasMore.value = !!data.hasMore
       nextBefore = data.nextBefore
     } catch (e) {
@@ -67,5 +69,5 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
     timer = setInterval(refresh, 15000)
   })
   onBeforeUnmount(() => { cancel(); clearInterval(timer); cleanup.forEach(fn => fn()) })
-  return { items, total, loading, error, hasMore, reload: () => load(), refresh: () => load({ background: true }), loadMore: () => load({ append: true }) }
+  return { items, total, senders, loading, error, hasMore, reload: () => load(), refresh: () => load({ background: true }), loadMore: () => load({ append: true }) }
 }

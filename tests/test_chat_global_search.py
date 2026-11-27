@@ -51,6 +51,20 @@ def test_search_all_kinds_membership_recall_keywords_and_paging(environment, mon
     assert search_messages(db, owner, '100%_missing')['total'] == 0
     assert search_messages(db, owner, 'AA missing')['total'] == 0
     assert search_messages(db, owner, '自建群聊')['total'] == 0  # 会话名称由原搜索模式查询。
+    from models import ChatProjectMessageFavorite, Client
+    from discussion_chat_models import DiscussionMessageAction
+    client=Client(id=uuid4(),client_name='收藏客户全称',client_short_name='收藏客户')
+    db.add(client);parent.client_id=client.id
+    for msg in db.query(ChatProjectMessage).all():
+        db.add(ChatProjectMessageFavorite(id=uuid4(),message_id=msg.id,user_id=owner.id))
+    db.add(DiscussionMessageAction(message_id=1,user_id=owner.id,user_name='owner',favorited_at=datetime(2026,10,24,14)))
+    db.commit()
+    assert search_messages(db,owner,'',favorites_only=True)['total']==4
+    assert search_messages(db,member,'',favorites_only=True)['total']==0
+    assert search_messages(db,owner,'收藏客户 BB',favorites_only=True)['total']==1
+    assert search_messages(db,owner,'自建群聊 AA',favorites_only=True)['total']==1
+    page=search_messages(db,owner,'',favorites_only=True,limit=2)
+    assert page['total']==4 and page['has_more']
     assert search_messages(db, outsider, 'AA')['total'] == 1  # 仅自己的私聊。
     outsider.is_active = False
     assert search_messages(db, outsider, 'AA')['total'] == 0

@@ -364,6 +364,12 @@ def work_report_feedback(report_id:UUID,db: Session = Depends(get_db), user: App
     return report_collaboration.feedback_rows(db,user,report_id)
 
 
+@reports_router.get('/feedback/{report_id}/recipients')
+def work_report_feedback_recipients(report_id:UUID,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    from work_report_feedback_recipients import directory
+    return directory(db,user,report_id)
+
+
 @reports_router.post('/feedback/{report_id}')
 def write_work_report_feedback(report_id:UUID,payload:report_collaboration.FeedbackWrite,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     return report_collaboration.add_feedback(db,user,report_id,payload)

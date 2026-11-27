@@ -142,6 +142,7 @@ const props = defineProps({
   sendProjectChat:Boolean,
   projectChatAudience:{type:Array,default:()=>[]},
   emergencyNotice:Boolean,
+  statusChangeId:{type:String,default:''},
   translationChatAudience:{type:Array,default:()=>[]},
   sourceKind: { type: String, default: 'project_manual' },
 })
@@ -182,7 +183,7 @@ const loadPreview = async () => {
   loading.value = true
   try {
     const [mailPreview, users, groups, rows] = await Promise.all([
-      mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId, emergency_notice:props.emergencyNotice }),
+      mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId, emergency_notice:props.emergencyNotice,source:props.statusChangeId?{status_change_id:props.statusChangeId}:{} }),
       userApi.getUsers({ skip: 0, limit: 500 }),
       mailApi.getAvailableMailGroups(),
       mailApi.getProjectMailHistory({ project_type: props.projectType, project_id: props.projectId }),

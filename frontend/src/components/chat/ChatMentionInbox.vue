@@ -1,6 +1,7 @@
 <template>
   <div class="chat-mention-inbox">
     <div class="chat-mention-inbox__heading" title="右键可调整排序；未读始终优先"><span>{{ keyword ? '搜索结果' : sortLabel }} · 未读优先</span><small>{{ total }} 条</small></div>
+    <div class="mention-senders" aria-label="按提及发送人筛选"><button type="button" :class="{'is-active':!senderName}" :aria-pressed="!senderName" @click="chooseSender('')">全部</button><button v-for="sender in senders" :key="sender.name" type="button" :class="{'is-active':senderName===sender.name}" :aria-pressed="senderName===sender.name" @click="chooseSender(sender.name)">{{ sender.name }} <b v-if="sender.unread">{{ sender.unread }}</b><small v-else>{{ sender.count }}</small></button></div>
     <p v-if="error" class="chat-mention-inbox__error" role="alert">{{ error }} <el-button link @click="reload">重试</el-button></p>
     <div v-if="loading && !items.length" class="chat-mention-inbox__status" role="status">正在加载提及消息…</div>
     <el-empty v-else-if="!items.length && !error" :description="keyword ? '没有匹配的提及消息' : filters.mentionKind === 'all' ? '暂无 @所有人 的消息' : '暂无提及我的消息'" :image-size="48" />
@@ -29,9 +30,11 @@ import { formatBusinessDateTime } from '@/utils/dateTime'
 
 const props = defineProps({ keyword: { type: String, default: '' }, active: { type: Boolean, default: true }, filters: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['locate', 'total'])
-const selectedMessageId = ref('')
+const selectedMessageId = ref(''),senderName=ref('')
 const sortLabel = computed(() => mentionSortOptions.find(option => option.value === (props.filters.sort || 'time_desc'))?.label)
-const { items, total, loading, error, hasMore, reload, loadMore } = useChatMentions(toRef(props, 'keyword'), toRef(props, 'active'), toRef(props, 'filters'))
+const senderFilters=computed(()=>({...props.filters,senderName:senderName.value,includeSenders:true}))
+const { items, total, senders, loading, error, hasMore, reload, loadMore } = useChatMentions(toRef(props, 'keyword'), toRef(props, 'active'), senderFilters)
+function chooseSender(name){selectedMessageId.value='';if(senderName.value===name)reload();else senderName.value=name}
 watch(total, value => emit('total', value), { immediate: true })
 watch([() => props.keyword, () => props.filters], () => { selectedMessageId.value = '' })
 function select(item) { selectedMessageId.value = item.messageId; emit('locate', item) }
@@ -39,6 +42,7 @@ function select(item) { selectedMessageId.value = item.messageId; emit('locate',
 
 <style scoped>
 .chat-mention-inbox{padding:0 6px 8px;min-width:0}
+.mention-senders{display:flex;flex-wrap:wrap;gap:6px;padding:0 6px 8px;position:relative;z-index:1}.mention-senders button{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:4px 10px;border:1px solid #dce5f1;border-radius:18px;background:white;color:#526781;font:inherit;cursor:pointer;touch-action:manipulation}.mention-senders button.is-active{background:#334155;color:white;border-color:#334155}.mention-senders button:focus-visible{outline:2px solid #5479be;outline-offset:2px}.mention-senders b{background:#dc2626;color:white;border-radius:10px;padding:0 5px;font-size:12px}.mention-senders small{font-size:12px;opacity:.7}
 .chat-mention-inbox__heading{display:flex;justify-content:space-between;padding:10px 6px;color:#94a3b8;font-size:12px}
 .chat-mention-inbox__message{display:flex;gap:10px;width:100%;box-sizing:border-box;padding:12px 8px;margin-bottom:4px;border:0;border-radius:8px;background:transparent;color:#334155;text-align:left;cursor:pointer;font:inherit}
 .chat-mention-inbox__message:hover,.chat-mention-inbox__message.is-active{background:#e9eff9}

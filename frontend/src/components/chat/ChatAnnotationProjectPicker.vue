@@ -5,7 +5,7 @@
       <AnnotationProjects v-if="modelValue && canRead" conversation-picker :picker-action-label="actionLabel" :picker-joined-label="joinedLabel" :joined-project-ids="joinedIds" :joining-project-ids="[...joining]" @join-conversation="join" />
       <el-alert v-else-if="!canRead" title="没有标注项目查看权限" type="warning" :closable="false" />
       <template #footer>
-        <span class="chat-annotation-picker__feedback" role="status">{{ feedback || (favoriteMode ? '关注后加入收藏夹，并按项目当前状态归类，可连续关注多个项目。' : '将项目加入会话列表，并按项目当前状态归类，可连续加入多个项目。') }}</span>
+        <span class="chat-annotation-picker__feedback" role="status">{{ feedback || (favoriteMode ? '加入收藏夹后按项目类型和日期归类，可连续收藏多个项目。' : '将项目加入会话列表，并按项目当前状态归类，可连续加入多个项目。') }}</span>
         <el-button :disabled="joining.size > 0" @click="$emit('update:modelValue', false)">完成</el-button>
       </template>
     </DraggableFormDialog>
@@ -22,8 +22,8 @@ import { annotationStatusLabels, normalizeAnnotationStatus } from '@/utils/annot
 
 const AnnotationProjects = defineAsyncComponent(() => import('@/views/project/AnnotationProjects.vue'))
 const props = defineProps({ modelValue: Boolean, favoriteMode: Boolean })
-const actionLabel=computed(()=>props.favoriteMode ? '加入关注' : '创建/加入会话')
-const joinedLabel=computed(()=>props.favoriteMode ? '已关注' : '已加入会话')
+const actionLabel=computed(()=>props.favoriteMode ? '★ 加入收藏' : '创建/加入会话')
+const joinedLabel=computed(()=>props.favoriteMode ? '★ 已收藏' : '已加入会话')
 const emit = defineEmits(['update:modelValue', 'joined'])
 const { sessions, refresh } = useAnnotationFollowed()
 const departmentChatAccess=ref(false)

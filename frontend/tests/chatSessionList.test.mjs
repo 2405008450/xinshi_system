@@ -1,6 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { filterClosedSessions, groupSessionList, sessionListKey, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity, latestSessionMessageAt } from '../src/utils/chatSessionList.js'
+import { filterClosedSessions, groupSessionList, sessionListKey, sessionUnreadSignal, hasUnreadSession, firstUnreadMentionSession, compareSessionActivity, latestSessionMessageAt } from '../src/utils/chatSessionList.js'
+
+test('未读筛选兼容字符串计数并包含仅有提及未读的会话',()=>{
+ assert.equal(hasUnreadSession({unread:'0',mentionUnread:'0'}),false)
+ assert.equal(hasUnreadSession({unread:'2'}),true)
+ assert.equal(hasUnreadSession({unread:0,mentionUnread:1}),true)
+ assert.equal(hasUnreadSession({}),false)
+})
 
 const row = (id, order, extra = {}) => ({ key: `annotation:${id}`, projectId: id, projectType: 'annotation', title: '同名项目', subtitle: order, ...extra })
 

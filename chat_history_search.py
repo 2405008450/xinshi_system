@@ -74,6 +74,7 @@ def _filtered_messages(
     favorites_only: bool,
     include_user_messages: bool,
     topic_id: UUID | None = None,
+    format_filters: str = '',
 ):
     query = db.query(ChatProjectMessage).filter(ChatProjectMessage.recalled_at.is_(None))
     if project_type in {'annotation', 'direct'}:
@@ -95,6 +96,9 @@ def _filtered_messages(
     if topic_id:
         from chat_topic_service import filter_topic
         query = filter_topic(db, query, topic_id)
+    if format_filters:
+        from chat_text_format import format_condition
+        query=query.filter(format_condition(db,ChatProjectMessage.content_json,format_filters))
     return query
 
 
@@ -320,6 +324,7 @@ def search_chat_history(
     limit: int = 30,
     include_user_messages: bool = True,
     topic_id: UUID | None = None,
+    format_filters: str = '',
 ) -> dict:
     normalized_kind = KIND_ALIASES.get(kind or 'all')
     if normalized_kind is None:
@@ -337,19 +342,21 @@ def search_chat_history(
         favorites_only=favorites_only,
         include_user_messages=include_user_messages,
         topic_id=topic_id,
+        format_filters=format_filters,
     )
     messages = _with_text_keyword(_filtered_messages(db, **filters), keyword_text) if keyword_text else _filtered_messages(db, **filters)
-    images = _attachment_query(_filtered_messages(db, **filters), images=True, keyword=keyword_text)
+    from chat_history_images import image_query,page_images
+    images = image_query(db,_filtered_messages(db, **filters),keyword_text)
     files = _attachment_query(_filtered_messages(db, **filters), images=False, keyword=keyword_text)
     links = _link_query(_filtered_messages(db, **filters), keyword_text)
     totals = {
         'all': messages.order_by(None).count(),
-        'image': images.order_by(None).with_entities(func.count(ChatProjectAttachment.id)).scalar() or 0,
+        'image': db.query(func.count()).select_from(images).scalar() or 0,
         'file': files.order_by(None).with_entities(func.count(ChatProjectAttachment.id)).scalar() or 0,
         'link': _link_total(links),
     }
     if normalized_kind == 'image':
-        items, next_cursor = _page_attachments(images, project_type, decoded, safe_limit, 'image')
+        items, next_cursor = page_images(db,images,project_type,decoded,safe_limit)
         total = totals['image']
     elif normalized_kind == 'file':
         items, next_cursor = _page_attachments(files, project_type, decoded, safe_limit, 'file')

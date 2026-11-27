@@ -42,6 +42,10 @@ export function sessionUnreadSignal(session) {
   return { mentions, ordinary: (Number(session.unread) || 0) > mentions }
 }
 
+export function hasUnreadSession(session) {
+  return Number(session.unread) > 0 || Number(session.mentionUnread) > 0
+}
+
 export function firstUnreadMentionSession(sessions) {
   const first = sessions.find(row => Number(row.mentionUnread) > 0)
   if (!first) return null

@@ -1,12 +1,12 @@
 <template>
   <section class="discussion-chat" aria-label="资源讨论会话">
     <TechnicalRequirementsPanel ref="technicalPanel" :room-id="projectId" :active="active" @loaded="technicalRoom=$event" />
-    <div v-if="searchOpen" class="discussion-chat__search"><el-input v-model="keyword" clearable placeholder="搜索此讨论的消息" maxlength="200" @keyup.enter="refresh(true)" /><el-checkbox v-model="favoritesOnly">只看收藏</el-checkbox><el-button @click="searchOpen = false; keyword = ''; favoritesOnly=false">关闭</el-button></div>
+    <DiscussionSearchFilters v-if="searchOpen" v-model:keyword="keyword" v-model:kind="searchKind" v-model:formats="searchFormats" v-model:sender="searchSender" v-model:dates="searchDates" v-model:favorites="favoritesOnly" :senders="searchSenders" :loading-senders="loadingSearchSenders" @search="searchNow" @reset="resetSearchFilters" @close="closeSearch" />
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button v-if="!loading" link @click="refresh(true)">重试</el-button></el-alert>
     <div ref="list" class="discussion-chat__timeline" @scroll="onScroll">
       <el-button v-if="hasEarlier" link :loading="loadingEarlier" @click="loadEarlier">加载更早的消息</el-button>
       <div v-if="loading" class="discussion-chat__hint">正在加载消息…</div>
-      <el-empty v-else-if="!messages.length && !error" :description="keyword ? '没有匹配的消息' : '暂无消息，开始讨论吧'" :image-size="50" />
+      <el-empty v-else-if="!messages.length && !error" :description="searchFiltering ? (searchKind === 'miniapp' ? '没有匹配的小程序分享记录' : '没有匹配的消息') : '暂无消息，开始讨论吧'" :image-size="50" />
       <template v-for="(message, index) in messages" :key="message.id">
         <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date">{{ formatMessageDay(message.createdAt) }}</div>
         <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId }">
@@ -14,7 +14,7 @@
           <div v-if="undisplayedMentions(message,currentUserId).length" class="discussion-chat__mention-recipients" aria-label="消息提及人员"><span v-for="item in undisplayedMentions(message,currentUserId)" :key="item.id" :class="{'discussion-mention-highlight':item.highlight}">{{ item.label }}</span></div>
           <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
-            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><span v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex" :class="{'discussion-mention-highlight':part.highlight}"><ScreenshotText :text="part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,'')" :chat-message-id="message.id" chat-kind="discussion" /></span></p><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
+            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><ChatFormattedText :message="message" :user-id="currentUserId" kind="discussion" /></p><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
             <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button></div>
             <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" @acknowledge="acknowledge" @reply="quoteMessage" @references="(id,event)=>references.open(id,event)" />
           </template>
@@ -24,9 +24,9 @@
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
       <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
-      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
+      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" v-model:content-json="contentJson" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
-      <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
+      <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button class="chat-send-button" type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
     </div>
     <ChatMessageContextMenu ref="messageMenu" :messages="messages" :current-user-id="currentUserId" :handlers="menuHandlers" project-type="discussion" :project-id="projectId" :active="active" />
@@ -40,7 +40,10 @@ import ChatRecalledMessage from './ChatRecalledMessage.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import {quoteSpeakerMention,clearAutomaticQuoteMention} from '@/utils/quoteSpeakerMention'
+import ChatFormattedText from './ChatFormattedText.vue'
+import {rebaseTextFormat,formatText} from '@/utils/chatTextFormat'
 import DiscussionMentionInput from './DiscussionMentionInput.vue'
+import DiscussionSearchFilters from './DiscussionSearchFilters.vue'
 import DiscussionFileReferences from './DiscussionFileReferences.vue'
 import {mentionParts,undisplayedMentions} from '@/utils/chatMentions'
 import { screenshotPreview } from '@/utils/screenshotReferences'
@@ -48,7 +51,7 @@ import ChatMessageActions from './ChatMessageActions.vue'
 import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
 import TechnicalRequirementsPanel from './TechnicalRequirementsPanel.vue'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import ChatMessageReferences from './ChatMessageReferences.vue'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
@@ -73,7 +76,7 @@ function createDevelopmentTask(message, excerpt) {
 }
 const currentUserId = localStorage.getItem('user_id') || ''
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
-const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
+const messages = ref([]), list = ref(), input = ref(), content = ref(''),contentJson=ref(null), replyTo = ref(null)
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const references=ref(), messageMenu=ref()
 const technicalPanel=ref(),technicalRoom=ref(null)
@@ -82,11 +85,28 @@ function openMessageReferences(message,event){if(message.reply||messageInteracti
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), storageReady = ref(false)
 const error = ref(''), sendError = ref(''), sending = ref(false), retryPayload = ref(null), pendingNew = ref(false)
 const searchOpen = ref(false), keyword = ref(''), favoritesOnly=ref(false)
+const searchFormats=ref([])
+const searchKind=ref('all'),searchSender=ref(''),searchDates=ref([]),searchSenders=ref([]),loadingSearchSenders=ref(false)
+const searchFiltering=computed(()=>!!keyword.value.trim()||favoritesOnly.value||searchKind.value!=='all'||!!searchSender.value||searchDates.value.length>0||searchFormats.value.length>0)
+function searchParams(){return {keyword:keyword.value.trim(),favorites_only:favoritesOnly.value||undefined,kind:searchKind.value,format_filters:searchFormats.value.join(',')||undefined,
+  sender_user_id:searchSender.value||undefined,start_date:searchDates.value[0]||undefined,end_date:searchDates.value[1]||undefined}}
+function resetSearchFilters(){searchFormats.value=[];keyword.value='';favoritesOnly.value=false;searchKind.value='all';searchSender.value='';searchDates.value=[]}
+function closeSearch(){searchOpen.value=false;resetSearchFilters()}
+function searchNow(){clearTimeout(searchTimer);searchTimer=undefined;void refresh(true)}
+let optionsController,optionsVersion=0,earlierController
+async function loadSearchSenders(){
+  optionsController?.abort();const current=new AbortController(),version=++optionsVersion;optionsController=current;loadingSearchSenders.value=true
+  try{const data=await chatRequest(`${base}/search-options`,{signal:current.signal});if(!disposed&&version===optionsVersion)searchSenders.value=data.senders||[]}
+  catch(e){if(!disposed&&version===optionsVersion&&!current.signal.aborted)ElMessage.error(e.detail||e.message||'发送人列表加载失败')}
+  finally{if(version===optionsVersion)loadingSearchSenders.value=false}
+}
+watch(searchOpen,open=>{if(open)void loadSearchSenders();else{optionsController?.abort();++optionsVersion;loadingSearchSenders.value=false}})
+
 const screenshotUploading=ref(false)
 const mentionUsers=ref([]),mentionSelection=ref({mentionedUserIds:[],mentionAll:false})
 const automaticQuoteMention=ref(null)
 function selectedMentionPeople(){return mentionSelection.value.selectedUsers || (mentionSelection.value.mentionedUserIds||[]).map(id=>mentionUsers.value.find(person=>person.id===id)||{id})}
-function applyQuoteMention(result){content.value=result.content;automaticQuoteMention.value=result.automatic;mentionSelection.value={selectedUsers:result.selectedUsers,mentionedUserIds:result.selectedUsers.filter(person=>!person.all&&person.id!=='__all__').map(person=>person.id),mentionAll:result.selectedUsers.some(person=>person.all||person.id==='__all__')};if(result.warning)ElMessage.warning(result.warning)}
+function applyQuoteMention(result){content.value=result.content;automaticQuoteMention.value=result.automatic;mentionSelection.value={selectedUsers:result.selectedUsers,mentionedUserIds:result.selectedUsers.filter(person=>!person.all&&!person.managerGroup&&!['__all__','__managers__'].includes(person.id)).map(person=>person.id),mentionManagers:result.selectedUsers.some(person=>person.managerGroup||person.id==='__managers__'),mentionAll:result.selectedUsers.some(person=>person.all||person.id==='__all__')};if(result.warning)ElMessage.warning(result.warning)}
 async function quoteMessage(message){if(sending.value||retryPayload.value)return;const result=quoteSpeakerMention({content:content.value,selectedUsers:selectedMentionPeople(),automatic:automaticQuoteMention.value,message,currentUserId,users:mentionUsers.value});replyTo.value=message;applyQuoteMention(result);await nextTick();input.value?.focus()}
 function cancelQuote(){if(sending.value||retryPayload.value)return;applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value));replyTo.value=null}
 watch(replyTo,value=>{if(!value&&automaticQuoteMention.value)applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value))})
@@ -103,19 +123,19 @@ const merge = rows => {
 }
 async function markRead() {
   const last = messages.value.at(-1)?.id
-  if (reading || !props.active || !storageReady.value || keyword.value || !last || BigInt(last) <= BigInt(readVersion)) return
+  if (reading || !props.active || !storageReady.value || searchFiltering.value || !last || BigInt(last) <= BigInt(readVersion)) return
   reading = true
   try { await chatRequest(`${base}/preferences`, { method: 'put', data: { readMessageId: last } }); readVersion = last } catch { /* 下轮重试，不能提前清除未读。 */ } finally { reading = false }
 }
 async function goBottom() { await nextTick(); if (list.value) list.value.scrollTop = list.value.scrollHeight; pendingNew.value = false; await markRead() }
 function onScroll() { if (atBottom()) { pendingNew.value = false; markRead() } }
 async function refresh(reset = false) {
-  if (!props.active || disposed || ((loading.value || loadingEarlier.value) && !reset)) return
+  if (!props.active || disposed || (!reset && searchTimer) || ((loading.value || loadingEarlier.value) && !reset)) return
   controller?.abort(); controller = new AbortController(); const version = ++requestVersion
   const follow = reset || atBottom(), previousLast = messages.value.at(-1)?.id
-  if (reset) { loading.value = true; messages.value = []; replyTo.value = null; pendingNew.value = false }
+  if (reset) { earlierController?.abort();loadingEarlier.value=false;loading.value = true; messages.value = []; replyTo.value = null; pendingNew.value = false }
   try {
-    const data = await chatRequest(`${base}/messages`, { params: { keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined }, signal: controller.signal })
+    const data = await chatRequest(`${base}/messages`, { params: searchParams(), signal: controller.signal })
     if (disposed || version !== requestVersion) return
     storageReady.value = true; error.value = ''; if (reset || !messages.value.length) hasEarlier.value = data.hasMore
     merge(data.items)
@@ -128,12 +148,12 @@ async function refresh(reset = false) {
 }
 async function loadEarlier() {
   if (loadingEarlier.value || !hasEarlier.value || !messages.value.length) return
-  loadingEarlier.value = true; const version = requestVersion, height = list.value?.scrollHeight || 0
+  loadingEarlier.value = true;earlierController?.abort();const request=new AbortController();earlierController=request; const version = requestVersion, height = list.value?.scrollHeight || 0
   try {
-    const data = await chatRequest(`${base}/messages`, { params: { before: messages.value[0].id, keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined } })
+    const data = await chatRequest(`${base}/messages`, { params: { ...searchParams(),before: messages.value[0].id },signal:request.signal })
     if (disposed || version !== requestVersion) return
     merge(data.items); hasEarlier.value = data.hasMore; await nextTick(); if (list.value) list.value.scrollTop += list.value.scrollHeight - height
-  } catch (e) { if (!disposed && version === requestVersion) error.value = e.message } finally { loadingEarlier.value = false }
+  } catch (e) { if (!disposed && version === requestVersion) error.value = e.message } finally { if(version===requestVersion)loadingEarlier.value = false }
 }
 function newClientId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128
@@ -142,19 +162,19 @@ function newClientId() {
 }
 async function send() {
   if (!storageReady.value || !canSend.value) return
-  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
+  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), contentJson:rebaseTextFormat(contentJson.value,formatText(contentJson.value),content.value.trim()), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
   sending.value = true; sendError.value = ''
   try {
     const row = await chatRequest(`${base}/messages`, { method: 'post', data: payload })
     if (disposed) return
-    retryPayload.value = null; content.value = ''; replyTo.value = null
-    if (keyword.value) { keyword.value = ''; await refresh(true) } else { merge([row]); await goBottom() }
+    retryPayload.value = null; content.value = '';contentJson.value=null; replyTo.value = null
+    if (searchFiltering.value) { resetSearchFilters();await nextTick();clearTimeout(searchTimer);searchTimer=undefined;await refresh(true) } else { merge([row]); await goBottom() }
     await nextTick(); input.value?.focus()
   } catch (e) { if (!disposed) { retryPayload.value = payload; sendError.value = e.message || '发送失败，请重试' } } finally { sending.value = false }
 }
 function keydown(event) { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); send() } }
 async function recall(message) {
-  try { await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'}); await recallDrafts.remember(message); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
+  try { await recallDrafts.remember(message); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
   catch (e) { if (!disposed && e !== 'cancel' && e !== 'close') error.value = e.message }
 }
 async function reeditMessage(message) {
@@ -162,10 +182,10 @@ async function reeditMessage(message) {
   const recovered = await recallDrafts.restore(message)
   if (!recovered || sending.value || retryPayload.value) return
   try {
-    const result = combineRecallDraft({ content: content.value, mentionIds: [...(mentionSelection.value.mentionedUserIds || []), ...(mentionSelection.value.mentionAll ? ['__all__'] : [])], replyTo: replyTo.value }, recovered)
-    content.value = result.content; replyTo.value = result.replyTo
-    const selectedUsers = result.mentionIds.map(id => id === '__all__' ? { id, name: '所有人', all: true } : mentionUsers.value.find(person => String(person.id) === id) || recovered.mentions.find(person => person.id === id)).filter(Boolean)
-    mentionSelection.value = { selectedUsers, mentionedUserIds: result.mentionIds.filter(id => id !== '__all__'), mentionAll: result.mentionIds.includes('__all__') }
+    const result = combineRecallDraft({ content: content.value, contentJson:contentJson.value, mentionIds: [...(mentionSelection.value.mentionedUserIds || []), ...(mentionSelection.value.mentionAll ? ['__all__'] : []),...(mentionSelection.value.mentionManagers ? ['__managers__'] : [])], replyTo: replyTo.value }, recovered)
+    content.value = result.content;contentJson.value=result.contentJson||null; replyTo.value = result.replyTo
+    const selectedUsers = result.mentionIds.map(id => id === '__all__' ? { id, name: '所有人', all: true } : id==='__managers__'?{id,name:'所有项目经理+客户经理',managerGroup:true}: mentionUsers.value.find(person => String(person.id) === id) || recovered.mentions.find(person => person.id === id)).filter(Boolean)
+    mentionSelection.value = { selectedUsers, mentionedUserIds: result.mentionIds.filter(id => !['__all__','__managers__'].includes(id)),mentionManagers:result.mentionIds.includes('__managers__'), mentionAll: result.mentionIds.includes('__all__') }
     sendError.value = ''; draft.persistNow(); recallDrafts.forget(message)
     await nextTick(); input.value?.focus()
   } catch (e) { ElMessage.warning(e.message) }
@@ -182,19 +202,23 @@ const menuHandlers=computed(()=>({
   ...(technicalRoom.value?{technical:message=>technicalPanel.value.append(message)}:{}),
   ...(canCreateDevelopmentTask.value ? { 'development-task': createDevelopmentTask } : {}),
 }))
-watch(favoritesOnly,()=>refresh(true))
-watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requestVersion; searchTimer = setTimeout(() => refresh(true), value ? 400 : 0) })
+watch(()=>[keyword.value,favoritesOnly.value,searchKind.value,searchSender.value,searchFormats.value.join(','),...searchDates.value],(values,old)=>{
+  clearTimeout(searchTimer);controller?.abort();earlierController?.abort();++requestVersion;loading.value=false;loadingEarlier.value=false
+  const textOnly=values[0]!==old[0]&&JSON.stringify(values.slice(1))===JSON.stringify(old.slice(1))
+  searchTimer=setTimeout(()=>{searchTimer=undefined;void refresh(true)},textOnly&&values[0]?400:0)
+})
 watch(() => props.active, active => { clearInterval(pollTimer); if (active) { loadMentionUsers();refresh(!messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
 const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) {refresh();loadMentionUsers()} })
 let locatedTarget = ''
 watch(() => [props.active, props.targetMessageId, loading.value, storageReady.value], ([active, id, busy, ready]) => {
   if (active && id && !busy && ready && locatedTarget !== id) { locatedTarget = id; locate(id) }
 }, { flush: 'post' })
-const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
-onBeforeUnmount(() => { disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
+const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,contentJson:contentJson.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;contentJson.value=data.contentJson||null;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
+onBeforeUnmount(() => { disposed = true; controller?.abort();optionsController?.abort();earlierController?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
 async function locate(id) {
   try {
     const target=String(id)
+    if(searchFiltering.value){closeSearch();await nextTick();clearTimeout(searchTimer);searchTimer=undefined;messages.value=[];hasEarlier.value=false}
     if(!messages.value.some(row=>row.id===target)){
       const [older,newer]=await Promise.all([chatRequest(`${base}/messages`,{params:{before:(BigInt(target)+1n).toString(),limit:30}}),chatRequest(`${base}/messages`,{params:{after:target,limit:30}})])
       merge([...(older.items||[]),...(newer.items||[])])

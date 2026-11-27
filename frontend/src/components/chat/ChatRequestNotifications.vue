@@ -1,12 +1,7 @@
 <template>
   <section class="chat-request-notifications" aria-label="会话业务通知">
     <header><div><h3>通知</h3><p>会议安排、会议回执、总结同步、资源需求、取消通知及回执。点击查看完整内容。</p></div><el-button :loading="feed.loading.value" @click="feed.pageChanged()">刷新</el-button></header>
-    <AppForm data-auto-draft="off" :model="feed.filters" :inline="true" class="chat-request-notifications__filters" @submit.prevent="feed.query()">
-      <el-form-item label="关键词" class="notification-keyword"><el-input v-model="feed.filters.keyword" clearable maxlength="500" placeholder="搜索标题、内容、项目或需求编号" aria-label="搜索通知" @input="feed.keywordInput" @keyup.enter="feed.query()" /></el-form-item>
-      <el-form-item label="类型"><el-select v-model="feed.filters.notificationType" aria-label="通知类型" placeholder="全部类型" @change="feed.query()"><el-option label="全部类型" value="" /><el-option label="资源需求及回执" value="resource_request_dispatch" /><el-option label="总结同步" value="chat_summary" /><el-option label="会议安排" value="meeting_invitation" /><el-option label="会议回执" value="meeting_receipt" /><el-option label="会议任务" value="meeting_task" /></el-select></el-form-item>
-      <el-form-item label="阅读状态"><el-select v-model="feed.filters.readStatus" aria-label="通知阅读状态" @change="feed.query()"><el-option label="全部" value="all" /><el-option label="未读" value="unread" /><el-option label="已读" value="read" /></el-select></el-form-item>
-      <el-form-item><el-button type="primary" @click="feed.query()">查询</el-button><el-button @click="feed.reset()">重置</el-button></el-form-item>
-    </AppForm>
+    <NotificationQueryFilters :feed="feed" />
     <el-alert v-if="feed.error.value" :title="feed.error.value" type="error" :closable="false" />
     <div class="chat-request-notifications__list" v-loading="feed.loading.value">
       <el-empty v-if="!feed.loading.value && !feed.items.value.length && !feed.error.value" description="暂无符合条件的通知" :image-size="64" />
@@ -23,6 +18,7 @@
 </template>
 <script setup>
 import { defineAsyncComponent, ref } from 'vue'
+import NotificationQueryFilters from '@/components/common/NotificationQueryFilters.vue'
 import { hasPermission } from '@/utils/permission'
 import { ElMessage } from 'element-plus'
 import { formatBusinessDateTime as formatTime } from '@/utils/dateTime'

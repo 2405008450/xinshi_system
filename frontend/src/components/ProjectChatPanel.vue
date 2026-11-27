@@ -58,7 +58,7 @@
                 />
               </el-form-item>
               <el-form-item class="chat-filter-bar__favorite">
-                <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+                <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">消息收藏</el-checkbox>
               </el-form-item>
               <el-form-item class="chat-filter-bar__actions">
                 <el-button @click="handleResetSearch">重置</el-button>
@@ -112,7 +112,7 @@
           />
         </el-form-item>
         <el-form-item class="chat-filter-bar__favorite">
-          <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+          <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">消息收藏</el-checkbox>
         </el-form-item>
         <el-form-item class="chat-filter-bar__actions">
           <el-button @click="handleResetSearch">重置</el-button>
@@ -178,7 +178,7 @@
                   <div class="chat-conversation-item__bubble-row">
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
                       <button v-if="item.message.reply" class="group-reply" @click="references.open(item.message.reply.id,$event)">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</button>
-                      <div @click="openMessageReferences(item.message,$event)"><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
+                      <div @click="openMessageReferences(item.message,$event)"><div v-if="textOnly" class="chat-bubble__text"><ChatFormattedText :message="item.message" /></div>
                       <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
@@ -237,7 +237,7 @@
             />
           </el-form-item>
           <el-form-item class="chat-filter-bar__favorite">
-            <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+            <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">消息收藏</el-checkbox>
           </el-form-item>
           <el-form-item class="chat-filter-bar__actions">
             <el-button type="primary" @click="handleSearch">查询</el-button>
@@ -301,7 +301,7 @@
               <div
                 v-if="textOnly"
                 class="chat-message-card__content"
-              ><ScreenshotText :text="message.content" :chat-message-id="message.id" /></div>
+              ><ChatFormattedText :message="message" /></div>
               <ScreenshotText v-else-if="screenshotIds(message.content).length && !richTextHasImages(message.contentJson)" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" :chat-message-id="message.id" />
               <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
                 <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
@@ -386,7 +386,7 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="!['__all__','__managers__'].includes(user.id)" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
@@ -406,7 +406,7 @@
               show-word-limit
               placeholder="输入项目沟通内容…"
             />
-            <RichTextComposer ref="richComposerRef" chat-screenshots
+            <RichTextComposer ref="richComposerRef" chat-screenshots format-colors
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -416,6 +416,7 @@
             />
             <div class="chat-composer__actions">
               <el-button
+                class="chat-send-button"
                 type="primary"
                 :loading="sending"
                 :disabled="sending || imagesBlocked || (!composer.content.trim() && !pendingImages.length)"
@@ -448,6 +449,7 @@
           <div class="chat-composer__tools">
             <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending" @click="ensureUsersLoaded(); mentionPopoverVisible = true">@</el-button>
             <ChatImageAttachments :items="[]" :disabled="sending" tools-only @add="addComposerImages" />
+            <ChatFormattingToolbar v-if="textOnly" v-model="composer.contentJson" :text="composer.content" :input="composerInputRef" :disabled="sending" />
           </div>
           <div class="chat-composer__input-row">
             <el-popover
@@ -476,7 +478,7 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="!['__all__','__managers__'].includes(user.id)" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -496,7 +498,7 @@
               @compositionend="handleComposerCompositionEnd"
               @keydown="handleComposerKeydown"
             />
-            <RichTextComposer ref="richComposerRef" chat-screenshots
+            <RichTextComposer ref="richComposerRef" chat-screenshots format-colors
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -505,6 +507,7 @@
               @uploading-change="composerScreenshotUploading = $event"
             />
             <el-button
+              class="chat-send-button"
               type="primary"
               :loading="sending"
               :disabled="sending || imagesBlocked || (!composer.content.trim() && !pendingImages.length)"
@@ -541,6 +544,8 @@ import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
+import ChatFormattingToolbar from '@/components/chat/ChatFormattingToolbar.vue'
+import ChatFormattedText from '@/components/chat/ChatFormattedText.vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { editScreenshotText, screenshotIds } from '@/utils/screenshotReferences'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
@@ -663,7 +668,7 @@ const desktopPresenceOpen = ref(false)
 const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && desktopPresenceOpen.value))
 const mentionUserGroups = computed(() => {
-  const users = [{ id:'__all__',full_name:'所有人',all:true },
+  const users = [{ id:'__all__',full_name:'所有人',all:true },{id:'__managers__',full_name:'所有项目经理+客户经理',managerGroup:true},
     ...userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: false })),
     ...userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: true })),
   ]
@@ -857,7 +862,7 @@ const handleAddSelectedToProgress = () => {
 const closeProgressTextMenu = () => messageMenuRef.value?.close()
 const messageMenuHandlers = {
   recall: async message=>{
-    try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});await recallDrafts.remember(message, file=>getProjectChatAttachmentBlob(file.id));Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
+    try{await recallDrafts.remember(message, file=>getProjectChatAttachmentBlob(file.id));Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
     catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'撤回失败')}
   },
   reply: message=>startMessageReply(message),
@@ -1158,6 +1163,7 @@ const returnToLatest = async () => {
 
 const userNameById = (userId) => {
   if(userId==='__all__')return '所有人'
+  if(userId==='__managers__')return '所有项目经理+客户经理'
   const user = userOptions.value.find(item => String(item.id) === String(userId))
   return user ? (user.full_name || user.username) : '未知用户'
 }
@@ -1427,17 +1433,21 @@ const handleSend = async () => {
     const payload = props.textOnly
       ? {
           content: composer.content.trim(),
-          mentionedUserIds: composer.mentionedUserIds.filter(id=>id!=='__all__'),
+          contentJson:composer.contentJson,
+          mentionedUserIds: composer.mentionedUserIds.filter(id=>!['__all__','__managers__'].includes(id)),
           mentionAll:composer.mentionedUserIds.includes('__all__'),
+          mentionManagers:composer.mentionedUserIds.includes('__managers__'),
           ...(attachmentsEnabled.value ? { attachmentIds: pendingImages.map(item => item.attachment.id) } : {})
         }
       : {
           content: composer.content.trim(),
           contentJson: composer.contentJson,
-          mentionedUserIds: composer.mentionedUserIds.filter(id=>id!=='__all__'),
+          mentionedUserIds: composer.mentionedUserIds.filter(id=>!['__all__','__managers__'].includes(id)),
           mentionAll:composer.mentionedUserIds.includes('__all__'),
+          mentionManagers:composer.mentionedUserIds.includes('__managers__'),
           attachmentIds: pendingImages.map(item => item.attachment.id)
         }
+    if(payload.mentionManagers&&!payload.content.includes('@所有项目经理+客户经理')){payload.content='@所有项目经理+客户经理 '+payload.content;if(payload.contentJson)payload.contentJson={...payload.contentJson,content:[{type:'paragraph',content:[{type:'text',text:'@所有项目经理+客户经理'}]},...(payload.contentJson.content||[])]}}
     if(payload.mentionAll&&!payload.content.includes('@所有人')){payload.content='@所有人 '+payload.content;if(payload.contentJson)payload.contentJson={...payload.contentJson,content:[{type:'paragraph',content:[{type:'text',text:'@所有人'}]},...(payload.contentJson.content||[])]}}
     payload.replyToMessageId = replyToMessage.value?.id || null
     const fingerprint = JSON.stringify(payload)
@@ -1539,9 +1549,9 @@ const handleFavoriteToggle = async (message) => {
     if (filters.favoritesOnly && !message.isFavorited) {
       await loadMessages()
     }
-    ElMessage.success(message.isFavorited ? '已收藏，仅自己可见' : '已取消收藏')
+    ElMessage.success(message.isFavorited ? '已加入消息收藏，仅自己可见' : '已取消消息收藏')
   } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, nextFavorited ? '收藏消息失败' : '取消收藏失败'))
+    ElMessage.error(getLocalizedErrorMessage(error, nextFavorited ? '消息收藏失败' : '取消消息收藏失败'))
   } finally {
     const pending = new Set(favoriteSavingIds.value)
     pending.delete(message.id)

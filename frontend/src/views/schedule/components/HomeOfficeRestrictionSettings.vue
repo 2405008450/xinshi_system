@@ -10,7 +10,7 @@
     </div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="!loading && !error && !reductionReady" title="居家办公额度调减表尚未初始化" type="warning" :closable="false" />
-    <el-table v-loading="loading" :data="filteredRows" border empty-text="没有符合条件的人员">
+    <DepartmentPagedList :items="filteredRows" grouped v-slot="{rows}"><el-table v-loading="loading" :data="rows" border empty-text="没有符合条件的人员">
       <el-table-column prop="name" label="姓名" min-width="120" />
       <el-table-column prop="username" label="账号" min-width="120" />
       <el-table-column label="申请限制" min-width="110">
@@ -32,7 +32,7 @@
             :loading="savingId===row.user_id" @click="save(row)">{{row.restricted?'恢复申请':'暂停申请'}}</el-button>
         </template>
       </el-table-column>
-    </el-table>
+    </el-table></DepartmentPagedList>
     <template #footer><el-button @click="visible=false">关闭</el-button></template>
   </DraggableFormDialog>
   <DraggableFormDialog v-model="reductionVisible" :title="`${reductionTarget?.name||''} · ${reductionForm.year} 年额度调减`"
@@ -57,6 +57,7 @@
 </template>
 
 <script setup>
+import DepartmentPagedList from '@/components/common/DepartmentPagedList.vue'
 import {computed, nextTick, onBeforeUnmount, reactive, ref, watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'

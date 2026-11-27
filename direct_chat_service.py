@@ -79,7 +79,7 @@ def send_message(db, project_id, user, payload):
         raise HTTPException(400, '对方账号已停用')
     from chat_mention_recipients import resolve_mentions
     mentioned_ids = resolve_mentions(db, 'direct', project_id, user,
-        [*(payload.mentioned_user_ids or []), *([payload.mentioned_user_id] if payload.mentioned_user_id else [])], getattr(payload,'mention_all',False))
+        [*(payload.mentioned_user_ids or []), *([payload.mentioned_user_id] if payload.mentioned_user_id else [])], getattr(payload,'mention_all',False),getattr(payload,'mention_managers',False))
     if payload.client_message_id:
         existing = message_query(db, project_id).filter_by(sender_user_id=user.id, client_message_id=payload.client_message_id).first()
         if existing:
@@ -95,10 +95,12 @@ def send_message(db, project_id, user, payload):
     if ids and db.query(ChatProjectMessageAttachment).filter(ChatProjectMessageAttachment.attachment_id.in_(ids)).first():
         raise HTTPException(400, '附件已经发送，请重新上传')
     stamp = now()
-    message = ChatProjectMessage(direct_conversation_id=project_id, sender_user_id=user.id,
+    from chat_text_format import validate_format
+    formatted=validate_format(payload.content,getattr(payload,'content_json',None))
+    message = ChatProjectMessage(content_json=formatted, direct_conversation_id=project_id, sender_user_id=user.id,
         sender_name=user.full_name or user.username, content=payload.content.strip(), message_type='user',
         created_at=stamp.replace(tzinfo=None), updated_at=stamp.replace(tzinfo=None),
-        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id, event_data={'mention_all':True} if getattr(payload,'mention_all',False) else {})
+        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id, event_data={'mention_all':bool(getattr(payload,'mention_all',False)),'mention_managers':bool(getattr(payload,'mention_managers',False))})
     db.add(message); db.flush()
     if payload.topic_id:
         from chat_topic_service import set_message_topic

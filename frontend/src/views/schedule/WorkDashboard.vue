@@ -242,7 +242,7 @@ function readInitialMainTab() {
 }
 
 const activeSection = ref(readInitialMainTab())
-watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';else if(value==='my-tasks')activeSection.value='my-tasks';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
+watch(()=>[attendanceRoute.query.section,attendanceRoute.query.reportFeedbackId],async ([value])=>{if(value==='attendance')activeSection.value='monthly-shift';else if(value==='my-tasks')activeSection.value='my-tasks';if(value==='daily-report')activeSection.value='daily-report';if(value==='received-reports'){await refreshReportAccess();if(canReceiveReports.value)activeSection.value='received-reports'}},{immediate:true})
 function openMyWorkReport(){activeSection.value='daily-report';dailyReportDate.value=reportBusinessDate()}
 const reportAnnotationProject = ref(null)
 const reportChatProject = computed(() => typeof attendanceRoute.query.reportChatProject === 'string' ? attendanceRoute.query.reportChatProject : '')

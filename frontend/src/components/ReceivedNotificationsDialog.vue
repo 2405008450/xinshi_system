@@ -1,11 +1,7 @@
 <template>
   <DraggableFormDialog class="received-notifications-dialog" :model-value="true" title="收到的通知"
     width="min(880px, calc(100vw - 32px))" top="6vh" @update:model-value="emit('close')">
-    <AppForm data-auto-draft="off" :model="filters" class="received-filters" :inline="true" @submit.prevent="query()">
-      <el-form-item class="received-search">
-        <el-input v-model="filters.keyword" clearable maxlength="500" placeholder="搜索通知标题、内容、订单号或需求编号"
-          aria-label="搜索通知" @input="keywordInput" @keyup.enter="query()" />
-      </el-form-item>
+    <NotificationQueryFilters :feed="feed">
       <el-form-item label="分类">
         <el-select v-model="filters.category" aria-label="通知分类" @change="changeCategory">
           <el-option label="全部分类" value="" />
@@ -19,18 +15,7 @@
           <el-option label="未细分" value="other" />
         </el-select>
       </el-form-item>
-      <el-form-item label="阅读状态">
-        <el-select v-model="filters.readStatus" aria-label="阅读状态" @change="query()">
-          <el-option label="全部" value="all" />
-          <el-option label="未读" value="unread" />
-          <el-option label="已读" value="read" />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" @click="query()">查询</el-button>
-        <el-button @click="reset()">重置</el-button>
-      </el-form-item>
-    </AppForm>
+    </NotificationQueryFilters>
 
     <div v-loading="loading" class="received-list">
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button link @click="pageChanged()">重试</el-button></el-alert>
@@ -60,6 +45,7 @@
 
 <script setup>
 import { reactive } from 'vue'
+import NotificationQueryFilters from './common/NotificationQueryFilters.vue'
 import { ElMessage } from 'element-plus'
 import { useChatRequestNotifications } from '@/composables/useChatRequestNotifications'
 import { issueCategories, issueCategoryLabel } from '@/utils/resourceIssues'
@@ -67,7 +53,8 @@ import { formatBusinessDateTimeMinute as formatTime } from '@/utils/dateTime'
 
 defineProps({ hasTarget: { type: Function, required: true } })
 const emit = defineEmits(['close', 'open'])
-const { items, loading, error, total, page, pageSize, filters, read, query, keywordInput, reset, pageChanged } = useChatRequestNotifications({ allBusiness: true })
+const feed=useChatRequestNotifications({ allBusiness: true })
+const { items, loading, error, total, page, pageSize, filters, read, query, keywordInput, reset, pageChanged } = feed
 const categories = [
   { value: 'translation', label: '笔译项目' },
   { value: 'interpretation', label: '口译项目' },

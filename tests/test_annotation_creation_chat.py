@@ -54,3 +54,7 @@ def test_creation_card_has_all_nine_fields_and_sends_images_to_same_project(monk
     assert calls[0][0][1]==row.id and calls[0][1]['attachment_ids']==[image]
     assert calls[0][1]['content_json']==card
     assert '客户单价：¥0.5/条' in calls[0][1]['note']
+    row.project_path=r'\\server\项目资料\标注测试'
+    send_creation(None,row,uuid4(),ProgressChatDelivery(send_to_chat=True))
+    assert calls[-1][1]['content_json']['fields'][-1]=={'label':'项目路径','value':row.project_path}
+    assert calls[-1][1]['note'].count('项目路径：'+row.project_path)==1

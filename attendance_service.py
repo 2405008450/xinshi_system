@@ -279,7 +279,15 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
     annual_allowances=allowances(db,ids,anchor.year)
     for uid,summary in summaries.items():summary.update(annual_allowances.get(uid,{}))
     rows=sorted(daily.values(),key=lambda row:(row['day'],row['name']),reverse=True)
-    return api_time({'start':start,'end':end,'period':period,'annual_leave':annual_allowances.get(str(user.id)) if not admin else None,'monthly_policy':monthly_policy,'monthly_balances':balances,'totals':{key:round(value,2) for key,value in totals.items()},'people':list(summaries.values()),'records':rows[(page-1)*limit:page*limit],'total':len(rows),'leaves':leave_items,'departments':catalog['items'] if admin else [],'note':'迟到从宽限15分钟后累计，全部折算请假，与申请请假分开记录；加班按自然月真实工作净额计算，月度追责档位随本月加班累计更新，当前月为暂计。'})
+    department_names={person['id']:person.get('primaryDepartment') or '未分配部门' for person in catalog['people'] if person['id'] in people or admin}
+    name_counts={}
+    for person in catalog['people']:
+        if person['id'] in department_names:name_counts.setdefault(person['name'],[]).append(person['id'])
+    for name,members in name_counts.items():
+        if len(members)==1:department_names['name:'+name]=department_names[members[0]]
+    for row in rows:row['department_name']=department_names.get(row['user_id'],'未分配部门')
+    if admin:rows.sort(key=lambda row:(row['department_name'],row['name'],row['user_id']))
+    return api_time({'start':start,'end':end,'period':period,'annual_leave':annual_allowances.get(str(user.id)) if not admin else None,'monthly_policy':monthly_policy,'monthly_balances':balances,'department_names':department_names,'totals':{key:round(value,2) for key,value in totals.items()},'people':list(summaries.values()),'records':rows[(page-1)*limit:page*limit],'total':len(rows),'leaves':leave_items,'departments':catalog['items'] if admin else [],'note':'迟到从宽限15分钟后累计，全部折算请假，与申请请假分开记录；加班按自然月真实工作净额计算，月度追责档位随本月加班累计更新，当前月为暂计。'})
 
 def today_status(db,user):
     from attendance_clock import today_status as clock_status

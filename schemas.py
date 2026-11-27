@@ -1772,19 +1772,22 @@ class ProjectChatMessageCreate(BaseModel):
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
     mention_all: bool = False
+    mention_managers: bool = False
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
 
 
 class AnnotationProjectChatMessageCreate(BaseModel):
-    """标注沟通支持文字和图片附件，不接收富文本。"""
+    """标注沟通支持文字、白名单文字格式和图片附件。"""
 
     content: str = Field(default='', max_length=10000)
+    content_json: Optional[dict] = None
     topic_id: Optional[UUID] = None
     client_message_id: Optional[UUID] = None
     reply_to_message_id: Optional[UUID] = None
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
     mention_all: bool = False
+    mention_managers: bool = False
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
     model_config = ConfigDict(extra='forbid')
 

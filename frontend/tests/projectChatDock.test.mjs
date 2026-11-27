@@ -743,3 +743,59 @@ test('移除最近关闭记录或清空全部不会删除会话，刷新后也�
  assert.equal(cleared.state.closedSessionKeys.length,55)
  cleared.restoreClosedSession(rows[0]);assert.equal(cleared.state.windows.length,1)
 })
+
+
+test('独立小窗可逐个打开并分别最小化，切换模式保留多个底部会话', () => {
+  const {dock:instance,visible,storage}=createDockHarness()
+  instance.openChat({projectId:'first',projectType:'discussion',title:'会话甲'})
+  instance.setLayout('workspace')
+  instance.state.pinnedKey='discussion:first'
+  instance.state.tileMode='medium'
+  instance.openIndependentWindows()
+  assert.equal(instance.state.layout,'float')
+  assert.equal(instance.state.pinnedKey,'')
+  assert.equal(instance.state.tileMode,'')
+  instance.minimizeChat('discussion:first')
+  instance.openChat({projectId:'second',projectType:'discussion',title:'会话乙'})
+  instance.minimizeChat('discussion:second')
+  assert.equal(instance.state.windows.filter(row=>row.minimized).length,2)
+  assert.ok(instance.state.windows.every(row=>!visible(row)))
+  instance.restoreChat('discussion:first')
+  assert.ok(visible(instance.state.windows.find(row=>row.key==='discussion:first')))
+  assert.ok(instance.state.windows.find(row=>row.key==='discussion:second').minimized)
+  instance.minimizeChat('discussion:first')
+  instance.setLayout('workspace')
+  instance.openIndependentWindows()
+  assert.ok(instance.state.windows.find(row=>row.key==='discussion:second').minimized)
+  assert.ok([...storage.values()].some(value=>JSON.parse(value).layout==='float'))
+})
+
+
+test('独立小窗最后调整的宽高位置跨会话及刷新复用，按账号隔离', () => {
+  const storage=new Map([['user_id','geometry-owner']])
+  const h=createDockHarness(storage),a=h.dock.openChat({projectId:'a',projectType:'discussion',title:'甲'})
+  const expected={x:125,y:60,width:610,height:810}
+  h.dock.setFloatRect(a,expected)
+  h.dock.minimizeChat(a)
+  const b=h.dock.openChat({projectId:'b',projectType:'direct',title:'乙'})
+  assert.deepEqual({...h.dock.state.windows.find(row=>row.key===b).floatRect},expected)
+  assert.deepEqual(JSON.parse(storage.get('xinshi.chatDock.geometry-owner')).latestFloatRect,expected)
+  const fresh=createDockHarness(storage),c=fresh.dock.openChat({projectId:'c',projectType:'discussion',title:'丙'})
+  assert.deepEqual({...fresh.dock.state.windows.find(row=>row.key===c).floatRect},expected)
+  fresh.dock.setFloatRect(c,{x:190,y:90,width:700,height:790})
+  fresh.dock.openChat({projectId:'d',projectType:'discussion',title:'丁'})
+  assert.equal(fresh.dock.state.windows.at(-1).floatRect.width,700)
+  storage.set('user_id','other-user')
+  const other=createDockHarness(storage);other.dock.openChat({projectId:'e',projectType:'discussion',title:'戊'})
+  assert.equal(other.dock.state.windows[0].floatRect,null)
+})
+
+test('独立小窗保存的尺寸在较小视口内仍保留可操作边界', () => {
+  const h=createDockHarness()
+  const key=h.dock.openChat({projectId:'a',projectType:'discussion',title:'甲'})
+  h.dock.setFloatRect(key,{x:900,y:500,width:700,height:820})
+  h.viewport.innerWidth=600;h.viewport.innerHeight=500;h.dock.clampAllPositions()
+  const rect=h.dock.state.windows[0].floatRect
+  assert.ok(rect.width<=584&&rect.height<=484)
+  assert.ok(rect.x>=8&&rect.y>=8&&rect.x+rect.width<=592&&rect.y+rect.height<=492)
+})

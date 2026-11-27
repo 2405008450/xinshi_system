@@ -14,6 +14,20 @@ const keyIn=(obj,key)=>Object.keys(obj).find(name=>savedFieldKey(name)===savedFi
 const idOf=item=>plain(item)&&item.id!=null?String(item.id):null
 const rateValue=(row,key)=>row[keyIn(row,key)]
 const rateNumber=value=>value==null||value===''?null:Number(value)
+function interpreterValues(rows){
+  if(!Array.isArray(rows))return rows
+  return rows.map(row=>({
+    translatorId:rateValue(row,'translator_id')||'',
+    clientSelected:!!rateValue(row,'client_selected'),
+    customerRating:rateValue(row,'customer_rating')||'',
+    evaluationNote:String(rateValue(row,'evaluation_note')||'').trim(),
+  })).filter(row=>row.translatorId||row.clientSelected||row.customerRating||row.evaluationNote)
+}
+// 编辑表单的空白占位行、服务端新增的行ID/显示姓名，都不是译员安排的业务变更。
+export function sameSavedFieldValue(path,a,b){
+  if(savedFieldKey(String(path).split('.').at(-1))==='interpreter_assignments')return sameSavedValue(interpreterValues(a),interpreterValues(b))
+  return sameSavedValue(a,b)
+}
 function orderRateValues(rows){
   if(!Array.isArray(rows)||!rows.every(row=>plain(row)&&typeof rateValue(row,'language_pair')==='string'&&'metric' in row))return null
   return rows.map(row=>{
@@ -55,7 +69,10 @@ export function mergeSavedRecord(target,before,after,conflict=()=>{},path=''){
     if(key!=null&&isSavedSystemField(serverKey)){target[key]=convertLike(next,target[key]);continue}
     if(key==null||oldKey==null||sameSavedValue(before[oldKey],next))continue
     const old=before[oldKey],current=target[key],field=path?`${path}.${key}`:key
-    if(sameSavedValue(current,next))continue
+    if(sameSavedFieldValue(field,current,next)||sameSavedFieldValue(field,old,next))continue
+    if(savedFieldKey(serverKey)==='interpreter_assignments'&&sameSavedFieldValue(field,current,old)){
+      target[key]=convertLike(next,current);continue
+    }
     // A draft rate can lack a database ID, and the API adds calculated quantities.
     // Compare the editable rate values before asking the user to resolve a whole-list conflict.
     const orderPrices=serverKey==='prices'

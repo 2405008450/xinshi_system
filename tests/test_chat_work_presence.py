@@ -71,3 +71,34 @@ def test_cross_midnight_shift_and_unknown_calendar(environment,monkeypatch):
     assert work_presence(db,[person],at('2026-10-28T01:00'))[str(person.id)]['working_now'] is True
     assert work_presence(db,[person],at('2026-10-28T02:00'))[str(person.id)]['working_now'] is None
     assert work_presence(db,[person],at('2030-01-01T10:00'))[str(person.id)]['work_state']=='unknown'
+
+
+def test_leave_overrides_working_with_exact_boundaries_and_no_private_details(environment):
+    from uuid import uuid4
+    from models import EmployeeLeave
+    db,(_,person,other)=environment
+    arrange(db,person)
+    db.add(EmployeeLeave(id=uuid4(),employee_id=person.id,employee_name=person.full_name,
+        start_date=at('2026-10-28T10:00').replace(tzinfo=None),end_date=at('2026-10-28T11:00').replace(tzinfo=None),reason='private reason',leave_type='请假'))
+    db.commit()
+    assert work_presence(db,[person],at('2026-10-28T09:59:59'))[str(person.id)]['work_state']=='working'
+    value=work_presence(db,[person,other],at('2026-10-28T10:00'))
+    assert value[str(person.id)]=={'work_state':'on_leave','working_now':False}
+    assert value[str(other.id)]['work_state']!='on_leave'
+    assert work_presence(db,[person],datetime.fromisoformat('2026-10-28T02:30:00+00:00'))[str(person.id)]['work_state']=='on_leave'
+    assert work_presence(db,[person],at('2026-10-28T11:00'))[str(person.id)]['work_state']=='working'
+
+
+def test_flexible_shift_is_known_and_leave_has_priority(environment,monkeypatch):
+    from uuid import uuid4
+    from models import EmployeeLeave
+    import chat_work_presence as module
+    db,(_,person,_)=environment
+    monkeypatch.setattr(module,'shifts_for',lambda db,users,day:{str(person.id):{'label':'灵活班次','periods':[],'flexible':True}})
+    assert work_presence(db,[person],at('2026-10-28T10:30'))[str(person.id)]['work_state']=='flexible'
+    leave=EmployeeLeave(id=uuid4(),employee_id=person.id,employee_name=person.full_name,
+        start_date=at('2026-10-28T10:00').replace(tzinfo=None),end_date=at('2026-10-28T11:00').replace(tzinfo=None))
+    db.add(leave);db.commit()
+    assert work_presence(db,[person],at('2026-10-28T10:30'))[str(person.id)]['work_state']=='on_leave'
+    db.delete(leave);db.commit()
+    assert work_presence(db,[person],at('2026-10-28T10:30'))[str(person.id)]['work_state']=='flexible'

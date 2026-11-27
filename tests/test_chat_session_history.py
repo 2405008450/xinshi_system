@@ -1,6 +1,28 @@
 from test_chat_participant_access import environment, project
 
 
+def test_directory_pins_before_pagination_and_isolates_accounts(environment):
+    from models import AnnotationChatMember
+    from chat_session_history import list_sessions
+    db, (owner, member, outsider) = environment
+    rows = [project(db, owner, f'AP-PIN-{i}') for i in range(3)]
+    for i, row in enumerate(rows):
+        row.project_name = f'{i}排序测试'
+        for person in (member, outsider):
+            db.add(AnnotationChatMember(project_id=row.id, user_id=person.id,
+                following=True, last_read_sequence=0, pinned=person == member and i == 2, starred=False))
+    db.commit()
+    first = list_sessions(db, member, 'AP-PIN', limit=1)
+    assert first['total'] == 3
+    assert first['items'][0]['project_id'] == str(rows[2].id)
+    assert first['items'][0]['pinned'] is True
+    assert list_sessions(db, member, 'AP-PIN', offset=1, limit=1)['items'][0]['project_id'] == str(rows[0].id)
+    assert list_sessions(db, outsider, 'AP-PIN', limit=1)['items'][0]['project_id'] == str(rows[0].id)
+    db.get(AnnotationChatMember, (rows[2].id, member.id)).pinned = False
+    db.commit()
+    assert list_sessions(db, member, 'AP-PIN', limit=1)['items'][0]['project_id'] == str(rows[0].id)
+
+
 def test_all_sessions_include_unfollowed_membership_but_exclude_other_people(environment):
     from models import AnnotationChatMember
     from chat_session_history import list_sessions

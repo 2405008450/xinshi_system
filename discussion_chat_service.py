@@ -138,7 +138,7 @@ def catalog(db, user):
     return rows
 
 
-def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None, action_cache=None):
+def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None, action_cache=None, format_cache=None):
     reply = (replies.get(row.reply_to_id) if replies is not None else db.get(Message, row.reply_to_id)) if row.reply_to_id else None
     if admin is None:
         admin = user_has_permission(db, user.id, '*')
@@ -152,14 +152,17 @@ def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None, ac
     from chat_recall_policy import can_recall_own
     from discussion_message_actions import load
     actions = {} if row.recalled_at else (action_cache if action_cache is not None else load(db,[row.id],user.id)).get(row.id,{})
-    return dict(**actions,mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
+    from chat_text_format import load_formats
+    formatted=None if row.recalled_at else (format_cache if format_cache is not None else load_formats(db,[row.id])).get(row.id)
+    return dict(content_json=formatted,**actions,mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
         content='' if row.recalled_at else row.content, created_at=business_iso(row.created_at),
         recalled_at=business_iso(row.recalled_at), can_recall=can_recall_own(row.sender_id,user.id,row.created_at,row.recalled_at),
         reply=dict(id=str(reply.id), sender_name=reply.sender_name, content='消息已撤回' if reply.recalled_at else reply.content[:200])
               if reply and not row.recalled_at and reply.room_id == row.room_id else None)
 
 
-def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', favorites_only=False):
+def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', favorites_only=False,
+             kind='all', sender_user_id=None, start_date=None, end_date=None, format_filters=''):
     require_room(db, user, room_id)
     query = db.query(Message).filter_by(room_id=room_id)
     if favorites_only:
@@ -168,8 +171,9 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', f
         if not ready(db): raise HTTPException(503,'讨论收藏尚未初始化')
         query=query.filter(Message.recalled_at.is_(None),db.query(DiscussionMessageAction.message_id).filter(
             DiscussionMessageAction.message_id==Message.id,DiscussionMessageAction.user_id==user.id,DiscussionMessageAction.favorited_at.is_not(None)).exists())
-    if keyword.strip():
-        query = query.filter(Message.recalled_at.is_(None), keyword_contains(Message.content, keyword))
+    from discussion_search import apply_filters
+    query = apply_filters(db, query, Message, room_id, keyword=keyword, kind=kind, sender_user_id=sender_user_id,
+                          start_date=start_date, end_date=end_date, format_filters=format_filters)
     if before is not None:
         query = query.filter(Message.id < before)
     if after is not None:
@@ -190,7 +194,9 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', f
             mention_cache.setdefault(mention.message_id,[]).append(dict(mentioned_user_id=str(mention.user_id),mentioned_user_name=mention.user_name,is_all=mention.is_all))
     from discussion_message_actions import load
     action_cache=load(db,[row.id for row in rows],user.id)
-    return dict(items=[serialize(db, row, user, admin=admin, replies=replies,mention_cache=mention_cache,action_cache=action_cache) for row in rows], has_more=more)
+    from chat_text_format import load_formats
+    format_cache=load_formats(db,[row.id for row in rows])
+    return dict(items=[serialize(db, row, user, format_cache=format_cache, admin=admin, replies=replies,mention_cache=mention_cache,action_cache=action_cache) for row in rows], has_more=more)
 
 
 def send(db, user, room_id, payload):
@@ -210,7 +216,10 @@ def send(db, user, room_id, payload):
     people,members=recipients(db,user,room_id,payload)
     row = Message(room_id=room_id, sender_id=user.id, sender_name=user.full_name or user.username,
         client_message_id=payload.client_message_id, content=payload.content, reply_to_id=payload.reply_to_id)
+    from chat_text_format import validate_format,save_format
+    formatted=validate_format(payload.content,getattr(payload,'content_json',None))
     db.add(row); db.flush()
+    save_format(db,row.id,formatted)
     notifications=create_mentions(db,user,row,payload,people,members)
     db.commit(); db.refresh(row)
     from project_chat_crud import _push_notifications

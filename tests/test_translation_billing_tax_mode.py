@@ -7,6 +7,21 @@ import translation_billing_tax_mode as billing
 import customer_statements as statements
 
 
+def test_tax_changes_preserve_manual_statement_requirement(context):
+    from translation_document_requirements import save
+    _,db,clients,_,actor=context
+    root=project(db,clients[0])
+    save(db,root,payment_method='individual',statement_required=False,actor_id=actor.id)
+    db.commit()
+    for mode in ['incl_tax','excl_tax']:
+        current=finance.read(db,root.id)
+        result=finance.save_table_cell(db,actor,root.id,finance.TablePatch(
+            version=current['version'],order_id=root.id,billing_tax_mode=mode))
+        assert result['item']['effective_billing_tax_mode']==mode
+        assert result['item']['statement_required'] is False
+        assert finance.read(db,root.id)['item']['statement_required'] is False
+
+
 def test_both_prices_choose_included_and_new_statement_uses_selection(context):
     _,db,clients,_,actor=context
     root=project(db,clients[0])

@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-workspace__frame" :class="{ 'chat-workspace--maximized': maximized, 'chat-workspace--middle-list': middleList, 'chat-workspace--wide-header': wideHeader, 'chat-workspace--narrow': narrow, 'chat-workspace--compact-header': pane === 'summary','chat-workspace--summary':['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) }" :style="{ '--chat-session-width': `${narrow ? 0 : sessionWidth}px` }">
+  <div ref="frameRoot" class="chat-workspace__frame" :class="{ 'chat-workspace--maximized': maximized, 'chat-workspace--middle-list': middleList, 'chat-workspace--wide-header': wideHeader, 'chat-workspace--narrow': narrow, 'chat-workspace--compact-header': pane === 'summary','chat-workspace--summary':['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) }" :style="{ '--chat-session-width': `${narrow ? 0 : sessionWidth}px`, ...chatGroupStyle(activeColorSession,folderNodes) }">
     <header class="chat-workspace__header" :class="{ 'chat-workspace__header--dragging': dragging, 'chat-workspace__header--pinned': maximized }" @mousedown="emit('header-mousedown', $event)" @dblclick="emit('header-dblclick', $event)">
       <el-button v-if="narrow" link aria-label="会话列表" :title="messageBadgeTotal ? `${messageBadgeTotal} 条未读提及，点击查看会话列表` : '会话列表'" @click="openMobileSessions"><el-badge :value="messageBadgeTotal" :max="99" :hidden="!messageBadgeTotal"><el-icon><ChatDotRound /></el-icon></el-badge></el-button>
       <div class="chat-workspace__heading" @mousedown.stop @dblclick.stop>
@@ -15,13 +15,15 @@
       <div v-show="pane !== 'summary'" class="chat-header-command-row" title="横向滚动查看更多操作" @mousedown.stop>
 
       <div class="chat-workspace__actions">
-        <ChatConversationMore :project-id="projectId" :project-type="projectType" :can-duplicate="['annotation','translation'].includes(projectType) && !!activeKey" @duplicate="emit('duplicate-window')" @multiple="emit('open-multiple')">
+        <ChatSessionQuickActions :project-id="projectId" :project-type="projectType" />
+        <ChatConversationMore :title="title" :order-no="subtitle" :project-id="projectId" :project-type="projectType" :can-duplicate="['annotation','translation'].includes(projectType) && !!activeKey" @duplicate="emit('duplicate-window')" @multiple="emit('open-multiple')">
           <div id="chat-workspace-session-tools" class="chat-header-session-tools" />
         <ChatConversationParticipants menu-layout v-if="['translation', 'discussion'].includes(projectType) && projectId" :key="`${projectType}:${projectId}`" :project-id="projectId" :project-type="projectType" />
-          <AnnotationChatInbox menu-layout @conversation-opened="pane='messages'" @navigate="emit('project-navigate')" />
+
         </ChatConversationMore>
         <span class="chat-header-divider" />
         <el-button v-if="activeKey && !narrow" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="emit('pin')"><el-icon><ChatPinIcon /></el-icon></el-button>
+        <el-button v-if="activeKey" link aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @click="emit('close-active')"><el-icon><CircleClose /></el-icon></el-button>
       </div>
       </div>
       <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry v-if="pane !== 'summary'" :project-id="projectId" :project-type="projectType" :order-no="subtitle" @navigate="emit('project-navigate')" /><el-button v-if="pane !== 'summary' && activeKey" link aria-label="聊天记录" title="聊天记录" @click="emit('open-search')"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="emit('minimize')">−</button><button v-if="!maximized" type="button" aria-label="最大化会话窗口" title="最大化" @click="emit('toggle-maximize')">□</button><button v-else type="button" aria-label="还原会话窗口" title="还原窗口（正常大小）" @click="emit('normal-size')">▣</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="emit('exit-workspace')">×</button></div>
@@ -35,16 +37,16 @@
       </nav>
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" @dragover="sessionPanelDragOver" @drop="dropSessionPanel($event, 'bottom')" :style="{ width: `${sessionWidth}px` }">
         <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="['meetings','notifications'].includes(item.key)&&meetingAttentionCount" class="chat-meeting-notice">会</b><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
-        <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? (annotationMode === 'mention-all' ? '@所有人' : showMentions ? '@我' : '提及') : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
+        <div v-if="(maximized && !narrow) || pane === 'messages'" class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? (annotationMode === 'mention-all' ? '@所有人' : showMentions ? '@我' : '提及') : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small><AnnotationChatInbox v-if="pane==='messages'" menu-layout @conversation-opened="pane='messages'" @navigate="emit('project-navigate')" /><ChatHelpEntry v-if="pane==='messages'" compact /></div>
         <div v-if="!narrow" class="chat-workspace__split-tools"><button type="button" title="恢复左右区域的默认宽度" @click="emit('split-reset')">恢复默认分区</button></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
             <div class="chat-workspace__search" data-auto-draft="off"><el-select v-model="searchMode" size="small" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select><el-input v-model="keyword" clearable size="small" :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prefix><el-button link :icon="Search" aria-label="查询会话" title="查询" @click="applyKeyword" /></template></el-input></div>
             <div class="chat-workspace__tabs">
-              <el-popover ref="groupPicker" v-model:visible="groupsVisible" title="会话分组筛选" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
+              <el-popover ref="groupPicker" v-model:visible="groupsVisible" :draft-filter="false" title="会话分组筛选" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
                 <template #reference><el-button text size="small" class="chat-workspace__filter" :aria-label="`会话分组 ${currentGroupLabel}`" :title="currentGroupLabel"><el-icon><Filter /></el-icon><span class="chat-workspace__filter-label">{{ currentGroupLabel }}</span></el-button></template>
                 <div class="chat-session-groups">
-                  <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupPicker?.minimize()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
+                  <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupPicker?.hide()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
                 </div>
               </el-popover>
             </div>
@@ -70,7 +72,6 @@
             <el-button text size="small" :type="sessionScope === 'all' ? 'primary' : ''" :aria-pressed="sessionScope === 'all'" @click="setSessionScope('all')">全部会话</el-button>
             <el-button text size="small" :type="sessionScope === 'recent' ? 'primary' : ''" :aria-pressed="sessionScope === 'recent'" @click="setSessionScope('recent')">近期会话</el-button>
 
-            <AnnotationChatInbox menu-layout @conversation-opened="pane='messages'" @navigate="emit('project-navigate')" />
             <el-button text size="small" :type="sessionScope === 'mine' ? 'primary' : ''" :aria-pressed="sessionScope === 'mine'" @click="setSessionScope('mine')">我的项目</el-button>
             <el-popover title="会话详情" v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
               <template #reference><el-button text size="small" @click="prepareRecentMenu" :title="`最近关闭（${recentInFolder.length}）`">最近关闭</el-button></template>
@@ -86,19 +87,22 @@
               </div>
               <ChatListPagination v-model:page="closedPage" v-model:page-size="closedPageSize" :total="recentInFolder.length" />
             </el-popover>
+
           </div>
           <p v-if="error" class="chat-workspace__error" role="alert">{{ error }} <el-button link @click="emit('retry')">重试</el-button></p>
-          <div ref="sessionList" class="chat-workspace__list" @contextmenu="annotationMentionView && mentionSortMenu?.open($event)" @keydown.shift.f10="annotationMentionView && mentionSortMenu?.open($event)">
-            <ChatSessionHistory v-if="['all','mine'].includes(sessionScope) && searchMode === 'sessions' && !annotationMentionView && !showMentions" :mine="sessionScope === 'mine'" :keyword="appliedKeyword" :revision="searchRevision" :active="active && pane === 'messages'" @open="emit('open', $event)" /><ChatMessageSearchResults v-else-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
+          <p v-if="tab==='unread'" class="chat-workspace__unread-explanation" role="status">仅显示仍有未读消息的会话，包含 @我、@所有人。进入会话阅读后，会自动更新。</p>
+          <div ref="sessionList" :class="{'chat-workspace__list--directory':['all','mine'].includes(sessionScope) && searchMode === 'sessions' && !annotationMentionView && !showMentions}" class="chat-workspace__list" @contextmenu="annotationMentionView && mentionSortMenu?.open($event)" @keydown.shift.f10="annotationMentionView && mentionSortMenu?.open($event)">
+            <ChatSessionHistory v-if="['all','mine'].includes(sessionScope) && searchMode === 'sessions' && !annotationMentionView && !showMentions" :mine="sessionScope === 'mine'" :preferences-revision="directoryPreferencesRevision" :keyword="appliedKeyword" :revision="searchRevision" :active="active && pane === 'messages'" @open="emit('open', $event)" /><ChatMessageSearchResults v-else-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
             <template v-else>
             <el-empty v-if="!visibleSessions.length" :description="annotationMode === 'group' && annotationFiltersActive ? '没有符合筛选条件的标注会话' : annotationMentionView ? '当前筛选中没有提及消息的会话' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
-            <div v-for="session in pagedSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
+            <div v-for="session in pagedSessions" :key="session.key" :style="chatGroupStyle(session,folderNodes)" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
               <span class="chat-workspace__session-left"><span v-if="session.projectType !== 'direct' && Number.isFinite(session.memberCount)" class="chat-session-member-count" :title="`当前会话 ${session.memberCount} 位参与人`" :aria-label="`当前会话 ${session.memberCount} 人`">{{ session.memberCount }}人</span><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}<small>{{ typeLabel(session.projectType) }}</small></span></span>
               <span class="chat-workspace__session-main">
-                <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="session.starred" title="特别关注" class="chat-session-star"><StarFilled /></el-icon><time v-if="sessionDisplayTime(session)" :title="formatBusinessDateTime(sessionDisplayTime(session))">{{ chatDateLabel(sessionDisplayTime(session)) }}</time></span>
+                <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="isSessionFavorite(session)" title="已收藏" class="chat-session-star"><StarFilled /></el-icon><time v-if="sessionDisplayTime(session)" :title="formatBusinessDateTime(sessionDisplayTime(session))">{{ chatDateLabel(sessionDisplayTime(session)) }}</time></span>
                 <ChatOrderIdentity :order-no="session.subtitle" :project-type="session.projectType" />
                 <span v-if="renamingDiscussion?.key === session.key" @click.stop @keydown.stop @mousedown.stop><ChatInlineNameEditor :initial-name="session.title" class="chat-compact-rename" label="会话名称" :saving="renameSaving" :error="renameError" @save="saveDiscussionName" @cancel="renamingDiscussion = null" /></span>
                 <span class="chat-workspace__preview-row"><b v-if="personalUnread(session)" class="chat-mention-label chat-session-mention">[@我]</b><b v-if="session.mentionAllUnread" class="chat-mention-broadcast chat-session-mention">[@所有人]</b><small class="chat-session-preview"><mark v-if="!session.mentionUnread && session.lastMessage?.mentionsMe" class="chat-mention-preview" :class="{ 'chat-mention-broadcast': session.lastMessage.mentionAll }">{{ session.lastMessage.mentionAll ? '[@所有人]' : '[@我]' }}</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${screenshotPreview(session.lastMessage.preview)}` : session.projectType === 'discussion' && session.storageReady !== true ? '讨论暂未启用' : '暂无消息' }}</small><span v-if="session.mentionUnread" class="chat-session-unread" :aria-label="`${session.mentionUnread} 条未读提及`" title="未读提及">{{ session.mentionUnread > 99 ? '99+' : session.mentionUnread }}</span><span v-if="sessionUnreadSignal(session).ordinary" class="chat-session-unread-dot" role="status" aria-label="有普通未读消息" title="有普通未读消息" /></span>
+                <small v-if="tab==='unread'" class="chat-session-unread-summary">未读 {{ Math.max(Number(session.unread)||0,Number(session.mentionUnread)||0) }} 条<span v-if="Number(session.mentionUnread)>0"> · 含 {{ session.mentionUnread }} 条提及</span></small>
                 <span v-if="session.variants.length > 1" class="chat-session-orders" @click.stop @keydown.stop>
                   <el-popover trigger="click" placement="right-start" :width="280">
                     <template #reference><el-button link size="small" :aria-label="`切换订单会话 ${session.subtitle}`">切换订单</el-button></template>
@@ -117,7 +121,6 @@
                   <template #reference><el-button link aria-label="会话操作">⋯</el-button></template>
                   <div class="chat-session-groups">
                     <el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button>
-                    <el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button>
                     <el-button v-if="categories.ready && session.projectType !== 'discussion'" link @click="categoryAssignment.open(session)">设置分类</el-button>
                     <el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button>
                     <template v-if="session.projectType === 'discussion'">
@@ -139,7 +142,7 @@
         <ChatSettings v-if="pane === 'settings'" />
         <div v-if="!narrow" class="chat-workspace__split-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整会话列表与聊天区域宽度" :aria-valuenow="sessionWidth" :aria-valuemin="220" :aria-valuemax="splitMaximum" title="左右拖动调整分区；双击恢复默认；左右方向键微调" @pointerdown.stop="emit('split-start', $event)" @keydown="emit('split-keydown', $event)" @dblclick.stop="emit('split-reset')" />
       </aside>
-      <div ref="middleHost" v-show="middleList || panelDragging" class="chat-session-middle-host" :class="{ 'is-drop-target': panelDragging }" @dragover.prevent @drop.prevent="dropSessionPanel($event, 'middle')"><span v-if="panelDragging && !middleList">放在分组与聊天之间</span></div>
+      <div ref="middleHost" v-show="middleList || panelDragging" class="chat-session-middle-host" :style="{width:`${middleWidth}px`}" :class="{ 'is-drop-target': panelDragging }" @dragover.prevent @drop.prevent="dropSessionPanel($event, 'middle')"><span v-if="panelDragging && !middleList">放在分组与聊天之间</span><div v-if="middleList" class="chat-workspace__split-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整中间会话列表与聊天区域宽度" :aria-valuenow="middleWidth" :aria-valuemin="220" :aria-valuemax="middleSplit.maximum.value" title="左右拖动调整宽度；双击复位；方向键微调" @pointerdown.stop="middleSplit.start" @keydown="middleSplit.keyboard" @dblclick.stop="middleSplit.reset" /></div>
       <div class="chat-workspace__stage" @dragover="sessionPanelDragOver" @drop="dropSessionPanel($event, 'middle')"><template v-if="['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane)"><div v-if="!maximized||narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" :aria-label="item.label" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">{{ item.label }}<b v-if="['meetings','notifications'].includes(item.key)&&meetingAttentionCount" class="chat-meeting-notice">会</b><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">@{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div><div class="chat-summary-content"><ChatRequestNotifications v-if="pane==='notifications'" :feed="notificationFeed" /><ChatAnnotationProjects v-else-if="pane==='annotation-projects'" :key="`annotation:${projectMine}`" :my-projects="projectMine" @navigate="emit('project-navigate')" @open-conversation="pane='messages'" /><ChatManagedProjects v-else-if="isProjectPane(pane)" :key="`${pane}:${projectMine}`" :module="projectModule(pane)" :my-projects="projectMine" /><DevelopmentIssuePanel v-else :open-issue-id="summaryIssueId" /></div></template><div v-else-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
       <el-popover v-model:visible="projectMenuVisible" :virtual-ref="projectMenuAnchor" virtual-triggering :trigger="[]" placement="right-start" :width="150" :z-index="100050"><el-button text @click="selectMyProjects">我的项目</el-button></el-popover>
       <ChatMentionSortMenu ref="mentionSortMenu" v-model="mentionSort" />
@@ -161,14 +164,17 @@ import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatMentionSortMenu from './ChatMentionSortMenu.vue'
 import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort'
-import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity } from '@/utils/chatSessionList'
+import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, hasUnreadSession, firstUnreadMentionSession, compareSessionActivity } from '@/utils/chatSessionList'
+import {chatGroupStyle} from '@/utils/chatGroupColors'
+import {isSessionFavorite} from '@/utils/chatFavorites'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Bell, ChatDotRound, Collection, Headset, Filter, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone, Calendar } from '@element-plus/icons-vue'
+import { CircleClose, Bell, ChatDotRound, Collection, Headset, Filter, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone, Calendar } from '@element-plus/icons-vue'
 const DevelopmentIssuePanel=defineAsyncComponent(()=>import('@/views/resource/components/DevelopmentIssuePanel.vue'))
 import ChatSettings from './ChatSettings.vue'
 import { hasPermission } from '@/utils/permission'
 import AnnotationChatInbox from './AnnotationChatInbox.vue'
+import ChatHelpEntry from './ChatHelpEntry.vue'
 const ChatAnnotationProjects = defineAsyncComponent(() => import('./ChatAnnotationProjects.vue'))
 const ChatManagedProjects = defineAsyncComponent(() => import('./ChatManagedProjects.vue'))
 import ChatProjectEntry from './ChatProjectEntry.vue'
@@ -186,11 +192,13 @@ import ChatSessionHistory from './ChatSessionHistory.vue'
 import ChatListPagination from './ChatListPagination.vue'
 import ProjectMentionPopover from './ProjectMentionPopover.vue'
 import ChatConversationMore from './ChatConversationMore.vue'
+import ChatSessionQuickActions from './ChatSessionQuickActions.vue'
 import ChatPinIcon from './ChatPinIcon.vue'
 import ChatSessionFolderTree from './ChatSessionFolderTree.vue'
 import ChatAnnotationProjectPicker from './ChatAnnotationProjectPicker.vue'
 import { normalizeAnnotationStatus } from '@/utils/annotationStatus'
-import { annotationFolderId, resourceFolderId, resourceDiscussionIds, sessionFolderNodes, sessionMatchesFolder } from '@/utils/chatSessionFolders'
+import { annotationFolderId, resourceFolderId, resourceDiscussionIds, sessionFolderNodes, sessionMatchesFolder,personalFollowingFolderId } from '@/utils/chatSessionFolders'
+import {useChatWorkspaceSplit} from '@/composables/useChatWorkspaceSplit'
 import ChatSessionCategoryAssignment from './ChatSessionCategoryAssignment.vue'
 import { categoryKey, useChatSessionCategories } from '@/composables/useChatSessionCategories'
 
@@ -292,17 +300,21 @@ function contactOpened() {
   pane.value = 'messages'
   emit('contact-opened')
 }
-const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
+const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '收藏会话' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
 const { categories } = useChatSessionCategories()
 const sessionScope = ref('recent')
+const directoryPreferencesRevision = computed(()=>allMentionSessions.value.map(row=>`${row.key}:${!!row.pinned}:${!!row.starred}`).sort().join('|'))
 const middleHost = ref(null)
+const frameRoot=ref(null)
+const middleSplit=useChatWorkspaceSplit(frameRoot,computed(()=>props.active),computed(()=>props.narrow),computed(()=>props.maximized),{storageKey:`xinshi.chatWorkspaceMiddleSplit.${localStorage.getItem('user_id')||'anonymous'}`,defaultWidth:300,reservedWidth:()=>props.sessionWidth})
+const middleWidth=computed(()=>middleSplit.width.value)
 const panelDragging = ref(false)
 watch(panelDragging, value => emit('session-panel-dragging', value))
 const panelStorageKey = `xinshi.chatSessionPanel.${localStorage.getItem('user_id') || 'anonymous'}`
 const panelPlacement = ref('bottom')
 try { if (localStorage.getItem(panelStorageKey) === 'middle') panelPlacement.value = 'middle' } catch { /* 使用默认位置。 */ }
 const middleList = computed(() => panelPlacement.value === 'middle' && !props.narrow && pane.value === 'messages')
-watch(middleList, value => emit('session-panel-width', value ? 300 : 0), { immediate: true })
+watch([middleList,middleWidth], ([value,width]) => emit('session-panel-width', value ? width : 0), { immediate: true })
 function setPanelPlacement(value) {
   panelPlacement.value = value; panelDragging.value = false
   try { localStorage.setItem(panelStorageKey, value) } catch { /* 本次布局仍生效。 */ }
@@ -395,9 +407,11 @@ const folderStorageKey = `xinshi.chatFolder.${localStorage.getItem('user_id') ||
 let savedFolder = tab.value === 'annotation' ? annotationFolderId : ''
 try { savedFolder = localStorage.getItem(folderStorageKey) ?? savedFolder } catch { /* 使用默认目录。 */ }
 if (resourceDiscussionIds.includes(savedFolder)) savedFolder = resourceFolderId
+if(savedFolder===personalFollowingFolderId)savedFolder=''
 const selectedFolder = ref(savedFolder)
 const folderTreeRef=ref()
 const folderNodes = computed(() => sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }))
+const activeColorSession = computed(()=>props.sessions.find(row=>row.key===props.activeKey)||props.searchSessions.find(row=>row.key===props.activeKey)||{title:props.title,projectType:props.projectType,projectId:props.projectId})
 const searchMode = ref('sessions'), searchRevision = ref(0)
 const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索全部会话的聊天记录' : '搜索全部会话：名称、订单号、消息')
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })
@@ -430,6 +444,8 @@ function inGroup(session, key) {
   if (key.startsWith('category:')) return !!session.categoryIds?.includes(key.slice('category:'.length))
   if (key === 'all') return true
   if (key === 'creator') return !!session.isCreator
+  if (key === 'starred') return isSessionFavorite(session)
+  if (key === 'unread') return hasUnreadSession(session)
   if (key === 'project') return session.projectType !== 'direct'
   if (['direct', 'annotation', 'translation'].includes(key)) return session.projectType === key
   return !!session[key]
@@ -481,6 +497,7 @@ watch(() => props.annotationFilters, () => {
 watch([annotationMode, selectedFolder, tab], () => { sessionScope.value = 'recent' })
 const sessionDisplayTime = session => annotationMentionView.value ? latestMentionAt(session) : session.lastMessage?.createdAt
 const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : (annotationMentionView.value || selectedFolder.value) ? allMentionSessions.value : props.sessions).filter((session) => {
+  if (!['all', 'annotation', 'direct', 'mention'].includes(tab.value) && !inGroup(session, tab.value)) return false
   const directMode = annotationMode.value === 'direct'
   if (annotationMode.value === 'group' && annotationFiltersActive.value) {
     const { mine, statuses } = props.annotationFilters
@@ -488,9 +505,8 @@ const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? 
       (statuses.length && !statuses.includes(normalizeAnnotationStatus(session.projectStatus)))) return false
   }
   if (!appliedKeyword.value) {
-    if (directMode ? session.projectType !== 'direct' : session.projectType === 'direct') return false
+    if (selectedFolder.value!==personalFollowingFolderId && (directMode ? session.projectType !== 'direct' : session.projectType === 'direct')) return false
     if (!directMode && !sessionMatchesFolder(session, selectedFolder.value, folderNodes.value)) return false
-    if (!['all', 'annotation', 'direct', 'mention'].includes(tab.value) && !inGroup(session, tab.value)) return false
     if (annotationMentionView.value && !(Number(session.mentionHistoryCount) > 0 || Number(session.mentionUnread) > 0 || session.lastMessage?.mentionsMe)) return false
   }
   if (!appliedKeyword.value) return true
@@ -550,7 +566,10 @@ onMounted(()=>window.addEventListener('chat-open-summary',showSummary))
 onBeforeUnmount(()=>window.removeEventListener('chat-open-summary',showSummary))
 onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventListener('chat-topic-show-annotation', showAnnotation); window.removeEventListener('chat-show-messages', showHeaderMessages) })
 </script>
+<style>.chat-personal-following-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.chat-personal-following-dialog .el-dialog__header,.chat-personal-following-dialog .el-dialog__footer{flex-shrink:0}.chat-personal-following-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.chat-personal-following-dialog .el-dialog__footer{border-top:1px solid #e2e8f0;background:#f8fafc}</style>
 <style scoped>
+.chat-workspace__unread-explanation{flex:none;margin:0;padding:8px 12px;color:#426482;background:#eaf2f8;font-size:11px;line-height:1.6;border-bottom:1px solid #d9e4ee}
+.chat-session-unread-summary{font-size:11px;color:#315d86}
 .chat-workspace__session-left{display:flex;flex:none;align-self:stretch;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;width:38px;padding-top:1px}.chat-workspace__session-left>.chat-workspace__avatar:only-child{margin-top:8px}.chat-session-member-count{position:relative;left:-6px;flex:none;display:inline-flex;align-items:center;padding:1px 4px;border-radius:4px;background:#e8eef5;color:#64748b;font-size:10px;font-weight:500;line-height:16px;white-space:nowrap}
 
 .chat-workspace__topic-panel{flex:1;min-height:0;overflow-y:auto;padding:8px}
@@ -601,19 +620,26 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 
 
 .chat-session-panel{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden;background:#f9fafc}
+.chat-session-panel>.chat-list-pagination{flex-shrink:0;position:relative;z-index:1}
+.chat-workspace__list--directory{overflow:hidden!important;padding:0!important}
 .chat-session-panel__grip{display:flex;align-items:center;justify-content:center;gap:10px;flex:none;height:24px;color:#64748b;cursor:grab;user-select:none}
 .chat-session-panel__grip:active{cursor:grabbing}.chat-session-panel__grip button{border:0;background:transparent;font:inherit;font-size:11px;color:inherit;cursor:pointer}
-.chat-session-panel .chat-workspace__recent-closed{display:flex;align-items:center;justify-content:space-between;gap:2px;padding:4px}
+.chat-session-panel .chat-workspace__recent-closed{flex:none;display:flex;align-items:center;justify-content:space-between;gap:2px;padding:4px}
 .chat-session-panel .chat-workspace__recent-closed :deep(.el-button){margin:0;padding:4px;height:24px;font-size:11px;white-space:nowrap}
 .chat-session-panel .chat-workspace__recent-closed :deep(.annotation-favorites-trigger .el-icon){display:none}
 .chat-session-panel .chat-workspace__recent-closed :deep(.el-button[aria-pressed="true"]){background:var(--color-primary-soft);font-weight:600}
 .chat-session-bottom-target{display:none;flex:none;padding:10px;text-align:center;font-size:12px;color:#2563eb;border:2px dashed #93c5fd}
 .chat-session-bottom-target.is-drop-target{display:block}
 .chat-session-middle-host{display:flex;flex:none;flex-direction:column;width:300px;min-height:0;border-right:1px solid #e6eaf0;background:#f9fafc}
+.chat-session-middle-host{position:relative}
+.chat-workspace__frame{--chat-middle-width:v-bind('middleWidth + "px"')}
+.chat-workspace__recent-closed{overflow-x:auto;justify-content:flex-start!important}
+.chat-workspace__recent-closed :deep(.el-button){flex-shrink:0}
+.chat-personal-following-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;font-size:12px;color:#64748b}
 .chat-session-middle-host.is-drop-target{position:relative;z-index:20;outline:2px dashed #60a5fa;outline-offset:-3px}
 .chat-session-middle-host>span{padding:12px;color:#2563eb;font-size:12px}
 .chat-workspace--middle-list :deep(.chat-folder-tree){flex:1;max-height:none}
-.chat-workspace--maximized.chat-workspace--middle-list:not(.chat-workspace--narrow){grid-template-columns:56px var(--chat-session-width) 300px minmax(0,1fr)}
+.chat-workspace--maximized.chat-workspace--middle-list:not(.chat-workspace--narrow){grid-template-columns:56px var(--chat-session-width) var(--chat-middle-width,300px) minmax(0,1fr)}
 .chat-workspace--maximized:not(.chat-workspace--narrow) .chat-session-middle-host{grid-column:3;grid-row:1 / 3}
 .chat-workspace--maximized.chat-workspace--middle-list:not(.chat-workspace--narrow) .chat-workspace__header,.chat-workspace--maximized.chat-workspace--middle-list:not(.chat-workspace--narrow) .chat-workspace__stage{grid-column:4}
 </style>

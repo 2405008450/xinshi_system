@@ -13,7 +13,6 @@
         <ChatParticipantActions :project-type="projectType" :project-id="projectId" :members="group.members" @changed="loadGroup" />
       </el-popover>
       <span v-if="!toolbarTarget" class="group-toolbar-spacer" />
-      <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow"><template v-if="!toolbarTarget || toolbarMenu">{{ group.following ? '已关注' : '关注' }}</template></el-button>
       <el-button v-if="!toolbarTarget" text size="small" :icon="Search" aria-label="聊天记录" title="聊天记录" @click="openSearch">聊天记录</el-button>
       <el-button v-if="canAddToProgress" size="small" :disabled="!selected.length" @click="toProgress">转进度 {{ selected.length || '' }}</el-button>
     </div></Teleport>
@@ -48,7 +47,7 @@ import { chatOverlayZIndex } from '@/utils/chatOverlay'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 
 import { provide, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Paperclip, User, Star, StarFilled, Search } from '@element-plus/icons-vue'
 import { annotationChatRequest, directChatRequest, chatRequest, createProjectChatMessage, favoriteProjectChatMessage, unfavoriteProjectChatMessage,
   acknowledgeProjectChatMessage, unacknowledgeProjectChatMessage, getProjectChatAttachmentBlob } from '@/api/projectChat'
@@ -104,13 +103,14 @@ const newMessageId = () => {
 }
 const group = reactive({ members: [], eligibleUsers: [], invitableUsers: [], following: false })
 const participantsZ = ref(2110)
-const messages = ref([]), list = ref(null), input = ref(null), content = ref(''), replyTo = ref(null)
+const messages = ref([]), list = ref(null), input = ref(null), content = ref(''), contentJson=ref(null), replyTo = ref(null)
 const interactions = useChatMessageInteractions({ projectId: computed(() => props.projectId), projectType: computed(() => props.projectType), messages, active: computed(() => props.active) })
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && mentionOpen.value))
 const mentionCandidates = computed(() => projectMentionOrder([
   {id:'__all__',name:'所有人',all:true,outside:false},
+  {id:'__managers__',name:'所有项目经理+客户经理',managerGroup:true,outside:false},
   ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
   ...group.invitableUsers.filter(u => !group.members.some(member => member.id === u.id)).map(u => ({ ...u, outside: true })),
 ].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)), props.projectType === 'annotation' ? mentionProject.value : null))
@@ -302,7 +302,6 @@ async function acknowledge(message) {
 }
 async function recall(message) {
   try {
-    await ElMessageBox.confirm('撤回后其他用户将无法查看正文和附件，确定撤回？', '确认操作', { type: 'warning', customClass: 'chat-confirm-message-box' })
     await recallDrafts.remember(message, fileBlob)
     const data = await request(props.projectId, `messages/${message.id}/recall`, { method: 'post' }); merge([data]); await sync()
   } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(detail(e)) }
@@ -312,8 +311,8 @@ async function reeditMessage(message) {
   const recovered = await recallDrafts.restore(message)
   if (!recovered || sending.value || retryPayload.value) return
   try {
-    const result = combineRecallDraft({ content: content.value, mentionIds: mentionIds.value, replyTo: replyTo.value }, recovered)
-    content.value = result.content; mentionIds.value = result.mentionIds; replyTo.value = result.replyTo
+    const result = combineRecallDraft({ content: content.value, contentJson:contentJson.value, mentionIds: mentionIds.value, replyTo: replyTo.value }, recovered)
+    content.value = result.content;contentJson.value=result.contentJson||null; mentionIds.value = result.mentionIds; replyTo.value = result.replyTo
     if (recovered.files.length) addFiles(recovered.files)
     if (recovered.files.length < recovered.attachmentCount) ElMessage.warning('原文已恢复，部分附件暂存不可用，请重新添加')
     closeMention(); sendError.value = ''; draft.persistNow(); recallDrafts.forget(message)
@@ -406,13 +405,13 @@ function positionMention() {
 async function selectMention(user) {
   if (String(user.id) === String(currentUserId)) return
   if (mentionTrigger < 0) return
-  if (user.id!=='__all__' && !mentionIds.value.includes(user.id) && mentionIds.value.filter(id=>id!=='__all__').length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
+  if (!['__all__','__managers__'].includes(user.id) && !mentionIds.value.includes(user.id) && mentionIds.value.filter(id=>!['__all__','__managers__'].includes(id)).length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
   const cursor = input.value.textarea.selectionStart, text = `@${user.name} `, end = mentionTrigger + text.length
   content.value = editScreenshotText(content.value, mentionTrigger, cursor, text)
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
   closeMention(); await nextTick(); input.value.focus(); input.value.textarea.setSelectionRange(end, end)
 }
-function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},...group.eligibleUsers,...group.invitableUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
+function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},{id:'__managers__',name:'所有项目经理+客户经理',managerGroup:true},...group.eligibleUsers,...group.invitableUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
 function applyQuoteMention(result){content.value=result.content;mentionIds.value=result.selectedUsers.map(person=>person.id);automaticQuoteMention.value=result.automatic;if(result.warning)ElMessage.warning(result.warning)}
 async function quoteMessage(message){
   if(sending.value||retryPayload.value)return
@@ -425,10 +424,10 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: content.value, mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: content.value, contentJson:contentJson.value, mentionManagers:mentionIds.value.includes('__managers__')&&content.value.includes('@所有项目经理+客户经理 '), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
-    retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
+    retryPayload.value = null; content.value = ''; contentJson.value=null; files.value = []; replyTo.value = null; mentionIds.value = []
     if (viewingHistory.value) await search()
     merge([message]); await bottom(); await loadGroup()
   } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
@@ -440,7 +439,7 @@ async function cancelRetry() {
   try {
     const result = await request(props.projectId, `sent/${retryPayload.value.clientMessageId}`)
     if (result.message) {
-      merge([result.message]); content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
+      merge([result.message]); content.value = ''; contentJson.value=null; files.value = []; replyTo.value = null; mentionIds.value = []
       ElMessage.success('已确认上一条消息发送成功')
     }
     retryPayload.value = null; sendError.value = ''
@@ -468,7 +467,7 @@ onMounted(async () => {
   if (props.targetMessageId) await locate(props.targetMessageId)
   if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
 })
-const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,mentionIds:mentionIds.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
+const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,contentJson:contentJson.value,mentionIds:mentionIds.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;contentJson.value=data.contentJson||null;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => {
   window.removeEventListener('chat-topic-message-changed', topicChanged)
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
@@ -480,7 +479,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { recallDrafts, reeditMessage, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { recallDrafts, reeditMessage, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, contentJson, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

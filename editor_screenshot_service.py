@@ -143,7 +143,7 @@ def check_chat_reference(db,user,image_id,message_id,kind=None):
         kind='annotation' if message.annotation_project_id else 'direct' if message.direct_conversation_id else 'translation'
         project_id=message.annotation_project_id or message.direct_conversation_id or message.project_id
     require_member(db,kind,project_id,user)
-    if message.recalled_at or image_id not in valid_references(message.content):raise HTTPException(404,'截图不属于该消息')
+    if message.recalled_at or image_id not in (valid_references(message.content)|valid_references(getattr(message,'content_json',None))):raise HTTPException(404,'截图不属于该消息')
     if api_time(message.created_at)<=now()-timedelta(days=30):raise HTTPException(410,'聊天截图已超过30天保留期，文字记录仍保留')
 
 

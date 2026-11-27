@@ -71,9 +71,9 @@ def desktop_presence(payload: PresenceRequest, db=Depends(get_db), user=Depends(
 
 @router.get('/messages/search')
 def global_message_search(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
-                          limit: int = Query(30, ge=1, le=100), db=Depends(get_db), user=Depends(get_current_user)):
+                          limit: int = Query(30, ge=1, le=100), favorites_only: bool = False, db=Depends(get_db), user=Depends(get_current_user)):
     from chat_global_search import search_messages
-    return search_messages(db, user, keyword, offset=offset, limit=limit)
+    return search_messages(db, user, keyword, offset=offset, limit=limit, favorites_only=favorites_only)
 
 DIRECTORY_LIMIT = 1000
 RECENT_LIMIT = 8
@@ -105,6 +105,15 @@ def conversation_participants(kind: Literal['annotation', 'translation', 'discus
     eligible = [row for row in users if row.is_active and (discussion_chat_service.can_view_room(db, row, room) if kind == 'discussion' else annotation.can_view(db, row))]
     item = lambda row: dict(id=row.id, name=row.full_name or row.username)
     return dict(members=[item(row) for row in users if row.id in ids], eligible_users=[item(row) for row in eligible if row.id not in ids])
+
+
+@router.get('/conversations/{kind}/{conversation_id}/work-report-context')
+def conversation_work_report_context(kind: Literal['annotation','translation','discussion','direct'], conversation_id: UUID,
+                                     db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if not any(user_has_permission(db,user.id,permission) for permission in ('reports:read','reports:write')):
+        raise HTTPException(403,'没有工作报告权限')
+    from chat_project_views import work_report_context
+    return work_report_context(db,user,kind,conversation_id)
 
 
 @router.post('/conversations/{kind}/{conversation_id}/invitations')
@@ -391,6 +400,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
              project_status: str | None = None, project_id: UUID | None = None,
              sort: Literal['time_desc', 'time_asc', 'customer_asc', 'customer_desc'] = 'time_desc',
              mention_kind: Literal['personal', 'all'] | None = None,
+             sender_name: str | None = Query(None,max_length=255), include_senders: bool = False,
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if project_id is not None and project_type is None:
         raise HTTPException(422, '指定项目时必须同时指定项目类型')
@@ -399,7 +409,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
     if project_status and project_type == 'translation':
         raise HTTPException(422, '标注项目状态不能用于笔译项目')
     return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
-                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort, mention_kind=mention_kind)
+                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort, mention_kind=mention_kind, sender_name=sender_name, include_senders=include_senders)
 
 
 class PreferenceRequest(BaseModel):

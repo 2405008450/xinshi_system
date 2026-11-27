@@ -7,3 +7,9 @@ export function projectClientManagerPayload(form, baselineId, creating = false) 
     clientManagerChangeReason: String(form.clientManagerChangeReason || '').trim() || null,
   }
 }
+
+// 现客户经理只是详情中的姓名快照。旧表单即使把它混入请求，也不得触发旧版姓名/角色校验。
+export function interpretationProjectWritePayload(data) {
+  const { currentClientManager, current_client_manager, ...payload } = data
+  return payload
+}

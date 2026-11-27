@@ -416,6 +416,7 @@ def _project_source(project_type: str, project) -> dict:
         "client_short_name": getattr(client, "client_short_name", None) or getattr(project, "client_short_name", None),
         "manager_contact": getattr(client, "manager_contact", None),
         "customer_order_no": getattr(project, "customer_order_no", None),
+        "project_status": getattr(project, "project_status", None),
     }
     field_names = {
         "translation": ("service_content", "file_type_secondary", "language_pair", "customer_deadline_time", "priority", "customer_requirement_professional", "customer_requirement_special", "remarks"),
@@ -424,6 +425,8 @@ def _project_source(project_type: str, project) -> dict:
         "recruitment": ("position_title", "job_description", "headcount_min", "headcount_max", "employment_start", "employment_end", "work_location", "target_onboard_date", "service_fee_type", "service_fee_amount", "service_fee_rate", "service_fee_note"),
     }
     source.update({name: getattr(project, name, None) for name in field_names[project_type]})
+    if project_type in {'interpretation', 'annotation', 'recruitment'}:
+        source['project_path'] = getattr(project, 'file_path' if project_type == 'interpretation' else 'project_path', None)
     if project_type == "translation":
         sub_client = getattr(project, "sub_client", None)
         source.update({
@@ -664,6 +667,15 @@ def build_preview(
             ("报价单状态", values.get("quotation_status")),
             ("报价单路径", values.get("quotation_path")),
         )
+    else:
+        # 三类项目统一展示已登记的项目路径，不重新枚举本地或网络目录。
+        common += (("项目路径", values.get("project_path") or values.get("file_path")),)
+        if project_type=='interpretation' and values.get('project_status'):
+            from project_statistics import INTERPRETATION_STATUSES
+            status=values['project_status'];status_text=INTERPRETATION_STATUSES.get(status,status)
+            if status=='candidates_provided':
+                status_text+=f"（{len(getattr(project,'interpreter_assignments',[]) or [])}人）" if project_id else ''
+            common += (("项目状态",status_text),)
     lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value) and not (project_type == 'translation' and label == '客户经理联系方式')]
     if project_type == 'translation' and _clean(values.get('remarks')):
         position = 1 if order_no else 0
@@ -710,7 +722,14 @@ def build_preview(
             lines.extend(['',WARNING])
     else:
         subject = subject.removeprefix('（紧急）项目预告知：')
-    body = "\n".join(lines)
+    if project_type=='interpretation' and values.get('status_change_id'):
+        if not project_id:raise ValueError('状态通知需要已保存的项目')
+        from interpretation_status_notice import content
+        lines=[content(db,project_id,values['status_change_id'])]
+        subject=order_no+' · 项目状态更新'
+        missing=[]
+    from automatic_project_notice import mark_automatic
+    body = mark_automatic("\n".join(lines))
     recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     signature_html, signature_text = active_signature(
         get_user_mail_profile(db, current_user.id) if current_user is not None else None

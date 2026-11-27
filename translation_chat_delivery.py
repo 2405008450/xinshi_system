@@ -200,7 +200,7 @@ def send(db,actor,project_id,request_key,extra=(),mail_id=None):
     from discussion_chat_models import DiscussionMember,DiscussionMessage
     from sqlalchemy import text
     if db.get_bind().dialect.name=='postgresql':db.execute(text('SELECT pg_advisory_xact_lock(:key)'),{'key':int(day.strftime('%Y%m%d'))+81000000})
-    room=db.get(TranslationProjectConversation,(project_id,day))
+    room=db.query(TranslationProjectConversation).join(Category,Category.id==TranslationProjectConversation.room_id).filter(TranslationProjectConversation.project_id==project_id).order_by(TranslationProjectConversation.day).first()
     client=project.client
     client_name=(client.client_short_name or client.client_name) if client else '未填写客户'
     title=' · '.join([project.order_no,client_name,project.project_name])
@@ -223,7 +223,8 @@ def send(db,actor,project_id,request_key,extra=(),mail_id=None):
     for person in all_people:
         if str(person.id) in participant_ids and person.id not in existing:db.add(DiscussionMember(room_id=room.room_id,user_id=person.id,last_read_id=0,pinned=False,starred=False))
     db.flush()
-    content=subject+'\n\n'+body
+    from automatic_project_notice import mark_automatic
+    content=mark_automatic(subject+'\n\n'+body)
     # 讨论消息存 Text，完整保存正文，不截断；每次有独立 UUID 幂等键。
     message=DiscussionMessage(room_id=room.room_id,sender_id=actor.id,sender_name=actor.full_name or actor.username,client_message_id=request_key,content=content)
     db.add(message);db.flush()

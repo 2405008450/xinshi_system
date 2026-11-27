@@ -103,15 +103,16 @@ def test_interpretation_status_counts_shares_and_merge(environment, granularity)
     args = dict(start=date(2026,11,2), end=date(2026,11,8), granularity=granularity)
     result = report(db, 'interpretation', **args)
     row = result['periods'][0]
-    assert result['order_count'] == 8
-    assert row['order_count'] == sum(item['count'] for item in row['status_counts'].values()) == 8
-    assert all(item == {'count':1, 'share':12.5} for item in row['status_counts'].values())
+    assert result['order_count'] == 11
+    assert row['order_count'] == sum(item['count'] for item in row['status_counts'].values()) == 11
+    assert all(item == {'count':1, 'share':9.09} for item in row['status_counts'].values())
+    for key in ['candidates_provided','client_selected','client_changed']:assert row['status_counts'][key]['count']==1
     merged = report(db, 'interpretation', merge_deal_statuses=True, **args)
     values = merged['periods'][0]['status_counts']
-    assert values['deal_merged'] == {'count':4, 'share':50}
+    assert values['deal_merged'] == {'count':4, 'share':36.36}
     assert 'in_progress' not in values and 'ended' not in values
-    assert sum(item['count'] for item in values.values()) == 8
-    assert sum(item['share'] for item in values.values()) == 100
+    assert sum(item['count'] for item in values.values()) == 11
+    assert sum(item['share'] for item in values.values()) == pytest.approx(100,abs=.1)
 
 
 def test_all_dates_ignores_range_keeps_client_filter_and_unknown_status(environment):

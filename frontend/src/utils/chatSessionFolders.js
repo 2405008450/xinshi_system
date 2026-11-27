@@ -7,6 +7,7 @@ import { PROJECT_STATUS_OPTIONS, normalizeProjectStatus, getProjectStatusType } 
 export const annotationFolderId = defaults.find(row => row.ruleKey === 'annotation').id
 export const resourceFolderId = defaults.find(row => row.ruleKey === 'resource').id
 export const technicalFolderId = defaults.find(row => row.ruleKey === 'technical').id
+export const personalFollowingFolderId='personal:following'
 export const resourceDiscussionIds = defaults.filter(row => row.parentKey === resourceFolderId).map(row => row.id)
 
 const managementNames = {
@@ -55,7 +56,7 @@ export function sessionFolderNodes(items = [], { technicalAccess = false } = {})
     }))]
   })
   const builtinIds = new Set(defaults.map(row => row.id))
-  const custom = items.filter(row => !(!row.parentKey && ['通用标注','通用标注会话'].includes(row.name)) && !builtinIds.has(row.id) && (technicalAccess || row.name !== '技术/开发沟通')).map(row => ({ ...row, assignable: !row.builtin && row.assignable !== false }))
+  const custom = items.filter(row => !(!row.parentKey && ['通用标注','通用标注会话','关注','我的关注'].includes(row.name)) && !builtinIds.has(row.id) && (technicalAccess || row.name !== '技术/开发沟通')).map(row => ({ ...row, assignable: !row.builtin && row.assignable !== false }))
   const all = [...builtins, ...resourceNodes, ...statuses, ...custom].map(row=>row.isConversation && row.parentKey===resourceFolderId ? {...row,conversationIcon: /facebook|小红书/i.test(row.name)?'Promotion':({'平台讨论':'Grid','资源讨论':'UserFilled','企微管理':'ChatDotRound','发布需求':'Promotion','高校渠道':'School','其他渠道':'MoreFilled'})[row.name] || 'ChatDotRound'} : row)
   const roots = new Set(all.filter(row => row.active && !row.parentKey).map(row => row.id))
   const visible = new Set(roots)
@@ -65,6 +66,7 @@ export function sessionFolderNodes(items = [], { technicalAccess = false } = {})
 
 export function sessionMatchesFolder(session, id, nodes) {
   if (!id) return true
+  if(id==='personal:following')return !!session.starred
   const node = nodes.find(row => row.id === id)
   if (!node) return false
   const type = session.projectType || session.kind
@@ -82,13 +84,13 @@ export function sessionMatchesFolder(session, id, nodes) {
 }
 
 export function sessionFolderCount(sessions, id, nodes) {
-  return new Set(sessions.filter(row => (row.projectType || row.kind) !== 'direct' && sessionMatchesFolder(row, id, nodes)).map(sessionListKey)).size
+  return new Set(sessions.filter(row => (id===personalFollowingFolderId || (row.projectType || row.kind) !== 'direct') && sessionMatchesFolder(row, id, nodes)).map(sessionListKey)).size
 }
 
 export function sessionFolderMentionUnread(sessions, id, nodes) {
   const counts = new Map()
   for (const row of sessions) {
-    if ((row.projectType || row.kind) === 'direct' || !sessionMatchesFolder(row, id, nodes)) continue
+    if ((id!==personalFollowingFolderId && (row.projectType || row.kind) === 'direct') || !sessionMatchesFolder(row, id, nodes)) continue
     counts.set(row.key, Math.max(counts.get(row.key) || 0, Number(row.mentionUnread) || 0))
   }
   return [...counts.values()].reduce((sum, count) => sum + count, 0)

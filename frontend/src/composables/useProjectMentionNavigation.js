@@ -47,9 +47,19 @@ export function useProjectMentionNavigation(locate, cancelLocate) {
   async function move(direction) {
     if (query.loading.value || index.value < 0) return
     const version = selectionVersion
-    const target = index.value + direction
+    let target = index.value + direction
+    // 两端循环；跳到末条时补齐分页，不能把当前已加载页误作全部历史。
+    if (target < 0) {
+      while (query.hasMore.value && !query.error.value) {
+        const size = query.items.value.length
+        await query.loadMore()
+        if (version !== selectionVersion || query.items.value.length === size) return
+      }
+      target = query.items.value.length - 1
+    }
     if (target >= query.items.value.length && query.hasMore.value) await query.loadMore()
     if (version !== selectionVersion) return
+    if (target >= query.items.value.length && !query.hasMore.value) target = 0
     const item = query.items.value[target]
     if (item) await select(item)
   }

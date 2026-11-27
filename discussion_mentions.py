@@ -38,7 +38,9 @@ def recipients(db,user,room_id,payload):
     room=service.require_room(db,user,room_id)
     explicit=set(getattr(payload,'mentioned_user_ids',[]) or [])-{user.id}
     members={uid for uid, in db.query(Member.user_id).filter_by(room_id=room_id)}
-    requested=explicit|(members-{user.id} if getattr(payload,'mention_all',False) else set())
+    from chat_mention_recipients import manager_role_user_ids
+    managers=(members & manager_role_user_ids(db))-{user.id} if getattr(payload,'mention_managers',False) else set()
+    requested=explicit|managers|(members-{user.id} if getattr(payload,'mention_all',False) else set())
     people=eligible_users(db,room,requested) if requested else []
     if not explicit.issubset({person.id for person in people}):raise HTTPException(422,'被提及的用户不存在、已停用或没有会话权限')
     return people,members

@@ -3088,3 +3088,20 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 项目 `settlement` JSON 增加 `statement_required`、`invoice_requirement_override`、`document_notes`、`statement_subject_key`；沿用 `billing_month`、`period_number`。同期项目、对账单和发票按同一月份/期次筛选，结算对象决定采用客户或子客户名称和资料。账期设置走财务版本校验，修改后重新读取当前上下文。
 
 口译对账单工作区 `_oral_workspace.boards[].payment_registration` 保存单据独立付款（与项目 payment_registration 相同契约），使用工作区 revision 乐观锁和既有客户财务历史；按单内实际总价核对，行政确认元数据由服务端生成。新增期次不复制付款，查账追账对有效独立单据使用单据金额与付款，避免与源项目重复累计。未新建数据表。
+
+## 工作报告沟通接收记录（2026-11-27）
+
+`work_report_feedback_recipient`：`id` UUID 主键；`feedback_id` 外键关联 `work_report_feedback.id`（级联删除）；`user_id` 外键关联 `app_user.id`（级联删除）；`grants_access` 布尔值，显式选择接收范围时允许访问对应工作项沟通；`created_at` 为带时区的 UTC+8 接收记录时间。`feedback_id,user_id` 唯一，`user_id,feedback_id` 建查询索引。迁移入口：`tools/apply_work_report_feedback_recipients_migration.py`，幂等创建新表，启动自动迁移保持关闭。
+
+反馈的 `item_snapshot.feedback_recipients` 留存接收人 ID/姓名快照，`feedback_recipient_mode` 留存 default/all/departments/people 模式。全员、部门按发送时启用账号解析并去重，部门兼容主部门、跨部门及旧别名；报告作者始终同步收到。默认参与人不产生额外访问授权，规则撤回仍生效。显式接收人只可读取、回复对应工作项沟通，不因此获得报告正文、打卡、修订历史或其他工作项权限。接收记录与 `app_notification` 的 work_report_feedback 系统通知同事务保存，提交后推送，点击通知打开报告沟通。
+
+### chat_discussion_message_format（讨论消息文字格式）
+
+- `message_id`：主键，外键关联 `chat_discussion_message.id`，消息删除时级联删除。
+- `content_json`：JSONB，正文对应的白名单格式文档，仅允许文字颜色、高亮、加粗和指定颜色下划线；正文保持原表纯文本，查询与提及规则沿用。
+- 无创建/更新时间字段；附加格式随消息原发送事务原子写入，撤回后接口不返回格式。
+- 初始化：`tools/apply_chat_message_format_migration.py`，可重复执行，仅创建新表及必要主键/外键；常驻服务不自动迁移。
+
+口译人选状态复用 interpretation_project.project_status 字符串：candidates_provided（已提供人选）、client_selected（客户已定人选）、client_changed（客户改变人选）。译员安排与状态、既有状态历史在同一事务保存；assigned_interpreter_count 为接口计算属性，不新增列。项目会话续发按已有项目关联选择最早有效会话，日期只用于首次归档；复用既有发送记录与会话关联表，不新增表或修改历史数据。
+
+口译保存响应 status_change_id 为本次事务生成的既有状态历史ID，只在状态变化的响应中返回，普通读取不返回历史通知标记。状态会话与邮件预览引用该项目历史记录生成“项目状态+变更原因”，不包含原项目详情；status_change_reason 为写入态临时参数，存入既有历史 change_note，不新增字段或数据表。

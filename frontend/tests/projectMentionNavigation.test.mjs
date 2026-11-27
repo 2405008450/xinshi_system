@@ -44,8 +44,18 @@ test('项目内分页和双向跳转不扩大项目范围，重复选择仍定�
   await nav.move(-1); await nav.select(nav.model.items[49])
   assert.equal(located.slice(-2).join(','),'a-6,a-6')
   await nav.select(nav.model.items[54]); await nav.move(1)
+  assert.equal(nav.model.index,0)
+  await nav.move(-1)
   assert.equal(nav.model.index,54)
   nav.close(); assert.equal(nav.model.selectedId,'')
+})
+
+test('从第一条循环到最后一条时补齐尚未加载的历史页', async t => {
+ const rows=Array.from({length:121},(_,i)=>message('a',i+1))
+ const {nav}=harness(t,paging(rows))
+ await nav.latest(project('a'));assert.equal(nav.model.index,0)
+ await nav.move(-1);assert.equal(nav.model.index,120);assert.equal(nav.model.selectedId,'a-1')
+ await nav.move(1);assert.equal(nav.model.index,0)
 })
 
 test('刷新新增提及保留原消息锚点，撤回不自动跳到别条', async t => {

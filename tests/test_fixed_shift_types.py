@@ -82,7 +82,7 @@ def test_flexible_more_than_two_pairs_reserves_home_overtime_index(environment,m
     from chat_work_presence import work_presence
     from test_attendance import at
     presence=work_presence(db,[person],at('2026-10-26T14:30'))[str(person.id)]
-    assert presence['work_state']=='unknown' and presence['working_now'] is None
+    assert presence['work_state']=='flexible' and presence['working_now'] is None
 
 
 def test_management_times_and_home_rotation_remains_movable_published(environment,monkeypatch):

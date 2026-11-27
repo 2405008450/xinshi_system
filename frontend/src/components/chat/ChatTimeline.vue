@@ -15,8 +15,8 @@
           <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''" @contextmenu="messageMenu.open($event,message)" @keydown="messageMenu.openKeyboard($event,message)">
             <button v-if="message.reply" class="group-reply" @click.stop="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</button>
             <AnnotationCreationCard v-if="message.contentJson?.type==='annotation_creation'" :card="message.contentJson" :chat-message-id="message.id" />
-            <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" />
-            <p v-else-if="message.content" class="group-content" :class="{'has-references':message.reply || interactions.stats[message.id]?.replyCount}" :role="message.reply || interactions.stats[message.id]?.replyCount ? 'button' : undefined" :tabindex="message.reply || interactions.stats[message.id]?.replyCount ? 0 : undefined" @click="openReferences(message,$event)" @keydown.enter.stop="openReferences(message,$event)"><template v-for="(part, index) in mentionParts(message)" :key="index"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+            <ChatFormattedText v-else-if="screenshotIds(message.content).length" :message="message" :user-id="currentUserId" />
+            <p v-else-if="message.content" class="group-content" :class="{'has-references':message.reply || interactions.stats[message.id]?.replyCount}" :role="message.reply || interactions.stats[message.id]?.replyCount ? 'button' : undefined" :tabindex="message.reply || interactions.stats[message.id]?.replyCount ? 0 : undefined" @click="openReferences(message,$event)" @keydown.enter.stop="openReferences(message,$event)"><ChatFormattedText :message="message" :user-id="currentUserId" /></p>
             <el-tag v-if="message.topicPath" size="small" effect="plain" class="group-topic-label">{{ message.topicPath }}</el-tag>
             <div v-if="message.mentions?.some(m => !message.content?.includes(`@${m.mentionedUserName}`))" class="group-mentions">{{ message.mentions.filter(m => !message.content?.includes(`@${m.mentionedUserName}`)).map(m => `@${m.mentionedUserName}`).join(' ') }}</div>
             <div v-for="file in message.attachments" :key="file.id" class="group-file">
@@ -38,6 +38,7 @@
 <script setup>
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import { computed, inject, nextTick, ref } from 'vue'
+import ChatFormattedText from './ChatFormattedText.vue'
 import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
 import AnnotationCreationCard from './AnnotationCreationCard.vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'

@@ -2,7 +2,7 @@
   <el-popover title="通知"
     v-model:visible="popoverVisible"
     placement="bottom-end"
-    :width="360"
+    :width="620"
     trigger="click"
     popper-class="notification-popover"
     @show="handlePopoverShow"
@@ -65,10 +65,11 @@
         </el-button>
       </div>
 
-      <el-scrollbar max-height="360px">
-        <div v-if="notifications.length" class="notification-list">
+      <NotificationQueryFilters :feed="systemFeed" /><p v-if="systemFeed.error.value" role="alert">{{systemFeed.error.value}}</p>
+      <el-scrollbar max-height="300px" v-loading="systemFeed.loading.value">
+        <div v-if="systemFeed.items.value.length" class="notification-list">
           <button
-            v-for="item in notifications"
+            v-for="item in systemFeed.items.value"
             :key="item.id"
             class="notification-item"
             :class="{ 'notification-item--unread': !item.is_read }"
@@ -83,7 +84,7 @@
           </button>
         </div>
         <el-empty v-else description="暂无通知" :image-size="72" />
-      </el-scrollbar>
+      </el-scrollbar><el-pagination v-model:current-page="systemFeed.page.value" :page-size="systemFeed.pageSize.value" :total="systemFeed.total.value" layout="total,prev,pager,next" :pager-count="5" @current-change="systemFeed.pageChanged"/>
     </div>
   </el-popover>
   <ReceivedNotificationsDialog v-if="receivedVisible" :has-target="hasNotificationTarget" @close="receivedVisible=false" @open="openReceivedTarget" />
@@ -94,6 +95,9 @@
 </template>
 
 <script setup>
+import NotificationQueryFilters from './common/NotificationQueryFilters.vue'
+import {useChatRequestNotifications} from '@/composables/useChatRequestNotifications'
+const systemFeed=useChatRequestNotifications({channel:'system'})
 import { useDesktopHeartbeat } from '@/composables/useDesktopHeartbeat'
 useDesktopHeartbeat()
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -239,11 +243,12 @@ const projectNotificationRoutes = {
 }
 const workflowTargets = ['workflow_handover_pending', 'project_manager_handover_pending']
 const notificationEntityTargets = [
-  'meeting_invitation', 'meeting_receipt', 'meeting_task',
+  'meeting_invitation', 'meeting_task',
   'translation_simple_dispatch', 'translation_simple_dispatch_receipt',
   'translation_simple_requirement', 'translation_simple_requirement_receipt', 'resource_request_dispatch', 'chat_summary',
 ]
 function hasNotificationTarget(item) {
+  if(item.notification_type==='work_report_feedback'&&item.related_entity_id)return true
   if(['business_invoice_request','interpretation_invoice_request','invoice_request'].includes(item.related_project_type)&&item.related_entity_id)return true
   return item.category === 'administration' || workflowTargets.includes(item.notification_type) ||
     Boolean(item.related_project_id || (item.related_entity_id && (
@@ -264,8 +269,9 @@ async function openReceivedTarget(item) {
   }
 }
 const navigateToNotification = async (item) => {
+  if(item.notification_type==='work_report_feedback'&&item.related_entity_id){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'received-reports',reportFeedbackId:String(item.related_entity_id)}});return}
   if(item.notification_type==='meeting_task'){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'my-tasks'}});return}
-  if(['meeting_invitation','meeting_receipt','meeting_task'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;window.dispatchEvent(new CustomEvent('meeting-open',{detail:{meetingId:String(item.related_entity_id)}}));return}
+  if(['meeting_invitation','meeting_task'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;window.dispatchEvent(new CustomEvent('meeting-open',{detail:{meetingId:String(item.related_entity_id)}}));return}
   if(['business_invoice_request','interpretation_invoice_request'].includes(item.related_project_type)&&item.related_entity_id){popoverVisible.value=false;businessInvoiceRequestId.value=String(item.related_entity_id);return}
   if (item.related_project_type === 'invoice_request' && item.related_entity_id) {
     popoverVisible.value = false
@@ -367,7 +373,7 @@ const handleSocketNotification = (payload) => {
   displayIncomingNotification(notification)
 }
 
-const handlePopoverShow = () => {
+const handlePopoverShow = () => { systemFeed.pageChanged(); systemFeed.refreshOptions()
   syncDesktopNotificationState()
   loadNotifications()
   loadUnreadCount()
@@ -563,4 +569,4 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>.notification-panel__hint{margin:0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.6}</style>
-<style>.notification-popover{z-index:100001!important;max-width:calc(100vw - 32px)}</style>
+<style>.notification-popover{z-index:100001!important;max-width:calc(100vw - 32px)}.notification-popover .app-window-popover__body{max-height:calc(100vh - 130px);overflow-y:auto}.notification-popover .notification-panel__hint{margin:0}.notification-popover .notification-query-filters{gap:8px;margin:0}.notification-popover .notification-query-filters .el-select{width:145px}</style>

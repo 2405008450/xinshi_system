@@ -76,6 +76,32 @@ def test_confirm_persists_and_becomes_visible_only_after_success(environment, mo
         assert detail['report_date'] == day
         assert detail['shift']['label'] == '早班'
         assert shift_days[-1] == day
+        assert detail['clock_sessions']==[]
+        from attendance_models import AttendanceClockSession,AttendanceDay
+        from chat_time import BUSINESS_TIMEZONE
+        morning=datetime(2026,11,22,8,5,tzinfo=BUSINESS_TIMEZONE)
+        midday=datetime(2026,11,22,12,tzinfo=BUSINESS_TIMEZONE)
+        afternoon=datetime(2026,11,22,13,30,tzinfo=BUSINESS_TIMEZONE)
+        cross_day=datetime(2026,11,23,0,15,tzinfo=BUSINESS_TIMEZONE)
+        legacy=AttendanceDay(id=uuid4(),user_id=sender.id,day=day,check_in=morning,check_out=midday,shift_snapshot={})
+        db.add(legacy);db.commit()
+        assert len(access.received_report(db,viewer,saved.id)['clock_sessions'])==1
+        db.add_all([
+            AttendanceClockSession(id=uuid4(),user_id=sender.id,day=day,segment=0,check_in=morning,check_out=midday,shift_snapshot={},confirmations={}),
+            AttendanceClockSession(id=uuid4(),user_id=sender.id,day=day,segment=1,check_in=afternoon,check_out=cross_day,shift_snapshot={},confirmations={}),
+            AttendanceClockSession(id=uuid4(),user_id=sender.id,day=day,segment=2,check_in=cross_day,check_out=None,shift_snapshot={},confirmations={}),
+            AttendanceClockSession(id=uuid4(),user_id=owner.id,day=day,segment=0,check_in=morning,shift_snapshot={},confirmations={}),
+            AttendanceClockSession(id=uuid4(),user_id=sender.id,day=actual_save_time.date(),segment=0,check_in=actual_save_time,shift_snapshot={},confirmations={}),
+        ]);db.commit()
+        clocks=access.received_report(db,viewer,saved.id)['clock_sessions']
+        assert len(clocks)==3
+        assert clocks[0]['check_in']==morning
+        assert clocks[1]['check_out']==cross_day
+        assert clocks[2]['check_out'] is None
+        assert clocks[0]['check_in'].utcoffset().total_seconds()==28800
+        listed=access.received_reports(db,viewer,day,day,None,1,20)['items'][0]
+        assert listed['clock_in']==morning
+        assert listed['clock_available'] is True
         assert client.post(endpoint, json=payload).status_code == 409
         db.rollback()
         assert db.query(DailyReport).filter_by(user_id=sender.id, report_date=day).count() == 1

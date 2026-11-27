@@ -20,9 +20,10 @@ function setup(){
 const flush=async()=>{await Promise.resolve();await Promise.resolve();await Promise.resolve()}
 test('组合筛选传给服务端，未读徽标查询不带搜索条件',async()=>{
  const {feed,requests,counts}=setup()
- feed.filters.keyword='Alpha RR-007';feed.filters.notificationType='chat_summary';feed.filters.readStatus='unread';feed.page.value=4
+ feed.filters.keyword='Alpha RR-007';feed.filters.notificationType='chat_summary';feed.filters.readStatus='unread';feed.filters.senderUserId='sender';feed.filters.executionStatus='completed';feed.page.value=4
  const work=feed.query();assert.equal(requests[0].params.skip,0);assert.equal(requests[0].params.keyword,'Alpha RR-007');assert.equal(requests[0].params.read_status,'unread')
  assert.equal(counts[0].keyword,undefined);assert.equal(counts[0].notification_type,undefined)
+ assert.equal(requests[0].params.sender_user_id,'sender');assert.equal(requests[0].params.execution_status,'completed')
  requests[0].resolve({items:[{id:'one'}],total:1});await work
  assert.equal(feed.total.value,1);assert.equal(feed.unread.value,7)
 })

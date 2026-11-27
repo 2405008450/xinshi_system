@@ -30,12 +30,13 @@ export function captureRecallDraft(message, owner) {
   if (!message || String(message.senderUserId) !== String(owner) || message.recalledAt ||
       message.messageType && message.messageType !== 'user' ||
       !message.content?.trim() && !message.attachments?.length) return null
+  const managers=!!((message.metadata?.mentionManagers||message.metadata?.mention_managers)||message.mentions?.length&&message.content?.includes('@所有项目经理+客户经理'))
   const all = !!(message.metadata?.mentionAll || message.metadata?.mention_all || message.mentionAll)
   return JSON.parse(JSON.stringify({
     messageId: String(message.id), owner: String(owner), content: message.content || '',
     contentJson: message.contentJson || null,
-    mentions: all ? [] : (message.mentions || []).map(person => ({ id: String(person.mentionedUserId), name: person.mentionedUserName })),
-    mentionAll: all, replyTo: message.reply || null, attachmentCount: message.attachments?.length || 0,
+    mentions: all ? [] : (message.mentions || []).filter(person=>!managers||message.content.includes('@'+person.mentionedUserName+' ')).map(person => ({ id: String(person.mentionedUserId), name: person.mentionedUserName })),
+    mentionAll: all,mentionManagers:managers, replyTo: message.reply || null, attachmentCount: message.attachments?.length || 0,
   }))
 }
 
@@ -43,8 +44,8 @@ export function combineRecallDraft(current, recovered) {
   if (!recovered.content && recovered.attachmentCount && !recovered.files?.length) throw new Error('原附件暂存不可用，请重新添加附件')
   const content = [current.content, recovered.content].filter(Boolean).join(current.content && recovered.content ? '\n' : '')
   if (content.length > 10000) throw new Error('恢复后内容超过10000字，请先处理输入框中的草稿')
-  const mentionIds = [...new Set([...(current.mentionIds || []), ...recovered.mentions.map(person => person.id), ...(recovered.mentionAll ? ['__all__'] : [])])]
-  if (mentionIds.filter(id => id !== '__all__').length > 20) throw new Error('恢复后提及人数超过20人，请先处理输入框中的草稿')
+  const mentionIds = [...new Set([...(current.mentionIds || []), ...recovered.mentions.map(person => person.id), ...(recovered.mentionAll ? ['__all__'] : []),...(recovered.mentionManagers ? ['__managers__'] : [])])]
+  if (mentionIds.filter(id => !['__all__','__managers__'].includes(id)).length > 20) throw new Error('恢复后提及人数超过20人，请先处理输入框中的草稿')
   const document = (text, json) => json?.content || text.split('\n').map(line => ({ type: 'paragraph', ...(line ? { content: [{ type: 'text', text: line }] } : {}) }))
   return { content, mentionIds,
     contentJson: { type: 'doc', content: [...(current.content ? document(current.content, current.contentJson) : []), ...document(recovered.content, recovered.contentJson)] },
