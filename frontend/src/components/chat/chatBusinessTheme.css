@@ -1,0 +1,137 @@
+/* 会话区域专用配色：已确认的简约蓝白方案，侧栏同色深蓝主操作、分组彩色识别。 */
+.project-chat-dock {
+  --chat-navy: #213b54;
+  --chat-blue: #286ea7;
+  --chat-teal: #237e80;
+  --chat-line: #c9ddeb;
+  --color-primary: #286ea7;
+  --color-primary-hover: #225e90;
+  --color-primary-active: #1e507b;
+  --color-primary-soft: #deeeff;
+  --el-color-primary: #286ea7;
+  --el-color-primary-light-3: #6b9fca;
+  --el-color-primary-light-5: #98c0e1;
+  --el-color-primary-light-7: #c4dff4;
+  --el-color-primary-light-8: #d5e9fa;
+  --el-color-primary-light-9: #f4f9ff;
+  --el-color-primary-dark-2: #225e90;
+}
+
+body .project-chat-dock .chat-workspace__header,
+body .project-chat-dock .project-chat-window__header {
+  background: #f4f9ff;
+  border-bottom-color: #c9ddeb;
+  box-shadow: inset 0 3px 0 var(--chat-group-accent,#91b9dd);
+  color: #213b54;
+}
+body .project-chat-dock .chat-workspace__heading strong,
+body .project-chat-dock .project-chat-window__title-row strong { color: #213b54; }
+body .project-chat-dock .chat-workspace__rail { background: #e4f0fb; border-right-color: #c9ddeb; }
+body .project-chat-dock .chat-workspace__rail button { color: #2b608b; }
+body .project-chat-dock .chat-workspace__rail button:hover { background: #d8eafa; color: #224f76; }
+body .project-chat-dock .chat-workspace__rail button.is-active { background: #e1f1ff; color: #225e90; box-shadow: inset 3px 0 0 #49a5a6; }
+body .project-chat-dock .chat-workspace__user-avatar { background: #c9e0f4; color: #2b608b; border: 1px solid #b6d4ee; }
+body .project-chat-dock .chat-workspace__sessions { background: #ffffff; border-right-color: #c9ddeb; }
+body .project-chat-dock .chat-workspace__brand { color: #213b54; }
+body .project-chat-dock .chat-workspace__annotation-mode { padding: 3px; border-radius: 8px; background: #f6faff; }
+body .project-chat-dock .chat-workspace__annotation-mode button { border-color: transparent; background: transparent; color: #456f94; }
+body .project-chat-dock .chat-workspace__annotation-mode button.is-active { background: var(--color-sidebar, #1e293b); border-color: var(--color-sidebar, #1e293b); color: #fff; box-shadow: 0 2px 4px #1c344d14; }
+body .project-chat-dock .chat-workspace__recent-closed { background: #e6f2fd; border-bottom-color: #c9ddeb; }
+body .project-chat-dock .chat-workspace__recent-closed .el-button[aria-pressed="true"] { background: #d2eaff; color: #225e90; }
+body .project-chat-dock .chat-workspace__session { border: 1px solid transparent; }
+body .project-chat-dock .chat-workspace__session:hover { background: #e9f5ff; border-color: #cee5f7; }
+body .project-chat-dock .chat-workspace__session.is-pinned { background: #eaf4fd; }
+body .project-chat-dock .chat-workspace__session.is-active { background: var(--chat-group-soft,#edf5fc); border-color: var(--chat-group-accent,#91b9dd); box-shadow: inset 3px 0 0 var(--chat-group-accent,#91b9dd); }
+body .project-chat-dock .chat-workspace__session.is-active .chat-workspace__session-title strong { color: #213b54; }
+body .project-chat-dock .chat-workspace__session.has-unread-mention .chat-workspace__session-title strong { color: #b91c1c; }
+body .project-chat-dock .chat-workspace__avatar { background: #d9ecff; color: #286ea7; }
+body .project-chat-dock .chat-workspace__avatar--annotation { background: #e0f0ec; color: #286b61; }
+body .project-chat-dock .chat-workspace__avatar--direct { background: #e9e7f2; color: #685b8a; }
+body .project-chat-dock .chat-session-member-count { background: #e5f1fc; color: #567b9c; }
+body .project-chat-dock .chat-folder-tree__heading { color: #456f94; }
+body .project-chat-dock .chat-folder-tree__row.is-active { background: var(--chat-folder-soft,#edf5fc); border-color: var(--chat-folder-accent,#91b9dd); }
+body .project-chat-dock .chat-folder-tree__row:hover { background: #eaf5ff; }
+body .project-chat-dock .chat-folder-tree__toggle { color: #237e80; }
+body .project-chat-dock .chat-folder-tree__count { background: #f4f9ff; color: #3e709b; border-color: #c9ddeb; }
+body .project-chat-dock .chat-workspace__stage,
+body .project-chat-dock .annotation-group,
+body .project-chat-dock .discussion-chat { background: #f6faff; }
+body .project-chat-dock .chat-conversation-close-row { background: #e0effc; }
+body .project-chat-dock .group-composer,
+body .project-chat-dock .chat-composer--conversation,
+body .project-chat-dock .discussion-chat__composer {
+  background: #fff;
+  border-color: #bcd8ee;
+  box-shadow: 0 3px 12px #1c344d08;
+}
+body .project-chat-dock .group-composer:focus-within,
+body .project-chat-dock .chat-composer--conversation:focus-within,
+body .project-chat-dock .discussion-chat__composer:focus-within { border-color: #6b9ec7; box-shadow: 0 0 0 2px #e0f0ff; }
+body .project-chat-dock .discussion-chat__message.is-own .discussion-chat__bubble { background: #f4f9ff; border-color: #afd1ed; }
+body .project-chat-dock .chat-list-pagination { background: #edf6ff; border-top-color: #c9ddeb; }
+body .project-chat-dock .project-chat-task { background: #f0f8ff; border-color: #b5d5ef; color: #315f89; }
+body .project-chat-dock .project-chat-task:hover { background: #deeeff; }
+body .project-chat-dock .chat-workspace__heading>.el-tag,
+body .project-chat-dock .project-chat-window__title-row>.el-tag {
+  --el-tag-bg-color: var(--chat-group-soft,#edf5fc);
+  --el-tag-border-color: var(--chat-group-accent,#91b9dd);
+  --el-tag-text-color: var(--chat-group-ink,#315f89);
+}
+body .project-chat-dock .group-compose-footer .el-button--primary,
+body .project-chat-dock .chat-composer--conversation .el-button--primary,
+body .project-chat-dock .discussion-chat__footer .el-button--primary {
+  --el-button-bg-color: var(--color-sidebar, #1e293b);
+  --el-button-border-color: var(--color-sidebar, #1e293b);
+  --el-button-text-color: #fff;
+  --el-button-hover-bg-color: color-mix(in srgb, var(--color-sidebar, #1e293b) 86%, white);
+  --el-button-hover-border-color: color-mix(in srgb, var(--color-sidebar, #1e293b) 86%, white);
+  --el-button-hover-text-color: #fff;
+  --el-button-active-bg-color: var(--color-sidebar-deep, #0f172a);
+  --el-button-active-border-color: var(--color-sidebar-deep, #0f172a);
+  --el-button-disabled-bg-color: #929ba4;
+  --el-button-disabled-border-color: #929ba4;
+  --el-button-disabled-text-color: #fff;
+}
+/* 发送按钮直接着色，独立小窗和嵌入式会话使用同一颜色。 */
+body .chat-send-button.el-button:not(.is-disabled),
+body .project-chat-dock .group-compose-footer>.el-button--primary:not(.is-disabled),
+body .project-chat-dock .discussion-chat__footer>.el-button--primary:not(.is-disabled),
+body .project-chat-dock .chat-composer__input-row>.el-button--primary:not(.is-disabled),
+body .project-chat-dock .chat-composer__actions>.el-button--primary:not(.is-disabled) {
+  background-color: var(--color-sidebar, #1e293b);
+  border-color: var(--color-sidebar, #1e293b);
+  color: #fff;
+}
+body .chat-send-button.el-button:hover:not(.is-disabled),
+body .project-chat-dock .group-compose-footer>.el-button--primary:hover:not(.is-disabled),
+body .project-chat-dock .discussion-chat__footer>.el-button--primary:hover:not(.is-disabled),
+body .project-chat-dock .chat-composer__input-row>.el-button--primary:hover:not(.is-disabled),
+body .project-chat-dock .chat-composer__actions>.el-button--primary:hover:not(.is-disabled) {
+  background-color: color-mix(in srgb, var(--color-sidebar, #1e293b) 86%, white);
+  border-color: color-mix(in srgb, var(--color-sidebar, #1e293b) 86%, white);
+  color: #fff;
+}
+body .chat-send-button.el-button:active:not(.is-disabled),
+body .project-chat-dock .group-compose-footer>.el-button--primary:active:not(.is-disabled),
+body .project-chat-dock .discussion-chat__footer>.el-button--primary:active:not(.is-disabled),
+body .project-chat-dock .chat-composer__input-row>.el-button--primary:active:not(.is-disabled),
+body .project-chat-dock .chat-composer__actions>.el-button--primary:active:not(.is-disabled) {
+  background-color: var(--color-sidebar-deep, #0f172a);
+  border-color: var(--color-sidebar-deep, #0f172a);
+}
+/* 普通聊天正文加深；消息内部显式设置的红字、蓝字仍按原格式显示。 */
+body .project-chat-dock .group-content,
+body .project-chat-dock .discussion-chat__bubble>p,
+body .project-chat-dock .chat-bubble__text,
+body .project-chat-dock .chat-bubble .rich-content {
+  color: #111827;
+}
+body .project-chat-dock .chat-list-pagination .el-pager li.is-active {
+  background-color: var(--color-sidebar, #1e293b);
+  color: #fff;
+  border-radius: 5px;
+}
+body .project-chat-dock .chat-list-pagination .el-pager li.is-active:hover {
+  background-color: var(--color-sidebar, #1e293b);
+  color: #fff;
+}

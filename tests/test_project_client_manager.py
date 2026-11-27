@@ -74,7 +74,8 @@ def test_save_rollback_and_history_pagination(environment):
 
 
 @pytest.mark.parametrize('include_unchanged_manager',[False,True])
-def test_interpreter_save_preserves_active_manager_without_customer_role(environment,monkeypatch,include_unchanged_manager):
+@pytest.mark.parametrize('include_legacy_name',[False,True])
+def test_interpreter_save_preserves_active_manager_without_customer_role(environment,monkeypatch,include_unchanged_manager,include_legacy_name):
     """复现选好译员后保存：经理未调整时不按客户专员角色重新校验。"""
     from sqlalchemy import event
     from models import Base
@@ -93,6 +94,7 @@ def test_interpreter_save_preserves_active_manager_without_customer_role(environ
         project=service.create_interpretation_project(db,InterpretationProjectCreate(project_name='经理保存测试'),owner.id)
         values={'project_name':project.project_name,'interpreter_assignments':[{'translator_id':person.id}]}
         if include_unchanged_manager:values['client_manager_id']=owner.id
+        if include_legacy_name:values['current_client_manager']='历史姓名（无客户专员角色）'
         updated=service.update_interpretation_project(db,project.id,InterpretationProjectUpdate(**values),owner.id)
         assert updated.client_manager_id==owner.id
         assert updated.current_client_manager=='赵震锋'

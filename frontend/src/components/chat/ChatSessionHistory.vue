@@ -73,6 +73,7 @@ import { sessionUnreadSignal } from '@/utils/chatSessionList'
 const props = defineProps({
   keyword: String,
   revision: Number,
+  preferencesRevision: String,
   active: Boolean,
   mine: Boolean,
   sessions: { type: Array, default: () => [] },
@@ -120,7 +121,7 @@ async function load() {
   } catch (e) { if (version === generation && !current.signal.aborted) error.value = e.detail || e.message || '全部会话暂时无法加载' }
   finally { if (version === generation) loading.value = false }
 }
-watch(() => [props.keyword, props.revision, props.active, props.mine], () => { page.value = 1; total.value = 0; items.value = []; load() }, { immediate: true })
+watch(() => [props.keyword, props.revision, props.preferencesRevision, props.active, props.mine], () => { page.value = 1; total.value = 0; items.value = []; load() }, { immediate: true })
 onBeforeUnmount(() => { ++generation; controller?.abort() })
 </script>
 <style scoped>

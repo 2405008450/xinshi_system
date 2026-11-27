@@ -59,6 +59,31 @@ def test_send_idempotent_own_folder_all_members_policy_mentions_and_private_cont
         service.send(db,users[1],module,project.id,key)
 
 
+@pytest.mark.parametrize('module',['interpretation','annotation','recruitment'])
+def test_later_days_continue_in_original_order_conversation(delivery,monkeypatch,module):
+    from discussion_chat_models import DiscussionMessage
+    from annotation_progress_time import BUSINESS_TIMEZONE
+    db,users,projects,service=delivery
+    monkeypatch.setattr(service,'business_now',lambda:datetime(2026,11,26,10,tzinfo=BUSINESS_TIMEZONE))
+    first=service.send(db,users[0],module,projects[module].id,uuid4())
+    monkeypatch.setattr(service,'business_now',lambda:datetime(2026,11,30,10,tzinfo=BUSINESS_TIMEZONE))
+    second=service.send(db,users[0],module,projects[module].id,uuid4())
+    assert first['room_id']==second['room_id']
+    assert db.query(DiscussionMessage).count()==2
+    assert len({row.room_id for row in db.query(DiscussionMessage)})==1
+    assert all(row.content.count('【登记时自动发送】')==1 for row in db.query(DiscussionMessage))
+
+
+def test_provided_candidates_notify_project_client_manager(delivery):
+    from project_client_manager import apply
+    from discussion_chat_models import DiscussionMention
+    db,users,projects,service=delivery
+    project=projects['interpretation'];project.project_status='candidates_provided'
+    apply(db,'interpretation',project,users[2].id,'指定客户经理',users[0].id,creating=True);db.commit()
+    service.send(db,users[0],'interpretation',project.id,uuid4())
+    assert {row.user_id for row in db.query(DiscussionMention)}=={users[2].id}
+
+
 def test_interpretation_chat_uses_saved_remarks_near_top_without_contact(delivery, monkeypatch):
     import business_mail_service as mail
     from interpretation_models import InterpretationLanguage, InterpretationProjectTimeRange, InterpretationProjectLanguageDirection
@@ -66,6 +91,7 @@ def test_interpretation_chat_uses_saved_remarks_near_top_without_contact(deliver
     db, users, projects, service = delivery
     project = projects['interpretation']
     project.remarks = '会话中的重点补充说明'
+    project.file_path = r'\\server\项目资料\口译测试'
     project.project_types = ['business_escort']
     project.locations = ['广州']
     project.required_interpreter_count = 1
@@ -85,6 +111,7 @@ def test_interpretation_chat_uses_saved_remarks_near_top_without_contact(deliver
     for label in ['项目类型','订单号','项目名称','客户简称','口译类型']:
         assert not any(line.startswith(label+'：') for line in body.splitlines())
     assert content.count('会话中的重点补充说明') == 1
+    assert content.count('项目路径：'+project.file_path) == 1
     assert '13800001234' not in content
     assert '客户经理联系方式' not in content
 
@@ -154,7 +181,7 @@ def test_mail_link_only_after_smtp_success_full_body_and_idempotent_retry(delive
     mail.status='sent';db.commit()
     service.complete_mail_intent(db,mail,users[0]);service.complete_mail_intent(db,mail,users[0])
     assert db.query(DiscussionMessage).count()==1
-    assert db.query(DiscussionMessage).one().content=='项目邮件\n\n'+body
+    assert db.query(DiscussionMessage).one().content=='项目邮件\n\n'+body+'\n\n【登记时自动发送】'
     assert db.get(service.ProjectMailChatIntent,mail.id).error is None
 
 

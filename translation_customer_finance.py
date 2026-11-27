@@ -792,18 +792,18 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
             if uses_parent_settings:
                 node['invoice_requirement_override'] = document_defaults.get('invoice_required')
             node['invoice_required'] = invoice_required(node)
-            if method != 'special' or project.sub_client_id:
-                statement_default = (document_defaults.get('statement_required') if uses_parent_settings
-                                     else sub_finance.statement_required if sub_finance else
-                                     project.statement_required if getattr(project,'statement_required_explicit',False) else
-                                     document_defaults.get('statement_required'))
-                node['statement_required'] = (statement_default if statement_default is not None
-                                             else node.get('effective_billing_tax_mode') == 'incl_tax')
-                node['statement_required_explicit'] = False
-        if root['payment_method'] != 'special':
-            root['customer_document_sources']['statement_required'] = False
-        elif any(node['statement_required'] for node in nodes.values() if not node.get('fixed_pricing_from')):
-            root['has_statement_required_orders'] = True
+    # 对账单需求独立于计费税口径；完整详情及精简列表必须使用同一规则。
+    # 没有客户/子客户明确设置时，沿用单据默认值（客户类型、付款状态及项目设置）。
+    for node in nodes.values():
+        if method != 'special' or project.sub_client_id:
+            statement_default = (document_defaults.get('statement_required') if uses_parent_settings
+                                 else sub_finance.statement_required if sub_finance else
+                                 project.statement_required if getattr(project,'statement_required_explicit',False) else
+                                 document_defaults.get('statement_required'))
+            if statement_default is not None:
+                node['statement_required'] = bool(statement_default)
+    if root['payment_method']=='special' and any(node['statement_required'] for node in nodes.values() if not node.get('fixed_pricing_from')):
+        root['has_statement_required_orders'] = True
     # 已实际形成对账单的项目/子订单，不再被客户默认值或税口径显示为“不需”。
     for node in nodes.values():
         if node.get('statement_status'):
@@ -2221,8 +2221,12 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
     attach_customer_types(db,[project])
     documents.attach(db,[project])
     attach_monthly_payment_peers(db,[project])
+    before=bool(project.statement_required)
+    # 保存前值必须与价格与付款窗口的 GET 响应一致。单独 attach 只处理
+    # 客户类型/单据默认值，尚未应用客户结算主体和已有账单归属。
+    # 两套推导结果不能作为彼此的乐观锁基线，否则未发生修改也会误报 409。
+    current=read(db,project.id)['item']
     if project.sub_client_id and project.settlement_party != 'client':
-        current=read(db,project.id)['item']
         if current['statement_required'] != payload.expected_statement_required:
             raise HTTPException(409,'子客户对账单设置已更新，请刷新后重试')
         sub_client_finance.write(db,project.sub_client_id,{'statement_required':payload.statement_required},user.id)
@@ -2230,9 +2234,9 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
         return {'id':str(project.id),'statement_required':payload.statement_required,'payment_method':payment_method(project),
                 'updated_at':business_datetime(project.updated_at).isoformat() if project.updated_at else None,
                 'affected_count':1}
-    before=bool(project.statement_required)
+    effective_before=bool(current['statement_required'])
     previous_updated_at=business_datetime(project.updated_at).isoformat() if project.updated_at else None
-    if before!=payload.expected_statement_required:raise HTTPException(409,'是否需对账单已被其他人修改，请刷新后重试')
+    if effective_before!=payload.expected_statement_required:raise HTTPException(409,'是否需对账单的当前设置已变化，请重新打开价格与付款后重试')
     try:
         scope = payload.statement_sync
         if payload.copy_to_same_month:

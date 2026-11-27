@@ -15,8 +15,8 @@ export function projectMentionOrder(users, project) {
     const id = String(user.id)
     if (seen.has(id)) return false
     seen.add(id); return true
-  }).map((user, index) => ({ ...user, index, rank: user.outside ? 4 : (ranks.get(String(user.id))?.rank ?? (user.all ? 2 : 3)),
-    mentionSection: user.outside ? '群外人员 · 发送后邀请入群' : (ranks.get(String(user.id))?.section || (user.all ? '群组提醒' : '本群成员')),
+  }).map((user, index) => ({ ...user, index, rank: user.outside ? 4 : (ranks.get(String(user.id))?.rank ?? ((user.all || user.managerGroup) ? 2 : 3)),
+    mentionSection: user.outside ? '群外人员 · 发送后邀请入群' : (ranks.get(String(user.id))?.section || ((user.all || user.managerGroup) ? '群组提醒' : '本群成员')),
   })).sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ rank, index, ...user }) => user)
 }

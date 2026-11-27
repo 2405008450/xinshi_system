@@ -88,8 +88,7 @@ with sync_playwright() as pw:
  descriptions=page.locator('.report-snapshot > .el-descriptions')
  expect(descriptions).to_contain_text('报告日期')
  expect(descriptions).to_contain_text('2026-11-22')
- expect(descriptions).to_contain_text('最近保存时间')
- expect(descriptions).to_contain_text('2026/11/25 09:15:00')
+ expect(descriptions).not_to_contain_text('最近保存时间')
  expect(descriptions).to_contain_text('提交时间')
  expect(descriptions).to_contain_text('2026/11/25 09:16:00')
  assert not errors,errors

@@ -64,7 +64,7 @@
                 />
               </el-form-item>
               <el-form-item class="chat-filter-bar__favorite">
-                <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+                <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">消息收藏</el-checkbox>
               </el-form-item>
               <el-form-item class="chat-filter-bar__actions">
                 <el-button @click="handleResetSearch">重置</el-button>
@@ -118,7 +118,7 @@
           />
         </el-form-item>
         <el-form-item class="chat-filter-bar__favorite">
-          <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+          <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">消息收藏</el-checkbox>
         </el-form-item>
         <el-form-item class="chat-filter-bar__actions">
           <el-button @click="handleResetSearch">重置</el-button>
@@ -194,7 +194,7 @@
                         @cancel="cancelEditMessage"
                       />
                       <template v-else>
-                        <div><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
+                      <div><div v-if="textOnly" class="chat-bubble__text"><ChatFormattedText :message="item.message" /></div>
                         <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
                         <span v-if="item.message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(item.message.editedAt)}`">已编辑</span>
                       </template>
@@ -255,7 +255,7 @@
             />
           </el-form-item>
           <el-form-item class="chat-filter-bar__favorite">
-            <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+            <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">消息收藏</el-checkbox>
           </el-form-item>
           <el-form-item class="chat-filter-bar__actions">
             <el-button type="primary" @click="handleSearch">查询</el-button>
@@ -329,7 +329,7 @@
                 <div
                   v-if="textOnly"
                   class="chat-message-card__content"
-                ><ScreenshotText :text="message.content" :chat-message-id="message.id" /></div>
+                ><ChatFormattedText :message="message" /></div>
                 <ScreenshotText v-else-if="screenshotIds(message.content).length && !richTextHasImages(message.contentJson)" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" :chat-message-id="message.id" />
                 <span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span>
               </template>
@@ -438,7 +438,7 @@
               show-word-limit
               placeholder="输入项目沟通内容…"
             />
-            <RichTextComposer ref="richComposerRef" chat-screenshots
+            <RichTextComposer ref="richComposerRef" chat-screenshots format-colors
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -448,6 +448,7 @@
             />
             <div class="chat-composer__actions">
               <el-button
+                class="chat-send-button"
                 type="primary"
                 :loading="sending"
                 :disabled="sending || imagesBlocked || (!composer.content.trim() && !pendingImages.length)"
@@ -481,6 +482,7 @@
             <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending" @click="ensureUsersLoaded(); mentionPopoverVisible = true">@</el-button>
             <ChatImageAttachments :items="[]" :disabled="sending" tools-only @add="addComposerImages" />
             <el-button v-if="!textOnly" text size="small" :class="{ 'is-active': richFormatToolbarVisible }" aria-label="富文本格式工具栏" title="展开或收起富文本格式工具栏" :disabled="sending" @click="richFormatToolbarVisible = !richFormatToolbarVisible">Aa</el-button>
+            <ChatFormattingToolbar v-if="textOnly" v-model="composer.contentJson" :text="composer.content" :input="composerInputRef" :disabled="sending" />
           </div>
           <div class="chat-composer__input-row">
             <el-popover
@@ -531,7 +533,7 @@
               @compositionend="handleComposerCompositionEnd"
               @keydown="handleComposerKeydown"
             />
-            <RichTextComposer ref="richComposerRef" chat-screenshots
+            <RichTextComposer ref="richComposerRef" chat-screenshots format-colors
               v-else
               :class="{ 'rich-editor--compact-chat': !richFormatToolbarVisible }"
               v-model="composer.contentJson"
@@ -542,6 +544,7 @@
               @uploading-change="composerScreenshotUploading = $event"
             />
             <el-button
+              class="chat-send-button"
               type="primary"
               :loading="sending"
               :disabled="sending || imagesBlocked || (!composer.content.trim() && !pendingImages.length)"
@@ -583,6 +586,8 @@ import { combineRecallDraft } from '@/utils/recallDrafts'
 import { mentionAudience } from '@/utils/mentionAudience'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
+import ChatFormattingToolbar from '@/components/chat/ChatFormattingToolbar.vue'
+import ChatFormattedText from '@/components/chat/ChatFormattedText.vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { editScreenshotText, screenshotIds } from '@/utils/screenshotReferences'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
@@ -729,10 +734,15 @@ const mentionUserGroups = computed(() => {
     userOptions.value.filter(user => !memberUserIds.value.includes(String(user.id))),
     { query: mentionSearchQuery.value, expanded: showExternalMentions.value, currentUserId, selected: composer.mentionedUserIds },
   )
+  const managerGroup = { id: '__managers__', full_name: '所有项目经理+客户经理', managerGroup: true }
+  if (managerGroup.full_name.includes(mentionSearchQuery.value.trim()) || composer.mentionedUserIds.includes(managerGroup.id)) {
+    const allIndex = users.findIndex(user => user.all)
+    users.splice(allIndex + 1, 0, managerGroup)
+  }
   const ordered = projectMentionOrder(users, props.projectType === 'annotation' ? mentionProject.value : null)
   const groups = new Map()
   for (const user of ordered) {
-    const label = user.mentionSection || (user.all ? '群组提醒' : user.outside ? '群外人员 · 发送后邀请入群' : '本群成员')
+    const label = user.mentionSection || (user.all || user.managerGroup ? '群组提醒' : user.outside ? '群外人员 · 发送后邀请入群' : '本群成员')
     if (!groups.has(label)) groups.set(label, { label, users: [] })
     groups.get(label).users.push(user)
   }
@@ -978,7 +988,7 @@ const handleRealtimeChatMessageEdited = (event) => {
 const messageMenuHandlers = {
   edit: startEditMessage,
   recall: async message=>{
-    try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});await recallDrafts.remember(message, file=>getProjectChatAttachmentBlob(file.id));Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
+    try{await recallDrafts.remember(message, file=>getProjectChatAttachmentBlob(file.id));Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
     catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'撤回失败')}
   },
   reply: message=>startMessageReply(message),
@@ -1331,6 +1341,7 @@ const returnToLatest = async () => {
 
 const userNameById = (userId) => {
   if(userId==='__all__')return '所有人'
+  if(userId==='__managers__')return '所有项目经理+客户经理'
   const user = userOptions.value.find(item => String(item.id) === String(userId))
   return user ? (user.full_name || user.username) : '未知用户'
 }
@@ -1618,17 +1629,21 @@ const handleSend = async () => {
     const payload = props.textOnly
       ? {
           content: composer.content.trim(),
-          mentionedUserIds: composer.mentionedUserIds.filter(id=>id!=='__all__'),
+          contentJson:composer.contentJson,
+          mentionedUserIds: composer.mentionedUserIds.filter(id=>!['__all__','__managers__'].includes(id)),
           mentionAll:composer.mentionedUserIds.includes('__all__'),
+          mentionManagers:composer.mentionedUserIds.includes('__managers__'),
           ...(attachmentsEnabled.value ? { attachmentIds: pendingImages.map(item => item.attachment.id) } : {})
         }
       : {
           content: composer.content.trim(),
           contentJson: composer.contentJson,
-          mentionedUserIds: composer.mentionedUserIds.filter(id=>id!=='__all__'),
+          mentionedUserIds: composer.mentionedUserIds.filter(id=>!['__all__','__managers__'].includes(id)),
           mentionAll:composer.mentionedUserIds.includes('__all__'),
+          mentionManagers:composer.mentionedUserIds.includes('__managers__'),
           attachmentIds: pendingImages.map(item => item.attachment.id)
         }
+    if(payload.mentionManagers&&!payload.content.includes('@所有项目经理+客户经理')){payload.content='@所有项目经理+客户经理 '+payload.content;if(payload.contentJson)payload.contentJson={...payload.contentJson,content:[{type:'paragraph',content:[{type:'text',text:'@所有项目经理+客户经理'}]},...(payload.contentJson.content||[])]}}
     if(payload.mentionAll&&!payload.content.includes('@所有人')){payload.content='@所有人 '+payload.content;if(payload.contentJson)payload.contentJson={...payload.contentJson,content:[{type:'paragraph',content:[{type:'text',text:'@所有人'}]},...(payload.contentJson.content||[])]}}
     payload.replyToMessageId = replyToMessage.value?.id || null
     const fingerprint = JSON.stringify(payload)
@@ -1739,9 +1754,9 @@ const handleFavoriteToggle = async (message) => {
     if (filters.favoritesOnly && !message.isFavorited) {
       await loadMessages()
     }
-    ElMessage.success(message.isFavorited ? '已收藏，仅自己可见' : '已取消收藏')
+    ElMessage.success(message.isFavorited ? '已加入消息收藏，仅自己可见' : '已取消消息收藏')
   } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, nextFavorited ? '收藏消息失败' : '取消收藏失败'))
+    ElMessage.error(getLocalizedErrorMessage(error, nextFavorited ? '消息收藏失败' : '取消消息收藏失败'))
   } finally {
     const pending = new Set(favoriteSavingIds.value)
     pending.delete(message.id)

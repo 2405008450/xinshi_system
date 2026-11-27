@@ -52,6 +52,18 @@ def test_date_folder_full_title_all_members_idempotency_and_resending(chat_case)
     assert db.query(service.TranslationProjectConversation).count()==1
 
 
+def test_later_day_reuses_first_conversation_and_keeps_single_notice_marker(chat_case,monkeypatch):
+    from discussion_chat_models import DiscussionMessage
+    db,actor,staff,root,service=chat_case
+    first=service.send(db,actor,root.id,uuid4())
+    monkeypatch.setattr(service,'business_now',lambda:datetime(2026,11,30,10,tzinfo=ZoneInfo('Asia/Shanghai')))
+    second=service.send(db,actor,root.id,uuid4())
+    assert first['room_id']==second['room_id']
+    assert db.query(service.TranslationProjectConversation).count()==1
+    assert db.query(DiscussionMessage).count()==2
+    assert all(row.content.count('【登记时自动发送】')==1 for row in db.query(DiscussionMessage))
+
+
 def test_project_supplementary_notes_after_order_number_before_project_type_in_mail_and_chat(chat_case):
     import business_mail_service as mail
     from discussion_chat_models import DiscussionMessage
@@ -264,7 +276,7 @@ def test_full_email_body_is_preserved_and_failed_mail_never_dispatches(chat_case
     db.add(mail);db.flush()
     db.add(service.TranslationMailChatIntent(mail_id=mail.id,audience=[]));db.commit()
     service.complete_mail_intent(db,mail,actor)
-    assert db.query(DiscussionMessage).one().content=='测试主题\n\n'+body
+    assert db.query(DiscussionMessage).one().content=='测试主题\n\n'+body+'\n\n【登记时自动发送】'
     assert mail.subject=='测试主题，33批'
     service.complete_mail_intent(db,mail,actor)
     assert db.query(DiscussionMessage).count()==1

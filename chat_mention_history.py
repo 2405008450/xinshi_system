@@ -231,7 +231,7 @@ def list_mention_senders(db, user, *, keyword='', project_type=None, project_sta
     )
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None, sender_id=None):
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None, sender_id=None, sender_name=None, include_senders=False):
     import base64,json
     from datetime import datetime
     from uuid import UUID
@@ -250,6 +250,12 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
     query=db.query(table)
     if mention_kind is not None:
         query = query.filter(table.c.mention_all.is_(mention_kind == 'all'))
+    # 发送人数量以全部匹配消息统计，不能仅统计第一页；切换人员不改变其他人员按钮。
+    senders=[dict(name=name or '未知发送人',count=count,unread=int(unread or 0)) for name,count,unread in query.with_entities(
+        table.c.sender_name,func.count(),func.sum(case((table.c.unread,1),else_=0))).group_by(table.c.sender_name).order_by(
+        func.sum(case((table.c.unread,1),else_=0)).desc(),func.count().desc(),table.c.sender_name).all()] if include_senders else senders
+    if sender_name is not None:
+        query=query.filter(table.c.sender_name==sender_name)
     if sender_id is not None:
         sender_uuid = sender_id if isinstance(sender_id, UUID) else UUID(str(sender_id))
         query = query.filter(table.c.sender_id.in_([str(sender_uuid), sender_uuid.hex]))

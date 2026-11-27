@@ -4,12 +4,13 @@
       <el-button text size="small" aria-label="提及讨论人员" title="提及用户" :disabled="disabled" @click="insert">@</el-button>
       <el-upload :auto-upload="false" :show-file-list="false" multiple accept="image/jpeg,image/png,image/gif,image/webp" :disabled="disabled || uploading" :on-change="chooseFile"><el-button text size="small" :icon="Picture" aria-label="发送图片" title="发送图片" :disabled="disabled || uploading" /></el-upload>
       <el-upload :auto-upload="false" :show-file-list="false" multiple :disabled="disabled || uploading" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" aria-label="发送文件" title="发送文件" :disabled="disabled || uploading" /></el-upload>
+      <ChatFormattingToolbar :model-value="contentJson" :text="modelValue" :input="field" :disabled="disabled" @update:model-value="emit('update:contentJson',$event)" />
       <span v-if="uploading">附件上传中…</span>
     </div>
     <DiscussionFileReferences :text="modelValue" :room-id="roomId" removable @remove="removeFile" />
     <el-input ref="field" :model-value="textValue" type="textarea" :rows="3" resize="none" hide-screenshot-tools :screenshot-limit="9 - fileCount" maxlength="10000" placeholder="输入讨论消息，@ 提及人员或所有人" :disabled="disabled" @update:model-value="updateText" @uploading-change="value => { imageUploading = value; emit('uploading-change', value || uploading) }" @input="changed" @click="changed" @keydown="keydown" @compositionstart="composing=true;open=false" @compositionend="composing=false;changed()" @blur="open=false" />
     <div v-if="open" class="discussion-mention-menu" role="listbox" aria-label="选择讨论提及人员" @mousedown.prevent>
-      <p>@所有人仅提醒当前会话成员</p><template v-for="(person,index) in candidates" :key="person.id"><div v-if="!index || !!person.outside !== !!candidates[index-1].outside" class="discussion-mention-section" :class="{'is-outside':person.outside}">{{ person.outside ? '群外人员 · 发送后邀请入群' : '本群成员' }}</div><button type="button" role="option" :aria-selected="index===selected" :class="{'is-active':index===selected}" @mouseenter="selected=index" @click="choose(person)"><span>{{person.name}}</span><small v-if="person.all">当前会话所有人</small><small v-if="person.outside">发送后邀请入群</small><ChatDesktopPresence v-if="!person.all" :online="presence[person.id]" :loading="presenceLoading" /></button></template><button v-if="users.some(person=>person.outside) && !query.trim()" type="button" class="discussion-mention-expand" @click="showExternal=!showExternal;selected=0">{{ showExternal ? '仅显示本群成员' : '显示群外人员' }}</button><small v-if="!candidates.length">没有匹配的人员</small>
+      <p>@所有人仅提醒当前会话成员</p><template v-for="(person,index) in candidates" :key="person.id"><div v-if="!index || !!person.outside !== !!candidates[index-1].outside" class="discussion-mention-section" :class="{'is-outside':person.outside}">{{ person.outside ? '群外人员 · 发送后邀请入群' : '本群成员' }}</div><button type="button" role="option" :aria-selected="index===selected" :class="{'is-active':index===selected}" @mouseenter="selected=index" @click="choose(person)"><span>{{person.name}}</span><small v-if="person.all">当前会话所有人</small><small v-if="person.outside">发送后邀请入群</small><ChatDesktopPresence v-if="!person.all && !person.managerGroup" :online="presence[person.id]" :loading="presenceLoading" /></button></template><button v-if="users.some(person=>person.outside) && !query.trim()" type="button" class="discussion-mention-expand" @click="showExternal=!showExternal;selected=0">{{ showExternal ? '仅显示本群成员' : '显示群外人员' }}</button><small v-if="!candidates.length">没有匹配的人员</small>
     </div>
   </div>
 </template>
@@ -17,14 +18,15 @@
 import {computed,nextTick,ref,watch} from 'vue'
 import { Picture, Paperclip } from '@element-plus/icons-vue'
 import api from '@/api'
+import ChatFormattingToolbar from './ChatFormattingToolbar.vue'
 import DiscussionFileReferences from './DiscussionFileReferences.vue'
 import {ElMessage} from 'element-plus'
 import ChatDesktopPresence from './ChatDesktopPresence.vue'
 import {useDesktopPresence} from '@/composables/useDesktopPresence'
 import {editScreenshotText,screenshotEditorText} from '@/utils/screenshotReferences'
 import {mentionAudience} from '@/utils/mentionAudience'
-const props=defineProps({modelValue:{type:String,default:''},users:{type:Array,default:()=>[]},disabled:Boolean,roomId:String,selectedUsers:{type:Array,default:()=>[]}})
-const emit=defineEmits(['update:modelValue','selection','send','uploading-change','mention-open'])
+const props=defineProps({modelValue:{type:String,default:''},users:{type:Array,default:()=>[]},disabled:Boolean,roomId:String,contentJson:Object,selectedUsers:{type:Array,default:()=>[]}})
+const emit=defineEmits(['update:modelValue','update:contentJson','selection','send','uploading-change','mention-open'])
 const field=ref(),open=ref(false),query=ref(''),selected=ref(0),composing=ref(false),chosen=ref([...props.selectedUsers])
 const uploading=ref(false), imageUploading=ref(false)
 const filePattern=/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi
@@ -48,18 +50,19 @@ watch(open, value=>{if(!value)showExternal.value=false})
 const current=localStorage.getItem('user_id')||''
 let trigger=-1
 const mentioned=(text,name)=>{const token=`@${name}`;for(let at=text.indexOf(token);at>=0;at=text.indexOf(token,at+1)){if(!/^[\p{L}\p{N}_]/u.test(text.slice(at+token.length,at+token.length+1)))return true}return false}
-const candidates=computed(()=>mentionAudience(props.users.filter(person=>!person.outside),props.users.filter(person=>person.outside),{query:query.value,expanded:showExternal.value,currentUserId:current}))
-const {statuses:presence,loading:presenceLoading}=useDesktopPresence(computed(()=>candidates.value.filter(person=>!person.all).map(person=>person.id)),open)
+const managerGroup = {id:'__managers__',name:'所有项目经理+客户经理',managerGroup:true}
+const candidates=computed(()=>[...(managerGroup.name.includes(query.value) ? [managerGroup] : []), ...mentionAudience(props.users.filter(person=>!person.outside),props.users.filter(person=>person.outside),{query:query.value,expanded:showExternal.value,currentUserId:current})])
+const {statuses:presence,workStatuses,loading:presenceLoading}=useDesktopPresence(computed(()=>candidates.value.filter(person=>!person.all&&!person.managerGroup).map(person=>person.id)),open)
 watch([()=>props.selectedUsers,()=>props.modelValue],([selectedUsers,value])=>{
   // 文本与外部选人状态同一轮更新；保留本控件刚选中的人员，避免互相覆盖。
   const people=[...new Map([...selectedUsers,...chosen.value].map(person=>[person.id,person])).values()]
   const valid=value?people.filter(person=>mentioned(value,person.name)):[]
   chosen.value=valid
-  if(valid.length===selectedUsers.length&&valid.every((person,index)=>person.id===selectedUsers[index].id&&person.name===selectedUsers[index].name&&!!person.all===!!selectedUsers[index].all))return
-  emit('selection',{mentionedUserIds:valid.filter(person=>!person.all).map(person=>person.id),mentionAll:valid.some(person=>person.all),selectedUsers:valid})
+  if(valid.length===selectedUsers.length&&valid.every((person,index)=>person.id===selectedUsers[index].id&&person.name===selectedUsers[index].name&&!!person.all===!!selectedUsers[index].all&&!!person.managerGroup===!!selectedUsers[index].managerGroup))return
+  emit('selection',{mentionManagers:valid.some(person=>person.managerGroup),mentionedUserIds:valid.filter(person=>!person.all&&!person.managerGroup).map(person=>person.id),mentionAll:valid.some(person=>person.all),selectedUsers:valid})
 },{flush:'post'})
 async function changed(){if(composing.value)return;await nextTick();const input=field.value?.textarea;if(!input)return;const cursor=input.selectionStart;const match=input.value.slice(0,cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u);if(!match||input.selectionStart!==input.selectionEnd){open.value=false;return}trigger=cursor-match[1].length-1;query.value=match[1];selected.value=0;if(!open.value)emit('mention-open');open.value=true}
-async function choose(person){if(trigger<0)return;if(!person.all&&!chosen.value.some(value=>value.id===person.id)&&chosen.value.filter(value=>!value.all).length>=20){ElMessage.warning('每条消息最多提及20人');return}const input=field.value.textarea;const token=`@${person.name} `;const end=trigger+token.length;if(!chosen.value.some(value=>value.id===person.id))chosen.value.push(person);updateText(editScreenshotText(textValue.value,trigger,input.selectionStart,token));open.value=false;await nextTick();field.value.focus();input.setSelectionRange(end,end)}
+async function choose(person){if(trigger<0)return;if(!person.all&&!person.managerGroup&&!chosen.value.some(value=>value.id===person.id)&&chosen.value.filter(value=>!value.all&&!value.managerGroup).length>=20){ElMessage.warning('每条消息最多提及20人');return}const input=field.value.textarea;const token=`@${person.name} `;const end=trigger+token.length;if(!chosen.value.some(value=>value.id===person.id))chosen.value.push(person);updateText(editScreenshotText(textValue.value,trigger,input.selectionStart,token));open.value=false;await nextTick();field.value.focus();input.setSelectionRange(end,end)}
 async function insert(){const input=field.value?.textarea;const visible=input?.value??screenshotEditorText(textValue.value),start=input?.selectionStart??visible.length,end=input?.selectionEnd??start;const token=(start&&!/\s$/.test(visible.slice(0,start))?' ':'')+'@';updateText(editScreenshotText(textValue.value,start,end,token));await nextTick();field.value?.focus();input?.setSelectionRange(start+token.length,start+token.length);changed()}
 function keydown(event){if((uploading.value || imageUploading.value) && event.key==='Enter' && !event.shiftKey){event.preventDefault();return;}if(event.isComposing||composing.value||event.keyCode===229)return;if(open.value){if(event.key==='Escape'){event.preventDefault();event.stopPropagation();open.value=false;return}if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();selected.value=(selected.value+(event.key==='ArrowDown'?1:-1)+candidates.value.length)%Math.max(1,candidates.value.length);return}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();if(candidates.value[selected.value])choose(candidates.value[selected.value]);return}}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();emit('send')}}
 defineExpose({focus:()=>field.value?.focus()})

@@ -5,7 +5,7 @@ export const CHAT_NOTIFICATION_TYPES = [
 ]
 const notificationType = item => String(item?.notification_type || '').trim().toLowerCase()
 export const isChatNotification = item => /(^|_)chat(_|$)/.test(notificationType(item)) && !CONVERSATION_NOTIFICATION_TYPES.includes(notificationType(item))
-export const isBusinessNotification = item => !isChatNotification(item)
+export const isBusinessNotification = item => notificationType(item) !== 'meeting_receipt' && !isChatNotification(item)
 export const CONVERSATION_NOTIFICATION_TYPES = ['resource_request_dispatch', 'chat_summary']
 export const isSystemNotification = item => isBusinessNotification(item) && !CONVERSATION_NOTIFICATION_TYPES.includes(notificationType(item))
 export const isChatMentionNotification = item => isChatNotification(item) && notificationType(item).endsWith('_mention')

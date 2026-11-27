@@ -115,9 +115,10 @@ def enqueue(db, project_id, user_id, delivery, *, track, note, effective_on, att
     for uid in ids:
         chat.add_member(db, project_id, uid, baseline=baseline)
     class ProgressMessage(AnnotationProjectChatMessageCreate):
-        content: str = Field(default='', max_length=100000 if track=='creation' else 10000)
+        content: str = Field(default='', max_length=100032 if track=='creation' else 10032)
         mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=2000)
-    payload = ProgressMessage(content=note.strip(), mentioned_user_ids=ids, attachment_ids=attachment_ids or [])
+    from automatic_project_notice import mark_automatic
+    payload = ProgressMessage(content=mark_automatic(note.strip()), mentioned_user_ids=ids, attachment_ids=attachment_ids or [])
     message=chat.send_message(db, project_id, user, payload, commit=False, max_mentions=2000)
     if content_json:message.content_json=content_json;db.flush()
 

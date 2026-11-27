@@ -12,12 +12,14 @@ test('讨论断线跨过多页后按游标补齐消息', async () => {
   const rows = Array.from({ length: 180 }, (_, index) => ({ id: String(start + BigInt(index)) }))
   const messages = { value: rows.slice(0, 5) }
   const cursors = []
-  const refresh = runInNewContext(`let requestVersion = 0, controller, pendingFilterReset; ${refreshSource}; refresh`, {
+  const refresh = runInNewContext(`let requestVersion = 0, controller, pendingFilterReset, searchTimer; ${refreshSource}; refresh`, {
     props: { active: true }, disposed: false, base: 'discussions/room', AbortController, messages,
     messageFreshness: createChatWindowFreshness(CHAT_WINDOW_REFRESH_MS),
     loading: { value: false }, loadingEarlier: { value: false }, pendingNew: { value: false },
+    searchParams:()=>({}), searchFiltering:{value:false}, canRefresh:()=>true,
     keyword: { value: '' }, favoritesOnly: { value: false }, error: { value: '' },
     storageReady: { value: true }, atBottom: () => false,
+    messageScroller: { isLocating: () => false },
     merge: incoming => { messages.value.push(...incoming) },
     chatRequest: async (path, { params, signal }) => {
       assert.equal(path, 'discussions/room/messages')
@@ -49,6 +51,7 @@ test('切回已打开的讨论群时复用消息，过期后补查而不重置',
       storageReady.value = true
       messageFreshness.begin()()
     },
+    messageScroller:{stop:()=>{}}, pruneMessageWindow:()=>{},
     messageRefresh: { schedule: () => { scheduled++ } },
     atBottom: () => false,
     setInterval: () => 1,

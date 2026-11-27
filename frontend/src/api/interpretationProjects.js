@@ -1,6 +1,7 @@
 import api from './index'
 import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
 import { invalidateOptionCache } from '@/utils/optionCache'
+import { interpretationProjectWritePayload } from '@/utils/projectClientManagerPayload'
 
 const projectCreateState = { key: '', signature: '' }
 
@@ -34,7 +35,7 @@ export const getInterpretationProject = (id, config = {}) => (
 )
 
 export const createInterpretationProject = async (data, idempotencyKey) => {
-  const payload = convertKeys(data, toSnakeCase)
+  const payload = convertKeys(interpretationProjectWritePayload(data), toSnakeCase)
   const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)
   const response = await api.post('/projects/interpretation/', payload, {
     headers: { 'X-Idempotency-Key': key },
@@ -45,7 +46,7 @@ export const createInterpretationProject = async (data, idempotencyKey) => {
 }
 
 export const updateInterpretationProject = (id, data) => (
-  api.put(`/projects/interpretation/${id}`, convertKeys(data, toSnakeCase)).then((res) => {
+  api.put(`/projects/interpretation/${id}`, convertKeys(interpretationProjectWritePayload(data), toSnakeCase)).then((res) => {
     invalidateOptionCache('source-projects:interpretation:')
     return convertKeys(res, toCamelCase)
   })

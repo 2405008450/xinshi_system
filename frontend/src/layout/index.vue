@@ -13,7 +13,6 @@
           </div>
         </transition>
       </div>
-      <div class="sidebar-system-updated" :title="`系统更新时间：${appUpdatedAt}（UTC+8）`"><span>系统更新时间</span><time>{{appUpdatedAt.split(' ')[0]}}<br v-if="isCollapse"><template v-else> </template>{{appUpdatedAt.split(' ')[1]}}</time></div>
       <el-menu
         :default-active="activeMenu"
         router
@@ -24,7 +23,10 @@
         <!-- 工作台 -->
         <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="DataBoard" label="工作台" />
         <SidebarNavigationItem index="/company-management" :icon="OfficeBuilding" label="公司管理" />
+        <el-tooltip :disabled="!isCollapse" :trigger="['hover','focus']" placement="right" :show-after="150" effect="dark">
+          <template #content><span class="sidebar-session-title sidebar-session-collapsed-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></template>
         <li class="el-menu-item sidebar-session-item" role="menuitem" tabindex="0" aria-label="会话" title="会话" @click="openHeaderChat" @keydown.enter.prevent="openHeaderChat" @keydown.space.prevent="openHeaderChat"><el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal"><el-icon><ChatDotRound /></el-icon></el-badge><button v-if="meetingBadge" type="button" class="sidebar-meeting-character" title="会议通知：点击查看会议安排与回执" aria-label="会：会议通知" @click.stop="openMeetingCenter" @keydown.stop>会</button><span v-show="!isCollapse" class="sidebar-session-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></li>
+        </el-tooltip>
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
@@ -73,6 +75,7 @@
             <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentPageTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
+          <div class="header-system-updated" :title="`系统更新时间：${appUpdatedAt}（UTC+8）`"><span>系统更新时间：</span><time>{{appUpdatedAt}}</time></div>
         </div>
         <div class="header-right">
           <span id="page-header-actions" class="page-header-actions" />
@@ -97,6 +100,7 @@
           <AutoDraftCenter :show-entry="false" />
           <ScreenshotControl />
           <AnnotationChatInbox />
+          <ChatHelpEntry />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
             <span class="user-info">
@@ -163,6 +167,7 @@ import {
 import NotificationBell from '../components/NotificationBell.vue'
 import AnnotationWorkStatusHost from '@/components/annotation/AnnotationWorkStatusHost.vue'
 import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
+import ChatHelpEntry from '@/components/chat/ChatHelpEntry.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
@@ -741,6 +746,7 @@ const handleLogout = async () => {
 }
 
 .header-left {
+  min-width: 0;
   flex: 1;
   display: flex;
   align-items: center;
@@ -761,7 +767,7 @@ const handleLogout = async () => {
   align-items: center;
   gap: 16px;
 }
- 
+
 .user-info {
   display: flex;
   align-items: center;
@@ -920,11 +926,11 @@ const handleLogout = async () => {
 <style scoped>.sidebar-session-item{cursor:pointer}.sidebar-session-item .el-badge{display:inline-flex;align-items:center;margin-right:5px}.sidebar-session-item:focus-visible{outline:2px solid #93c5fd;outline-offset:-2px}</style>
 
 <style scoped>
-.sidebar-session-title{display:inline-flex;flex:1;align-items:center;gap:4px;min-width:0;max-width:260px}.sidebar-session-title>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-session-collapsed-title{min-width:90px;gap:12px}.sidebar-session-collapsed-title .sidebar-session-open{opacity:.7}.sidebar-session-title{display:inline-flex;flex:1;align-items:center;gap:4px;min-width:0;max-width:260px}.sidebar-session-title>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-session-open{display:inline-flex;flex:0 0 20px;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;color:inherit;opacity:.35;text-decoration:none}.sidebar-session-item:hover .sidebar-session-open{opacity:.65}.sidebar-session-open:hover,.sidebar-session-open:focus-visible{background:rgba(148,163,184,.12);opacity:1}.sidebar-session-open svg{width:12px;height:12px}.sidebar-session-open:focus-visible{outline:2px solid #93c5fd;outline-offset:1px}
 </style>
 
 <style scoped>.system-section-navigation{margin-bottom:8px}</style>
 <style scoped>.page-header-actions{display:inline-flex;align-items:center}.page-header-actions:empty{display:none}</style>
 
-<style scoped>.sidebar-system-updated{flex:none;padding:4px 6px 8px;text-align:center;color:#cbd5e1;line-height:1.45;font-size:10px;border-bottom:1px solid #334155}.sidebar-system-updated span{display:block;font-size:10px}.sidebar-system-updated time{font-variant-numeric:tabular-nums}.sidebar-session-item{position:relative}.sidebar-meeting-character{position:absolute;right:8px;top:4px;padding:1px 4px;border:1px solid #fca5a5;border-radius:4px;color:#dc2626;background:#fff1f2;font-size:12px;line-height:17px;font-weight:700;cursor:pointer}.sidebar--collapsed .sidebar-system-updated{font-size:9px}</style>
+<style scoped>.header-system-updated{min-width:0;margin-left:8px;color:var(--color-text-secondary);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.header-system-updated time{font-variant-numeric:tabular-nums}@media(max-width:900px){.header-system-updated span{display:none}.header-system-updated{margin-left:0;max-width:160px}}@media(max-width:560px){.header-system-updated{max-width:120px;font-size:11px}}.sidebar-session-item{position:relative}.sidebar-meeting-character{position:absolute;right:8px;top:4px;padding:1px 4px;border:1px solid #fca5a5;border-radius:4px;color:#dc2626;background:#fff1f2;font-size:12px;line-height:17px;font-weight:700;cursor:pointer}</style>

@@ -3,13 +3,13 @@
     <ChatInitialLoad v-if="accessPending" :error="error" :loading="loading" @retry="refresh(true)" />
     <template v-else>
     <TechnicalRequirementsPanel ref="technicalPanel" :room-id="projectId" :active="active" @loaded="technicalRoom=$event" />
-    <div v-if="searchOpen" class="discussion-chat__search"><el-input v-model="keyword" clearable placeholder="搜索此讨论的消息" maxlength="200" @keyup.enter="refresh(true)" /><el-checkbox v-model="favoritesOnly">只看收藏</el-checkbox><el-button @click="searchOpen = false; keyword = ''; favoritesOnly=false">关闭</el-button></div>
+    <DiscussionSearchFilters v-if="searchOpen" v-model:keyword="keyword" v-model:kind="searchKind" v-model:formats="searchFormats" v-model:sender="searchSender" v-model:dates="searchDates" v-model:favorites="favoritesOnly" :senders="searchSenders" :loading-senders="loadingSearchSenders" @search="searchNow" @reset="resetSearchFilters" @close="closeSearch" />
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button v-if="!loading" link @click="refresh(true)">重试</el-button></el-alert>
     <div ref="list" class="discussion-chat__timeline" @scroll="onScroll">
       <div class="chat-timeline-content" style="display: flow-root">
       <el-button v-if="hasEarlier" link :loading="loadingEarlier" @click="loadEarlier">加载更早的消息</el-button>
       <div v-if="loading" class="discussion-chat__hint">正在加载消息…</div>
-      <el-empty v-else-if="!messages.length && !error" :description="keyword ? '没有匹配的消息' : '暂无消息，开始讨论吧'" :image-size="50" />
+      <el-empty v-else-if="!messages.length && !error" :description="searchFiltering ? (searchKind === 'miniapp' ? '没有匹配的小程序分享记录' : '没有匹配的消息') : '暂无消息，开始讨论吧'" :image-size="50" />
       <template v-for="(message, index) in messages" :key="message.id">
         <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date"><span>{{ formatMessageDay(message.createdAt) }}</span></div>
         <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId, 'is-grouped': !chatGroupStart(message, messages[index - 1]), 'is-mentioned': mentionsMe(message), 'is-sending': message.optimisticStatus === 'sending', 'is-failed': message.optimisticStatus === 'failed' }">
@@ -18,7 +18,7 @@
           <div v-if="undisplayedMentions(message,currentUserId).length" class="discussion-chat__mention-recipients" aria-label="消息提及人员"><span v-for="item in undisplayedMentions(message,currentUserId)" :key="item.id" :class="{'discussion-mention-highlight':item.highlight}">{{ item.label }}</span></div>
           <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
-            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="!message.optimisticStatus && messageMenu?.open($event,message)" @keydown="!message.optimisticStatus && messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote><ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" preserve-discussion-files @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" /><template v-else><p><template v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex"><span :class="{'discussion-mention-highlight':part.highlight}"><template v-for="(seg,segIndex) in splitUrgentText(part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,''))" :key="segIndex"><span v-if="seg.urgent" class="chat-urgent-badge">急</span><ScreenshotText v-else :text="seg.text" :chat-message-id="message.id" chat-kind="discussion" /></template></span></template></p><span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span></template><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
+            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="!message.optimisticStatus && messageMenu?.open($event,message)" @keydown="!message.optimisticStatus && messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote><ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" preserve-discussion-files @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" /><template v-else><p><ChatFormattedText :message="message" :user-id="currentUserId" kind="discussion" /></p><span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span></template><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
             <button v-if="!message.optimisticStatus" type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button>
             <span v-else-if="message.optimisticStatus === 'sending'" class="chat-optimistic-sending" role="status">发送中…</span>
             <span v-else-if="message.optimisticStatus === 'failed'" class="chat-optimistic-failed" role="alert" :title="message.optimisticError || '发送失败'">
@@ -36,7 +36,7 @@
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
       <div v-if="replyTo" class="discussion-chat__reply"><span class="chat-compose-reply__text">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}</span><button type="button" class="chat-compose-reply__close" aria-label="取消引用" title="取消引用" :disabled="sending || !!retryPayload" @click="cancelQuote"><el-icon><Close /></el-icon></button></div>
-      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @mention-open="ensureMentionUsers" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
+      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" v-model:content-json="contentJson" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @mention-open="ensureMentionUsers" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
       <div class="discussion-chat__footer"><span class="discussion-chat__shortcut">Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" size="small" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" size="small" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
@@ -57,7 +57,10 @@ import ChatInitialLoad from './ChatInitialLoad.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import {quoteSpeakerMention,clearAutomaticQuoteMention} from '@/utils/quoteSpeakerMention'
+import ChatFormattedText from './ChatFormattedText.vue'
+import {rebaseTextFormat,formatText} from '@/utils/chatTextFormat'
 import DiscussionMentionInput from './DiscussionMentionInput.vue'
+import DiscussionSearchFilters from './DiscussionSearchFilters.vue'
 import DiscussionFileReferences from './DiscussionFileReferences.vue'
 import {mentionParts,undisplayedMentions} from '@/utils/chatMentions'
 import { screenshotPreview } from '@/utils/screenshotReferences'
@@ -105,7 +108,7 @@ const currentUserName = localStorage.getItem('user_name') || localStorage.getIte
 const outboxScope = () => ({ userId: currentUserId, projectType: 'discussion', projectId: String(props.projectId || '') })
 const { refresh: refreshSessions } = useAnnotationFollowed()
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
-const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
+const messages = ref([]), list = ref(), input = ref(), content = ref(''),contentJson=ref(null), replyTo = ref(null)
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const references=ref(), messageMenu=ref()
 const technicalPanel=ref(),technicalRoom=ref(null)
@@ -114,6 +117,23 @@ const mentionsMe = message => !message?.recalledAt && (message?.mentions || []).
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), storageReady = ref(false)
 const error = ref(''), sendError = ref(''), sending = ref(false), retryPayload = ref(null), pendingNew = ref(false)
 const searchOpen = ref(false), keyword = ref(''), favoritesOnly=ref(false)
+const searchFormats=ref([])
+const searchKind=ref('all'),searchSender=ref(''),searchDates=ref([]),searchSenders=ref([]),loadingSearchSenders=ref(false)
+const searchFiltering=computed(()=>!!keyword.value.trim()||favoritesOnly.value||searchKind.value!=='all'||!!searchSender.value||searchDates.value.length>0||searchFormats.value.length>0)
+function searchParams(){return {keyword:keyword.value.trim(),favorites_only:favoritesOnly.value||undefined,kind:searchKind.value,format_filters:searchFormats.value.join(',')||undefined,
+  sender_user_id:searchSender.value||undefined,start_date:searchDates.value[0]||undefined,end_date:searchDates.value[1]||undefined}}
+function resetSearchFilters(){searchFormats.value=[];keyword.value='';favoritesOnly.value=false;searchKind.value='all';searchSender.value='';searchDates.value=[]}
+function closeSearch(){searchOpen.value=false;resetSearchFilters()}
+function searchNow(){clearTimeout(searchTimer);searchTimer=undefined;void refresh(true)}
+let optionsController,optionsVersion=0,earlierController
+async function loadSearchSenders(){
+  optionsController?.abort();const current=new AbortController(),version=++optionsVersion;optionsController=current;loadingSearchSenders.value=true
+  try{const data=await chatRequest(`${base}/search-options`,{signal:current.signal});if(!disposed&&version===optionsVersion)searchSenders.value=data.senders||[]}
+  catch(e){if(!disposed&&version===optionsVersion&&!current.signal.aborted)ElMessage.error(e.detail||e.message||'发送人列表加载失败')}
+  finally{if(version===optionsVersion)loadingSearchSenders.value=false}
+}
+watch(searchOpen,open=>{if(open)void loadSearchSenders();else{optionsController?.abort();++optionsVersion;loadingSearchSenders.value=false}})
+
 const screenshotUploading=ref(false)
 const mentionUsers=ref([]),mentionSelection=ref({mentionedUserIds:[],mentionAll:false})
 const automaticQuoteMention=ref(null)
@@ -170,7 +190,7 @@ watch(storageReady, ready => {
 })
 async function markRead() {
   const last = lastRealMessageId()
-  if (reading || !canRefresh() || !document.hasFocus() || !storageReady.value || keyword.value || !last || BigInt(last) <= BigInt(readVersion)) return
+  if (reading || !canRefresh() || !document.hasFocus() || !storageReady.value || searchFiltering.value || !last || BigInt(last) <= BigInt(readVersion)) return
   reading = true
   try { await chatRequest(`${base}/preferences`, { method: 'put', data: { readMessageId: last } }); readVersion = last } catch { /* 下轮重试，不能提前清除未读。 */ } finally { reading = false }
 }
@@ -187,7 +207,7 @@ function pruneMessageWindow() {
 async function goBottom() { messageScroller.stop(); await autoScroll.bottom(); pendingNew.value = false; pruneMessageWindow(); await markRead() }
 function onScroll() { if (atBottom()) { pendingNew.value = false; markRead() } }
 async function refresh(reset = false) {
-  if (!props.active || disposed || ((loading.value || loadingEarlier.value) && !reset)) return
+  if (!props.active || disposed || (!reset && searchTimer) || ((loading.value || loadingEarlier.value) && !reset)) return
   controller?.abort(); controller = new AbortController(); const version = ++requestVersion
   const signal = controller.signal
   if (reset) { pendingFilterReset = false; messageFreshness.invalidate() }
@@ -196,7 +216,7 @@ async function refresh(reset = false) {
   const follow = !messageScroller.isLocating() && ((reset && !hasPendingLocate) || (!reset && atBottom())), previousLast = [...messages.value].reverse().find(row => !row?.optimisticStatus)?.id
   if (reset) { loading.value = true; messages.value = []; replyTo.value = null; pendingNew.value = false }
   try {
-    const data = await chatRequest(`${base}/messages`, { params: { keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined }, signal })
+    const data = await chatRequest(`${base}/messages`, { params: searchParams(), signal })
     if (disposed || version !== requestVersion) return
     const missed = []
     const firstRecent = data.items[0]?.id
@@ -228,10 +248,10 @@ async function loadEarlier() {
   autoScroll.pause()
   loadingEarlier.value = true; const version = requestVersion, height = list.value?.scrollHeight || 0
   try {
-    const data = await chatRequest(`${base}/messages`, { params: { before: firstId, keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined } })
+    const data = await chatRequest(`${base}/messages`, { params: { ...searchParams(), before: firstId } })
     if (disposed || version !== requestVersion) return
     merge(data.items); hasEarlier.value = data.hasMore; await nextTick(); if (list.value) list.value.scrollTop += list.value.scrollHeight - height
-  } catch (e) { if (!disposed && version === requestVersion) error.value = e.message } finally { loadingEarlier.value = false }
+  } catch (e) { if (!disposed && version === requestVersion) error.value = e.message } finally { if(version===requestVersion)loadingEarlier.value = false }
 }
 function newClientId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128
@@ -292,7 +312,7 @@ function removeOptimisticMessage(message) {
 }
 async function send() {
   if (!storageReady.value || !canSend.value) return
-  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
+  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), contentJson: rebaseTextFormat(contentJson.value, formatText(contentJson.value), content.value.trim()), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
   sendError.value = ''
   const tempMessage = createOptimisticMessage({
     clientMessageId: payload.clientMessageId,
@@ -303,7 +323,7 @@ async function send() {
     payload,
   })
   retryPayload.value = null
-  content.value = ''
+  content.value = ''; contentJson.value = null
   replyTo.value = null
   mentionSelection.value = { mentionedUserIds: [], mentionAll: false }
   merge([tempMessage])
@@ -314,7 +334,7 @@ async function send() {
 }
 function keydown(event) { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); send() } }
 async function recall(message) {
-  try { await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'}); await recallDrafts.remember(message); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
+  try { await recallDrafts.remember(message); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
   catch (e) { if (!disposed && e !== 'cancel' && e !== 'close') error.value = e.message }
 }
 const editingMessageId = ref(''), editingSaving = ref(false), editingError = ref('')
@@ -348,10 +368,10 @@ async function reeditMessage(message) {
   const recovered = await recallDrafts.restore(message)
   if (!recovered || sending.value || retryPayload.value) return
   try {
-    const result = combineRecallDraft({ content: content.value, mentionIds: [...(mentionSelection.value.mentionedUserIds || []), ...(mentionSelection.value.mentionAll ? ['__all__'] : [])], replyTo: replyTo.value }, recovered)
-    content.value = result.content; replyTo.value = result.replyTo
-    const selectedUsers = result.mentionIds.map(id => id === '__all__' ? { id, name: '所有人', all: true } : mentionUsers.value.find(person => String(person.id) === id) || recovered.mentions.find(person => person.id === id)).filter(Boolean)
-    mentionSelection.value = { selectedUsers, mentionedUserIds: result.mentionIds.filter(id => id !== '__all__'), mentionAll: result.mentionIds.includes('__all__') }
+    const result = combineRecallDraft({ content: content.value, contentJson:contentJson.value, mentionIds: [...(mentionSelection.value.mentionedUserIds || []), ...(mentionSelection.value.mentionAll ? ['__all__'] : []),...(mentionSelection.value.mentionManagers ? ['__managers__'] : [])], replyTo: replyTo.value }, recovered)
+    content.value = result.content;contentJson.value=result.contentJson||null; replyTo.value = result.replyTo
+    const selectedUsers = result.mentionIds.map(id => id === '__all__' ? { id, name: '所有人', all: true } : id==='__managers__'?{id,name:'所有项目经理+客户经理',managerGroup:true}: mentionUsers.value.find(person => String(person.id) === id) || recovered.mentions.find(person => person.id === id)).filter(Boolean)
+    mentionSelection.value = { selectedUsers, mentionedUserIds: result.mentionIds.filter(id => !['__all__','__managers__'].includes(id)),mentionManagers:result.mentionIds.includes('__managers__'), mentionAll: result.mentionIds.includes('__all__') }
     sendError.value = ''; draft.persistNow(); recallDrafts.forget(message)
     await nextTick(); input.value?.focus()
   } catch (e) { ElMessage.warning(e.message) }
@@ -368,11 +388,11 @@ const menuHandlers=computed(()=>({
   ...(technicalRoom.value?{technical:message=>technicalPanel.value.append(message)}:{}),
   ...(canCreateDevelopmentTask.value ? { 'development-task': createDevelopmentTask } : {}),
 }))
-watch(favoritesOnly, () => { pendingFilterReset = true; void refresh(true) })
-watch(keyword, value => {
+const discussionFilterKey = () => JSON.stringify([favoritesOnly.value, searchKind.value, searchSender.value, searchFormats.value, searchDates.value])
+watch([keyword, discussionFilterKey], ([value, filters], [, previousFilters]) => {
   pendingFilterReset = true
   clearTimeout(searchTimer); controller?.abort(); ++requestVersion
-  searchTimer = setTimeout(() => refresh(true), value ? 400 : 0)
+  searchTimer = setTimeout(() => refresh(true), value && filters === previousFilters ? 400 : 0)
 })
 watch(() => props.active, active => {
   clearInterval(pollTimer)
@@ -406,10 +426,10 @@ watch(() => [props.active, props.targetMessageId, props.targetMessageSeq, loadin
   const key = id ? `${id}:${seq}` : ''
   if (active && id && !busy && ready && locatedTarget !== key) { locatedTarget = key; locate(id) }
 }, { flush: 'post' })
-const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
+const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,contentJson:contentJson.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;contentJson.value=data.contentJson||null;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => {
   messageScroller.stop()
-  disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer)
+  disposed = true; controller?.abort(); optionsController?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer)
   messageRefresh.stop(); cleanup.forEach(unsubscribe => unsubscribe())
 })
 async function locate(id) {
@@ -418,6 +438,7 @@ async function locate(id) {
   messageScroller.stop()
   try {
     const target=String(id)
+    if(searchFiltering.value){closeSearch();await nextTick();clearTimeout(searchTimer);searchTimer=undefined;messages.value=[];hasEarlier.value=false}
     if(!messages.value.some(row=>row.id===target)){
       const [older,newer]=await Promise.all([chatRequest(`${base}/messages`,{params:{before:(BigInt(target)+1n).toString(),limit:30}}),chatRequest(`${base}/messages`,{params:{after:target,limit:30}})])
       merge([...(older.items||[]),...(newer.items||[])])

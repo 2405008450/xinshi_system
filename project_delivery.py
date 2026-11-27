@@ -94,7 +94,7 @@ def interpretation_editor_extras(db,project,existing_body=''):
     return '\n'.join(lines)
 
 
-def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,audience=()):
+def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,audience=(),status_change_id=None):
     require_ready(db)
     if module not in LABELS:raise HTTPException(422,'不支持的项目类型')
     from business_mail_service import PROJECT_MODELS, PROJECT_FK_FIELDS, build_preview, _project_source
@@ -107,7 +107,11 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
         same_mail=mail_id is not None and previous.mail_id==mail_id
         if previous.module!=module or previous.project_id!=project_id or (previous.actor_id!=actor.id and not same_mail):raise HTTPException(409,'发送请求标识已用于其他操作')
         return {'room_id':str(previous.room_id),'sent':True}
-    if mail_id:
+    status_only=module=='interpretation' and status_change_id is not None
+    if status_only and not mail_id:
+        from interpretation_status_notice import content
+        subject,body=project.order_no+' · 项目状态更新',content(db,project_id,status_change_id)
+    elif mail_id:
         mail=db.get(BusinessMail,mail_id)
         if not mail or mail.project_type!=module or getattr(mail,PROJECT_FK_FIELDS[module])!=project_id or mail.status!='sent':raise HTTPException(422,'关联邮件未发送成功或不属于此项目')
         subject,body=mail.subject,mail.body
@@ -120,7 +124,7 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
     contact=str(_project_source(module,project).get('manager_contact') or '').strip()
     if contact:
         subject=subject.replace(contact,'[联系方式受限]');body=body.replace(contact,'[联系方式受限]')
-    if module=='interpretation':
+    if module=='interpretation' and not status_only and not mail_id:
         body=interpretation_chat_body(body)
         extra=interpretation_editor_extras(db,project,body)
         if extra:body+='\n\n'+(extra.replace(contact,'[联系方式受限]') if contact else extra)
@@ -132,6 +136,12 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
     from translation_chat_delivery import people,resolve_audience
     folder_id=uuid5(NAMESPACE_URL,f'xinshi:{module}:date:{day}')
     room_id=uuid5(NAMESPACE_URL,f'xinshi:{module}:project:{project_id}:{day}')
+    # 日期只决定首次归档位置；后续保存始终沿用该订单最早的有效会话。
+    original=next((row for row in db.query(ProjectChatDispatch).filter_by(module=module,project_id=project_id).order_by(ProjectChatDispatch.created_at,ProjectChatDispatch.request_key) if db.get(Category,row.room_id)),None)
+    if original:
+        room_id=original.room_id;folder_id=UUID(original.snapshot['folder_id'])
+        from datetime import date
+        day=date.fromisoformat(original.snapshot['day'])
     client=project.client or (project.sub_client.parent_client if project.sub_client else None)
     title=' · '.join([project.order_no,(client.client_short_name or client.client_name) if client else '未填写客户',project.project_name or '未命名项目'])
     if not db.get(Category,folder_id):
@@ -146,11 +156,18 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
     for person in members:
         if person.id not in existing:db.add(DiscussionMember(room_id=room_id,user_id=person.id,last_read_id=0,pinned=False,starred=False))
     db.flush()
-    message=DiscussionMessage(room_id=room_id,sender_id=actor.id,sender_name=actor.full_name or actor.username,client_message_id=request_key,content=subject+'\n\n'+body)
+    from automatic_project_notice import mark_automatic
+    message=DiscussionMessage(room_id=room_id,sender_id=actor.id,sender_name=actor.full_name or actor.username,client_message_id=request_key,content=mark_automatic(subject+'\n\n'+body))
     db.add(message);db.flush()
     if module=='interpretation':
         from interpretation_settings import mention_ids
         target_ids=mention_ids(db,members)
+        if project.project_status=='candidates_provided':
+            from project_client_manager import attach as attach_manager
+            attach_manager(db,'interpretation',[project])
+            manager_id=getattr(project,'client_manager_id',None)
+            manager_name=getattr(project,'current_client_manager',None)
+            target_ids={str(manager_id)} if manager_id else {str(person.id) for person in members if manager_name in {person.full_name,person.username}}
     else:
         # 标注、招聘不依赖邮件组或邮箱是否已配置。
         target_ids={str(project.client_manager_id)} if project.client_manager_id else set()
@@ -193,6 +210,7 @@ class ChatSend(BaseModel):
     request_key:UUID
     emergency_notice:bool=False
     audience:list[str]=Field(default_factory=list,max_length=1000)
+    status_change_id:UUID|None=None
 
 @router.get('/audience')
 def audience_catalog(db=Depends(get_db)):
@@ -203,7 +221,7 @@ def audience_catalog(db=Depends(get_db)):
 
 @router.post('/{module}/{project_id}/chat')
 def send_endpoint(module:Literal['interpretation','annotation','recruitment'],project_id:UUID,payload:ChatSend,db=Depends(get_db),actor=Depends(get_current_user)):
-    try:return send(db,actor,module,project_id,payload.request_key,emergency=payload.emergency_notice,audience=payload.audience)
+    try:return send(db,actor,module,project_id,payload.request_key,emergency=payload.emergency_notice,audience=payload.audience,status_change_id=payload.status_change_id)
     except Exception:
         db.rollback();raise
 

@@ -18,6 +18,8 @@ def chat_notification_predicate(model):
 
 def filter_notification_channel(query, model, channel: NotificationChannel = 'all'):
     from sqlalchemy import func
+    # 回执仅在会议界面展示；历史消息也不再进入通知列表及未读统计。
+    query = query.filter(func.lower(func.trim(func.coalesce(model.notification_type, ''))) != 'meeting_receipt')
     chat = chat_notification_predicate(model)
     if channel == 'chat':
         return query.filter(chat)

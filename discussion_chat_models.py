@@ -59,3 +59,12 @@ class DiscussionMention(Base):
     user_name = mapped_column(String(255), nullable=False)
     is_all = mapped_column(Boolean, nullable=False, default=False)
     notification_id = mapped_column(Uuid, ForeignKey('app_notification.id', ondelete='SET NULL'), unique=True)
+
+
+class DiscussionMessageFormat(Base):
+    """讨论正文的样式附加信息，不改动原消息表。"""
+    __tablename__ = 'chat_discussion_message_format'
+    from sqlalchemy import JSON
+    from sqlalchemy.dialects.postgresql import JSONB
+    message_id = mapped_column(BigInteger, ForeignKey('chat_discussion_message.id',ondelete='CASCADE'),primary_key=True)
+    content_json = mapped_column(JSON().with_variant(JSONB,'postgresql'),nullable=False)

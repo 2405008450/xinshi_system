@@ -44,6 +44,7 @@ def test_invitation_idempotency_receipts_visibility_and_read_versions(setup):
     with pytest.raises(HTTPException):service.detail(db,outsider,result['id'])
     with pytest.raises(ValidationError):service.ReceiptWrite(response='declined',reason=' ',version=0)
     response=service.receipt(db,member,result['id'],service.ReceiptWrite(response='declined',reason='已有客户安排',version=0))
+    assert db.query(AppNotification).count()==1  # 回执不再新增通知，原邀请仍保留
     assert response['my_version']==1
     assert service.summary(db,owner)['unread_receipts']==1
     service.read_receipts(db,owner,result['id'],{member.id:0})

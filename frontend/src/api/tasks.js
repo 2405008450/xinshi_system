@@ -57,6 +57,7 @@ export const getReportClientOptions = (params, config = {}) => api.get('/daily-r
 export const getReportStatistics = (params,config={}) => api.get('/daily-reports/statistics',{...config,params})
 export const getReportIdleStatistics = (params, config = {}) => api.get('/daily-reports/idle-statistics', { ...config, params })
 export const getReportFeedback = id => api.get(`/daily-reports/feedback/${id}`)
+export const getReportFeedbackRecipients = id => api.get(`/daily-reports/feedback/${id}/recipients`)
 export const addReportFeedback = (id,data) => api.post(`/daily-reports/feedback/${id}`,data)
 export const getReportFeedbackInbox = params => api.get('/daily-reports/feedback-inbox',{params})
 export const getReportRevisionHistory = id => api.get(`/daily-reports/history/${id}`)

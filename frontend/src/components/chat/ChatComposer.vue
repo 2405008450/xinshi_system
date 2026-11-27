@@ -6,6 +6,7 @@
         <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片：单张20MB，10MB以内保留原图，聊天截图保留30天" /></el-upload>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :accept="chatFileAccept" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" :title="`发送文件：${chatFileHint}`" /></el-upload>
+      <ChatFormattingToolbar v-model="contentJson" :text="content" :input="input" :disabled="sending || !!retryPayload" />
       </div>
       <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? `上传中 ${file.progress || 0}%`  : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
       <div v-if="pendingImages.length || legacyImageIds.length" class="group-image-queue" aria-label="待发送图片">
@@ -31,14 +32,14 @@
         <div class="group-mention-options">
           <template v-for="(user, index) in mentionCandidates" :key="user.id">
             <div v-if="!index || (user.mentionSection || user.outside) !== (mentionCandidates[index - 1].mentionSection || mentionCandidates[index - 1].outside)" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.mentionSection || (user.outside ? '群外人员 · 发送后邀请入群' : '本群成员') }}</div>
-            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span class="group-mention-person"><span>{{ user.name }}</span><small v-if="user.outside">发送后邀请入群</small><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></span></button>
+            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span class="group-mention-person"><span>{{ user.name }}</span><small v-if="user.outside">发送后邀请入群</small><ChatDesktopPresence v-if="!user.all && !user.managerGroup" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></span></button>
           </template>
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>
         </div>
       </div>
       <small v-if="contentTooLong" class="group-error" role="alert">文字与图片引用合计超过10000字，请减少文字或图片后发送</small>
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
-      <div class="group-compose-footer"><span class="group-compose-shortcut">Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button type="primary" size="small" :loading="sending" :disabled="!canSend" title="Enter 发送，Shift+Enter 换行" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
+      <div class="group-compose-footer"><span class="group-compose-shortcut">Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button class="chat-send-button" type="primary" size="small" :loading="sending" :disabled="!canSend" title="Enter 发送，Shift+Enter 换行" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
       <div v-if="sendError" class="group-error" role="alert">{{ sendError }}</div>
     </div>
 </template>
@@ -49,17 +50,18 @@ import { computed, inject, nextTick } from 'vue'
 import { ElInput as BaseInput } from 'element-plus'
 import 'element-plus/es/components/input/style/css'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import ChatFormattingToolbar from './ChatFormattingToolbar.vue'
 import ChatDesktopPresence from './ChatDesktopPresence.vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Close, Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { composerStyle, inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
+const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, contentJson, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
 // 仅在发送时组合截图引用，文本框始终只编辑可见文字，兼容历史草稿。
 const legacyImageIds = computed(() => screenshotIds(content.value))
 const plainContent = computed({ get: () => screenshotText(content.value), set: value => { content.value = screenshotValue(value, legacyImageIds.value) } })
 function removeLegacyImage(id) { content.value = screenshotValue(plainContent.value, legacyImageIds.value.filter(value => value !== id)) }
-const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all).map(user => user.id)), computed(() => props.active && mentionOpen.value))
+const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all && !user.managerGroup).map(user => user.id)), computed(() => props.active && mentionOpen.value))
 function keepMentionFocus(event) {
   // 搜索框需要获得焦点；候选按钮保留输入光标，确保选择时替换正确的 @ 文本。
   if (!event.target.closest('input')) event.preventDefault()

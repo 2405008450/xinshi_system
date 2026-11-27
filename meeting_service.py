@@ -391,10 +391,7 @@ def receipt(db, user, meeting_id, data):
         raise HTTPException(409, '回执已更新，请刷新后重试')
     member.response, member.reason, member.responded_at = data.response, reason, now()
     member.response_version += 1
-    events = notify(db, [row.organizer_id], row, f'会议回执 · {code_for(db, row)}',
-        f'{member.name}：' + ('可以参加' if data.response == 'attending' else '不能参加，请进入会议安排查看事由'), 'meeting_receipt')
     db.commit()
-    publish(events)
     return detail(db, user, row.id)
 
 
@@ -417,7 +414,7 @@ def summary(db, user):
     state = func.coalesce(Meeting.association['lifecycle']['status'].as_string(), 'pending')
     upcoming = db.query(Meeting).filter(Meeting.organizer_id == user.id, or_(state == 'in_progress', (state == 'pending') & (Meeting.end_at > now()))).order_by(Meeting.start_at).all()
     unread = db.query(AppNotification).filter(AppNotification.recipient_user_id == user.id, AppNotification.is_read.is_(False),
-        AppNotification.notification_type.in_(['meeting_invitation', 'meeting_receipt', 'meeting_task'])).count()
+        AppNotification.notification_type.in_(['meeting_invitation', 'meeting_task'])).count()
     return api_time({'pending': invitations, 'unread_receipts': receipts, 'unread_notifications': unread, 'server_now': now(),
         'upcoming': [{**meeting_state(r), 'meeting_no': code_for(db, r), 'id': r.id, 'number': r.number, 'topic': r.topic, 'start_at': r.start_at, 'end_at': r.end_at,
                       'remind_before_minutes': lead_minutes(r.start_at, r.end_at)} for r in upcoming]})

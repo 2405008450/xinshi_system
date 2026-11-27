@@ -7,7 +7,7 @@ from sqlalchemy.orm import aliased
 from annotation_models import AnnotationProject
 from chat_catalog_read import catalog_read
 from chat_schema import phase_one_ready
-from models import AppUser, ChatDirectConversation, ChatDirectMember, Client, TranslationProject
+from models import AppUser, ChatDirectConversation, ChatDirectMember, Client, TranslationProject, AnnotationChatMember, ChatProjectMemberPref
 from chat_access_service import visible_ids
 from search_matching import keyword_any
 from permission_service import user_has_permission
@@ -21,13 +21,21 @@ def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
     ready = phase_one_ready(db)
     queries = []
     protected_rooms = set()
+    def preference(member, id_column, target, field):
+        if not ready:
+            return literal(False).label(field)
+        return func.coalesce(select(getattr(member, field)).where(
+            id_column == target, member.user_id == user.id).scalar_subquery(), False).label(field)
     for kind, model, allowed in (
         ('annotation', AnnotationProject, annotation.can_view(db, user)),
         ('translation', TranslationProject, ready and user_has_permission(db, user.id, 'projects:read')),
     ):
         if allowed:
+            member = AnnotationChatMember if kind == 'annotation' else ChatProjectMemberPref
             query = select(literal(kind).label('kind'), cast(model.id, String).label('project_id'),
-                model.project_name.label('title'), model.order_no.label('subtitle')).where(
+                model.project_name.label('title'), model.order_no.label('subtitle'),
+                preference(member, member.project_id, model.id, 'pinned'),
+                preference(member, member.project_id, model.id, 'starred')).where(
                     model.id.in_(visible_ids(db, kind, user)))
             if kind == 'translation':
                 client_name = func.coalesce(func.nullif(func.trim(Client.client_short_name), ''),
@@ -37,7 +45,9 @@ def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
                              else_=project_name)
                 query = query.with_only_columns(literal(kind).label('kind'),
                     cast(model.id, String).label('project_id'), title.label('title'),
-                    model.order_no.label('subtitle')).outerjoin(Client, Client.id == model.client_id)
+                    model.order_no.label('subtitle'),
+                    preference(member, member.project_id, model.id, 'pinned'),
+                    preference(member, member.project_id, model.id, 'starred')).outerjoin(Client, Client.id == model.client_id)
             if mine:
                 from chat_project_views import mine_condition
                 query = query.where(mine_condition(db, kind, model, user))
@@ -47,7 +57,9 @@ def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
         direct = ChatDirectConversation
         peer_id = case((direct.user_low_id == user.id, direct.user_high_id), else_=direct.user_low_id)
         queries.append(select(literal('direct').label('kind'), cast(direct.id, String).label('project_id'),
-            func.coalesce(peer.full_name, peer.username).label('title'), peer.department.label('subtitle'))
+            func.coalesce(peer.full_name, peer.username).label('title'), peer.department.label('subtitle'),
+            func.coalesce(ChatDirectMember.pinned, False).label('pinned'),
+            func.coalesce(ChatDirectMember.starred, False).label('starred'))
             .select_from(direct).join(peer, peer.id == peer_id)
             .join(ChatDirectMember, ChatDirectMember.conversation_id == direct.id).where(
                 (direct.user_low_id == user.id) | (direct.user_high_id == user.id),
@@ -63,7 +75,9 @@ def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
             protected_rooms = {room['id'] for room in rooms if room.get('deletion_protected')}
             name = case(*[(DiscussionMember.room_id == UUID(room['id']), room['name']) for room in rooms], else_='讨论群')
             queries.append(select(literal('discussion').label('kind'), cast(DiscussionMember.room_id, String).label('project_id'),
-                name.label('title'), literal('讨论群').label('subtitle')).where(
+                name.label('title'), literal('讨论群').label('subtitle'),
+                func.coalesce(DiscussionMember.pinned, False).label('pinned'),
+                func.coalesce(DiscussionMember.starred, False).label('starred')).where(
                     DiscussionMember.user_id == user.id,
                     DiscussionMember.room_id.in_([UUID(room['id']) for room in rooms]),
                     DiscussionMember.room_id.in_(visible_ids(db, 'discussion', user))))
@@ -74,7 +88,7 @@ def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
     if keyword.strip():
         query = query.where(keyword_any([directory.c.title, directory.c.subtitle], keyword))
     total = db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = db.execute(query.order_by(directory.c.title, directory.c.kind, directory.c.project_id)
+    rows = db.execute(query.order_by(directory.c.pinned.desc(), directory.c.title, directory.c.kind, directory.c.project_id)
         .offset(offset).limit(limit)).mappings()
     items = []
     for row in rows:

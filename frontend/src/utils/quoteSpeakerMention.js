@@ -12,7 +12,7 @@ export function quoteSpeakerMention({content, selectedUsers = [], automatic, mes
   if (!speakerId || String(speakerId) === String(currentUserId) || !person?.name) return result
   const token = `@${person.name} `
   const alreadySelected = result.selectedUsers.some(user => user.id === person.id)
-  if (!alreadySelected && result.selectedUsers.filter(user => !user.all && user.id !== '__all__').length >= 20) return {...result, warning: '每条消息最多提及20人，已保留引用，请调整提及人员'}
+  if (!alreadySelected && result.selectedUsers.filter(user => !user.all && !user.managerGroup && !['__all__','__managers__'].includes(user.id)).length >= 20) return {...result, warning: '每条消息最多提及20人，已保留引用，请调整提及人员'}
   if (!result.content.includes(token)) {
     if (result.content.length + token.length > 10000) return {...result, warning: '消息内容过长，未能自动添加提及，请缩短内容'}
     result.content = token + result.content

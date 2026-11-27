@@ -36,8 +36,8 @@ export const YellowHighlight = Mark.create({
     return {
       color: {
         default: '#fff59d',
-        parseHTML: () => '#fff59d',
-        renderHTML: () => ({ style: 'background-color:#fff59d;' })
+        parseHTML: element => ['#dbeafe','rgb(219, 234, 254)'].includes(element.style.backgroundColor)?'#dbeafe':'#fff59d',
+        renderHTML: attributes => ({style:`background-color:${['#dbeafe','#fef08a','#fff59d'].includes(attributes.color)?attributes.color:'#fff59d'};`})
       }
     }
   },
@@ -52,4 +52,11 @@ export const YellowHighlight = Mark.create({
   renderHTML({ HTMLAttributes }) {
     return ['mark', mergeAttributes(HTMLAttributes), 0]
   }
+})
+
+export const ColoredUnderline=Mark.create({
+ name:'underline',
+ addAttributes(){return {color:{default:'#111827',parseHTML:el=>el.style.textDecorationColor||'#111827',renderHTML:attrs=>({style:`text-decoration-color:${['#dc2626','#2563eb'].includes(attrs.color)?attrs.color:'#111827'};text-underline-offset:3px;`})}}},
+ parseHTML(){return [{tag:'u'}]},
+ renderHTML({HTMLAttributes}){return ['u',mergeAttributes(HTMLAttributes),0]}
 })

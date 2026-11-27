@@ -30,6 +30,7 @@ PROJECT_TYPE_LABELS = {
 PROJECT_STATUSES = {
     "initial_follow_up", "deal_pending_execution", "in_progress", "cancelled",
     "partially_cancelled", "ended", "settled",
+    "candidates_provided", "client_selected", "client_changed",
 }
 RATING_VALUES = {
     "very_satisfied", "satisfied", "basically_satisfied",
@@ -213,6 +214,7 @@ class InterpretationProjectWrite(BaseModel):
     finance_draft: InterpretationProjectFinanceDraft | None = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
+    status_change_reason: Optional[str] = Field(default=None,max_length=10000)
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list, max_length=9)
     task_description: Optional[str] = None
@@ -422,6 +424,8 @@ class InterpretationProjectListResponse(BaseModel):
     language_directions_display: Optional[str] = None
     language_direction_counts_complete: bool = False
     assigned_interpreters_display: Optional[str] = None
+    assigned_interpreter_count: int = 0
+    status_change_id: Optional[UUID] = None
     translator_codes: Optional[str] = None
     locations: list[str] = Field(default_factory=list)
     client_full_name: Optional[str] = None

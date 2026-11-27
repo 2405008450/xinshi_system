@@ -55,6 +55,10 @@ def test_creation_card_has_all_nine_fields_and_sends_images_to_same_project(monk
     assert calls[0][0][1]==row.id and calls[0][1]['attachment_ids']==[image]
     assert calls[0][1]['content_json']==card
     assert '客户单价：¥0.5/条' in calls[0][1]['note']
+    row.project_path=r'\\server\项目资料\标注测试'
+    send_creation(None,row,uuid4(),ProgressChatDelivery(send_to_chat=True))
+    assert calls[-1][1]['content_json']['fields'][-1]=={'label':'项目路径','value':row.project_path}
+    assert calls[-1][1]['note'].count('项目路径：'+row.project_path)==1
 
 
 @pytest.mark.parametrize('existing', [False, True])
@@ -96,7 +100,7 @@ def test_delivery_adds_selected_recipients_before_member_only_message_validation
     if track == 'creation':
         assert message.content_json['type'] == 'annotation_creation'
     else:
-        assert message.content == '项目进度'
+        assert message.content == '项目进度\n\n【登记时自动发送】'
     assert {uid for uid, in db.query(AnnotationChatMember.user_id).filter_by(project_id=row.id)} == {owner.id, member.id}
     membership = db.get(AnnotationChatMember, (row.id, member.id))
     assert membership.last_read_sequence == (7 if existing else 0)

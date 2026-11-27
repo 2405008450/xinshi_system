@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="visible" ref="menuRef" class="chat-message-context-menu" role="menu" aria-label="消息操作菜单" :style="{left:`${position.left}px`,top:`${position.top}px`}" @mousedown.prevent @contextmenu.prevent @keydown="onKeydown">
-      <button v-for="item in items" :key="item.id" type="button" role="menuitem" :aria-label="item.label" class="chat-message-context-menu__item" :class="{'is-danger':item.danger,'has-separator':item.separator,'is-active':submenu === item.id}" :title="item.id === 'favorite' ? '收藏（仅自己可见）' : undefined" :aria-haspopup="item.submenu ? 'menu' : undefined" :aria-expanded="item.submenu ? submenu === item.id : undefined" @mouseenter="hover(item,$event)" @click="activate(item,$event)">
+      <button v-for="item in items" :key="item.id" type="button" role="menuitem" :aria-label="item.label" class="chat-message-context-menu__item" :class="{'is-danger':item.danger,'has-separator':item.separator,'is-active':submenu === item.id}" :title="item.id === 'favorite' ? '消息收藏（仅自己可见）' : undefined" :aria-haspopup="item.submenu ? 'menu' : undefined" :aria-expanded="item.submenu ? submenu === item.id : undefined" @mouseenter="hover(item,$event)" @click="activate(item,$event)">
         <el-icon><component :is="icons[item.icon]" /></el-icon><span>{{ item.label }}</span><span v-if="item.submenu" aria-hidden="true" class="chat-message-context-menu__arrow">›</span>
       </button>
     </div>

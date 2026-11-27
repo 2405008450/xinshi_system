@@ -1,6 +1,7 @@
 import api from './index'
 import { chatClientType } from '@/utils/chatDevice'
 import { notificationAcknowledgements } from '@/utils/notificationAcknowledgements'
+export const getNotificationFilterOptions=(params={})=>api.get('/notifications/filter-options',{params,paramsSerializer:{indexes:null}})
 
 export const getNotifications = async (params = {}, config = {}) => {
   const actor = notificationAcknowledgements.actor()

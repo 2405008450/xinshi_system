@@ -7,7 +7,7 @@
 import { onBeforeUnmount, watch } from 'vue'
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
-import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
+import { TextColor, YellowHighlight, ColoredUnderline } from '@/utils/richTextMarks'
 import { linkifyDocument, noticeLinkOptions } from '@/utils/richTextLinks'
 import { createAuthenticatedImage } from '@/utils/richTextImages'
 import '@/styles/rich-text-images.css'
@@ -25,7 +25,7 @@ const editor = props.document
   ? new Editor({
       content: props.enableLinks ? linkifyDocument(props.document) : props.document,
       editable: false,
-      extensions: [StarterKit.configure({ link: props.enableLinks ? noticeLinkOptions : false }), TextColor, YellowHighlight,
+      extensions: [StarterKit.configure({ underline:false, link: props.enableLinks ? noticeLinkOptions : false }), TextColor, YellowHighlight, ColoredUnderline,
         createAuthenticatedImage((src, signal) => props.imageApi
           ? props.imageApi.read(src, signal)
           : screenshotImageApi.read(src, signal, props.chatMessageId ? { chat_message_id: props.chatMessageId } : undefined))]

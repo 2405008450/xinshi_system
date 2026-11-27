@@ -18,6 +18,7 @@ from translation_statistics import summarize, period_bounds, percentage
 MODELS = {'interpretation': (InterpretationProject, 'IP'), 'annotation': (AnnotationProject, 'AP'), 'recruitment': (RecruitmentProject, 'HP')}
 INTERPRETATION_STATUSES = {
     'initial_follow_up':'初步跟进中', 'deal_pending_execution':'已成交待执行',
+    'candidates_provided':'已提供人选','client_selected':'客户已定人选','client_changed':'客户改变人选',
     'in_progress':'进行中', 'cancelled':'已取消', 'partially_cancelled':'已部分取消',
     'ended':'已结束', 'settled':'已结款', '':'（空白）',
 }

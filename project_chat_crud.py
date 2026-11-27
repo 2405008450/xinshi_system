@@ -877,6 +877,7 @@ def create_project_chat_message(
     mentioned_user_id: Optional[UUID] = None,
     mentioned_user_ids: Optional[list[UUID]] = None,
     mention_all: bool = False,
+    mention_managers: bool = False,
     content_json: Optional[dict] = None,
     attachment_ids: Optional[list[UUID]] = None,
     message_type: str = 'user',
@@ -917,7 +918,7 @@ def create_project_chat_message(
     if message_type == 'user':
         from chat_mention_recipients import resolve_mentions
         mentioned_user_ids = resolve_mentions(db, 'translation', project_id, sender,
-            [*(mentioned_user_ids or []), *([mentioned_user_id] if mentioned_user_id else [])], mention_all)
+            [*(mentioned_user_ids or []), *([mentioned_user_id] if mentioned_user_id else [])], mention_all, mention_managers)
         mentioned_user_id = None
     normalized_json = normalize_rich_text_json(content_json, chat_images=True)
     if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
@@ -968,15 +969,15 @@ def create_project_chat_message(
             for attachment in attachments
         )
 
-    if mention_all and message_type == 'user':
-        message.event_data = {**(message.event_data or {}), 'mention_all': True}
+    if (mention_all or mention_managers) and message_type == 'user':
+        message.event_data = {**(message.event_data or {}), 'mention_all': mention_all,'mention_managers':mention_managers}
     mention_users = _create_chat_mentions(
         db,
         message,
         sender,
         mentioned_user_id if message_type == 'user' else None,
         mentioned_user_ids if message_type == 'user' else None,
-        max_mentions=max(20,len(mentioned_user_ids or [])) if mention_all else 20,
+        max_mentions=max(20,len(mentioned_user_ids or [])) if mention_all or mention_managers else 20,
     )
     mention_recipients = [user.id for user in mention_users]
 

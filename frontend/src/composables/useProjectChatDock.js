@@ -26,6 +26,7 @@ const state = reactive({
   recentClosedSessions: [],
   recentClosedHistoryInitialized: false,
   layout: 'float',
+  latestFloatRect: null,
   tileMode: '',
   workspaceMinimized: false,
   workspaceOpened: false,
@@ -77,6 +78,7 @@ const persistPreferences = () => {
       layout: state.workspaceMaximized ? state.maximizedFrom : state.layout,
       workspaceSize: state.workspaceSize,
       sizeByType: { ...sizePreference },
+      latestFloatRect: state.latestFloatRect,
       closedSessionKeys: [...state.closedSessionKeys],
       manualUnreadKeys: [...state.manualUnreadKeys],
       protectedDiscussionKeys: [...protectedDiscussionKeys],
@@ -105,6 +107,7 @@ const ensurePreferences = () => {
     const savedLayout = saved.workspaceMaximized === true ? saved.maximizedFrom : saved.layout
     if (savedLayout === 'workspace' || savedLayout === 'float') state.layout = savedLayout
     state.workspaceSize = normalizeWorkspaceSize(saved.workspaceSize)
+    state.latestFloatRect = normalizeFloatRect(saved.latestFloatRect)
     if (saved.sizeByType && typeof saved.sizeByType === 'object') {
       sizePreference.translation = normalizeSize(saved.sizeByType.translation)
       sizePreference.annotation = normalizeSize(saved.sizeByType.annotation)
@@ -169,6 +172,29 @@ const clampPosition = (x, y, width = WINDOW_WIDTH, height = WINDOW_HEIGHT) => {
     x: Math.min(Math.max(Number(x) || 0, VIEWPORT_MARGIN), viewportWidth - width - VIEWPORT_MARGIN),
     y: Math.min(Math.max(Number(y) || 0, VIEWPORT_MARGIN), viewportHeight - height - VIEWPORT_MARGIN),
   }
+}
+
+// 所有独立小窗共用最后一次手动调整；应用时按当前视口限制，避免窗口移出屏幕。
+const normalizeFloatRect = rect => {
+  if (!rect || !['x','y','width','height'].every(key=>typeof rect[key]==='number'&&Number.isFinite(rect[key])) || rect.width<=0 || rect.height<=0) return null
+  const availableWidth=Math.max(1,(Number(window.innerWidth)||1280)-VIEWPORT_MARGIN*2)
+  const availableHeight=Math.max(1,(Number(window.innerHeight)||800)-VIEWPORT_MARGIN*2)
+  const width=Math.min(availableWidth,Math.max(Math.min(320,availableWidth),rect.width))
+  const height=Math.min(availableHeight,Math.max(Math.min(280,availableHeight),rect.height))
+  return {...clampPosition(rect.x,rect.y,width,height),width,height}
+}
+const applyFloatDefault = chat => {
+  if (state.layout!=='float'||state.tileMode||!state.latestFloatRect) return
+  chat.floatRect=normalizeFloatRect(state.latestFloatRect)
+  Object.assign(chat,{x:chat.floatRect.x,y:chat.floatRect.y})
+}
+const setFloatRect = (key, rect) => {
+  const chat=state.windows.find(item=>item.key===key),value=normalizeFloatRect(rect)
+  if(!chat||!value)return
+  chat.floatRect=value
+  Object.assign(chat,{x:value.x,y:value.y})
+  state.latestFloatRect={...value}
+  persistPreferences()
 }
 
 const workspaceFrameMode = () => (state.workspaceMaximized ? 'maximized' : state.workspaceSize)
@@ -312,6 +338,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     if (subtitle) existing.subtitle = subtitle
     if (projectStatus) existing.projectStatus = projectStatus
     existing.minimized = false
+    applyFloatDefault(existing)
     if (state.layout === 'float' && state.tileMode) existing.sizeMode = state.tileMode
     if (state.pinnedKey && state.layout === 'float') state.pinnedKey = existing.key
     existing.unread = 0
@@ -339,6 +366,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     title: title || (needsMeta ? '正在加载项目信息…' : '项目沟通'),
     subtitle,
     minimized: false,
+    floatRect: null,
     unread: 0,
     lastActiveOrder: 0,
     zIndex: 0,
@@ -349,6 +377,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     metaLoaded: !needsMeta,
   })
   Object.assign(chatWindow, nextCascadePosition(sizeMode))
+  applyFloatDefault(chatWindow)
   touchWindow(chatWindow)
   chatWindow.zIndex = ++zSequence
   state.activeKey = key
@@ -380,8 +409,8 @@ const updateChatMeta = (key, { title, subtitle } = {}) => {
 const setPosition = (key, x, y) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (!chatWindow) return
-  const size = resolveChatSize(chatWindow.sizeMode || 'small')
-  Object.assign(chatWindow, clampPosition(x, y, size.width, size.height))
+  const size = chatWindow.floatRect || resolveChatSize(chatWindow.sizeMode || 'small')
+  setFloatRect(key,{x,y,width:size.width,height:size.height})
 }
 
 const setWorkspacePosition = (x, y) => {
@@ -396,6 +425,7 @@ const setWorkspacePosition = (x, y) => {
 const applySize = (chatWindow, mode) => {
   const next = normalizeSize(mode)
   chatWindow.sizeMode = next
+  chatWindow.floatRect = null
   if (chatWindow.projectType === 'translation' || chatWindow.projectType === 'annotation') {
     sizePreference[chatWindow.projectType] = next
   }
@@ -552,6 +582,17 @@ const setLayout = (layout) => {
   }
 }
 
+// 独立小窗共享原会话，不复制窗口；各自的最小化记录分别保留。
+const openIndependentWindows = () => {
+  state.tileMode = ''
+  state.pinnedKey = ''
+  setLayout('float')
+  state.workspaceMinimized = false
+  const active = state.windows.find(item => item.key === state.activeKey)
+  if (active) {if(state.latestFloatRect)applyFloatDefault(active);else applySize(active, 'small')}
+  persistPreferences()
+}
+
 const clampAllPositions = () => {
   // 视口异常（最小化到 0 或小于窗口尺寸）时保持原坐标，避免把窗口永久压到角落。
   const viewportWidth = Number(window.innerWidth) || 0
@@ -559,12 +600,11 @@ const clampAllPositions = () => {
   // 视口尺寸参与 Vue 响应式计算，全屏及聊天内容区随缩放一起更新。
   if (viewportWidth > 0) state.viewportWidth = viewportWidth
   if (viewportHeight > 0) state.viewportHeight = viewportHeight
+  if (viewportWidth<=0||viewportHeight<=0)return
   if (state.workspaceReady) ensureWorkspacePlaced()
-  if (
-    viewportWidth < WINDOW_WIDTH + VIEWPORT_MARGIN * 2
-    || viewportHeight < WINDOW_HEIGHT + VIEWPORT_MARGIN * 2
-  ) return
   state.windows.forEach((chatWindow) => {
+    if(chatWindow.floatRect){chatWindow.floatRect=normalizeFloatRect(chatWindow.floatRect);Object.assign(chatWindow,{x:chatWindow.floatRect.x,y:chatWindow.floatRect.y});return}
+    if(viewportWidth<WINDOW_WIDTH+VIEWPORT_MARGIN*2||viewportHeight<WINDOW_HEIGHT+VIEWPORT_MARGIN*2)return
     const size = resolveChatSize(chatWindow.sizeMode || 'small')
     Object.assign(chatWindow, clampPosition(chatWindow.x, chatWindow.y, size.width, size.height))
   })
@@ -737,6 +777,7 @@ const restoreChat = (key) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (!chatWindow) return
   chatWindow.minimized = false
+  applyFloatDefault(chatWindow)
   if (state.pinnedKey) state.pinnedKey = key
   chatWindow.unread = 0
   focusChat(key)
@@ -791,6 +832,7 @@ export const useProjectChatDock = () => ({
   focusWorkspace,
   updateChatMeta,
   setPosition,
+  setFloatRect,
   setWorkspacePosition,
   clampAllPositions,
   incrementUnread,
@@ -803,6 +845,7 @@ export const useProjectChatDock = () => ({
   cycleWorkspaceSize,
   toggleWorkspaceMaximize,
   setLayout,
+  openIndependentWindows,
   selectSession,
   minimizeWorkspace,
   restoreWorkspace,

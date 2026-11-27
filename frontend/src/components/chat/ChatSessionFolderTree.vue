@@ -66,8 +66,8 @@
     </div>
     <div class="chat-folder-tree__resize" role="separator" aria-label="调整分组区域高度" aria-orientation="horizontal" tabindex="0" :aria-valuenow="panelHeight" :aria-valuemin="100" :aria-valuemax="maxHeight()" @pointerdown="beginResize" @keydown.up.prevent="resizeBy(-20)" @keydown.down.prevent="resizeBy(20)" />
     <el-popover v-model:visible="annotationMenuVisible" :virtual-ref="annotationMenuAnchor" :z-index="annotationMenuZ" virtual-triggering :trigger="[]" placement="right-start" :width="160">
-      <div v-if="categoryMenuTarget" class="chat-folder-tree__context-menu"><el-button v-if="!categoryMenuTarget.isConversation" text @click="categoryCommand('create')">新建会话</el-button><el-button text @click="categoryCommand('rename')">重命名</el-button><el-button v-if="!categoryMenuTarget.deletionProtected" text type="danger" @click="categoryCommand('delete')">删除</el-button></div>
-      <div v-else class="chat-folder-tree__context-menu"><el-button text @click="annotationMenuVisible = false; emit('browse-annotation')">项目搜索</el-button><el-button v-if="hasPermission('projects:write')" text @click="annotationMenuVisible = false; createRequest++">新增项目</el-button><el-button text @click="annotationMenuVisible=false;technicalPicker.open()">技术需求</el-button></div>
+      <div v-if="categoryMenuTarget" class="chat-folder-tree__context-menu"><el-button v-if="!categoryMenuTarget.isConversation" text @click.stop="categoryCommand('create')">新建会话</el-button><el-button text @click.stop="categoryCommand('rename')">重命名</el-button><el-button v-if="!categoryMenuTarget.deletionProtected" text type="danger" @click.stop="categoryCommand('delete')">删除</el-button></div>
+      <div v-else class="chat-folder-tree__context-menu"><el-button text @click.stop="annotationMenuVisible = false; emit('browse-annotation')">项目搜索</el-button><el-button v-if="hasPermission('projects:write')" text @click.stop="annotationMenuVisible = false; createRequest++">新增项目</el-button><el-button text @click.stop="annotationMenuVisible=false;technicalPicker.open()">技术需求</el-button></div>
     </el-popover>
     <TechnicalRequirementsPicker ref="technicalPicker" />
     <el-config-provider v-if="createRequest" :z-index="annotationMenuZ+10"><AnnotationProjectCreator embedded create-only :create-request="createRequest" /></el-config-provider>
@@ -83,8 +83,12 @@ import { partitionArchivedDateFolders } from '@/utils/chatDateFolderArchive'
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
+import {chatGroupPalette} from '@/utils/chatGroupColors'
 import TechnicalRequirementsPicker from './TechnicalRequirementsPicker.vue'
 const technicalPicker=ref()
+function folderAccent(row){
+  return chatGroupPalette(row).accent
+}
 const statusIcons = { Loading, Clock, CircleClose, CircleCheck, Document, Grid, UserFilled, Promotion, School, MoreFilled, ChatDotRound }
 const props = defineProps({ active: { type: Boolean, default: true }, selected: { type: String, default: '' }, sessions: { type: Array, default: () => [] }, compact: { type: Boolean, default: false }, canLocate: { type: Boolean, default: false }, locateTitle: { type: String, default: '定位当前会话所在分组' } })
 const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation', 'unread', 'locate-active'])
@@ -335,6 +339,11 @@ function start(parentKey = null, row = null, conversation = false, directory = f
   })
 }
 function cancel() { if (!saving.value) { editing.value = null; error.value = '' } }
+function clickRow(event,row) {
+  // 操作按钮、未读提醒和拖动手柄有独立交互，不能再触发行展开。
+  if(event.target.closest?.('button,input,textarea,a,[role="button"],.chat-folder-tree__grip'))return
+  openChild(row)
+}
 function openChild(row) {
   if (!row.isConversation) {
     if (row.id === annotationStatusGroupId && expanded.value.has(row.id) && props.selected === row.id) {
@@ -393,6 +402,7 @@ async function save(name) {
 .chat-folder-tree button{font:inherit;color:inherit;cursor:pointer}.chat-folder-tree__all,.chat-folder-tree__toggle,.chat-folder-tree__name{border:0;background:transparent}.chat-folder-tree__all{padding:6px 8px}.chat-folder-tree__all[aria-pressed="true"]{color:var(--color-primary-hover);font-weight:600}.chat-folder-tree__toggle{display:flex;align-items:center;justify-content:center;flex:none;width:20px;padding:5px 0}.chat-folder-tree__name{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:6px 2px;text-align:left}.chat-folder-tree__name span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.chat-folder-tree__row>.el-button{flex:none;margin:0;padding:4px}.chat-folder-tree__children{padding-left:28px}.chat-folder-tree__hint{display:block;margin:4px 0;color:#94a3b8;font-size:11px}.chat-folder-tree__mention{color:#dc2626}.chat-folder-tree button:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}
 .chat-folder-tree__name>span{flex:1}.chat-folder-tree__count{flex:none;min-width:20px;box-sizing:border-box;padding:1px 6px;border-radius:7px;background:#e9eef5;color:#64748b;text-align:center;font-size:10px;font-variant-numeric:tabular-nums}.chat-folder-tree__row.is-active .chat-folder-tree__count{background:#dbe6f7;color:#4267a5}.chat-folder-tree__children{margin-left:10px;padding-left:19px;border-left:1px solid #dde4ed}
 .chat-folder-tree__mention{flex:none;min-width:18px;padding:1px 5px;border-radius:10px;background:#dc2626;color:white;text-align:center;font-size:11px;line-height:16px}
+.chat-folder-tree__all-tools{display:flex;align-items:center;justify-content:space-between;gap:8px}.chat-folder-tree__all-tools>.el-button{font-size:11px}
 </style>
 
 <style scoped>

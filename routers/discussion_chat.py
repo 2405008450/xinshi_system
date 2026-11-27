@@ -1,6 +1,8 @@
 
 from starlette.concurrency import run_in_threadpool
 from uuid import UUID
+from datetime import date
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from database import get_db
@@ -100,10 +102,12 @@ def rename(room_id: UUID, payload: DiscussionNameWrite, db=Depends(get_db), user
 class MessageCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     content: str = Field(min_length=1, max_length=10000)
+    content_json: dict | None = None
     client_message_id: UUID
     reply_to_id: int | None = Field(default=None, ge=1)
     mentioned_user_ids: list[UUID] = Field(default_factory=list,max_length=20)
     mention_all: bool = False
+    mention_managers: bool = False
 
     @model_validator(mode='before')
     @classmethod
@@ -144,10 +148,19 @@ def group(room_id: UUID, db=Depends(get_db), user=Depends(actor)):
 
 @router.get('/{room_id}/messages')
 def messages(room_id: UUID, before: int | None = Query(None, ge=1), after: int | None = Query(None, ge=1),
-             limit: int = Query(50, ge=1, le=100), keyword: str = Query('', max_length=200), favorites_only: bool = False, db=Depends(get_db), user=Depends(actor)):
+             limit: int = Query(50, ge=1, le=100), keyword: str = Query('', max_length=200), favorites_only: bool = False,
+             kind: Literal['all','file','media','link','miniapp'] = 'all', sender_user_id: UUID | None = None,
+             start_date: date | None = None, end_date: date | None = None, format_filters: str = '', db=Depends(get_db), user=Depends(actor)):
     if before is not None and after is not None:
         raise HTTPException(422, '不能同时指定向前和向后翻页')
-    return service.messages(db, user, room_id, before, after, limit, keyword, favorites_only)
+    return service.messages(db, user, room_id, before, after, limit, keyword, favorites_only,
+                            kind, sender_user_id, start_date, end_date, format_filters)
+
+
+@router.get('/{room_id}/search-options')
+def search_options(room_id: UUID, db=Depends(get_db), user=Depends(actor)):
+    from discussion_search import sender_options
+    return sender_options(db, user, room_id)
 
 
 @router.post('/{room_id}/messages', status_code=201)

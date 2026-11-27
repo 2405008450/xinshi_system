@@ -594,7 +594,7 @@ test('固定小窗只显示当前会话，重新进入大屏再还原不展开�
 test('@搜索显示重名的群内和可邀请人员，按ID区分', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = {members:[{id:'a',name:'甲'}], eligibleUsers:[{id:'a',name:'甲'}], invitableUsers:[{id:'a',name:'甲'},{id:'b',name:'甲'},{id:'c',name:'乙'}]}
-  const result = runInNewContext(segment+';mentionCandidates.value', {mentionAudience, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
+  const result = runInNewContext(segment+';mentionCandidates.value', {mentionAudience, isDirect:{value:false}, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
   assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false], ['b',true]])
 })
 
@@ -602,11 +602,11 @@ test('@搜索显示重名的群内和可邀请人员，按ID区分', () => {
 test('@候选搜索群外人员，默认选人仍仅显示群内其他人', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = { members: [{id: 1}], eligibleUsers: [{id: 1, name: '同名'}, {id: 2, name: '同名'}], invitableUsers: [{id: 1, name: '同名'}, {id: 3, name: '同名'}] }
-  const result = runInNewContext(segment + ';mentionCandidates.value', {mentionAudience, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
+  const result = runInNewContext(segment + ';mentionCandidates.value', {mentionAudience, isDirect:{value:false}, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
   assert.deepEqual(Array.from(result, row => row.id), [2, 3])
   const panelSegment = chatPanel.slice(chatPanel.indexOf('const mentionUserGroups = computed'), chatPanel.indexOf('const messages = ref'))
-  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {mentionAudience, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:'annotation'}, mentionProject:{value:null}, currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
-  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__'], [2]])
+  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {mentionAudience, isDirect:{value:false}, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:'annotation'}, mentionProject:{value:null}, currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
+  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__', '__managers__'], [2]])
 })
 
 test('收藏项目名称和沟通按钮使用同一准确项目 ID，详情直接打开项目沟通', () => {
@@ -717,21 +717,13 @@ test('副本窗口不会生成重复会话列表项或重复计算未读提及',
 })
 
 test('收藏夹取消关注只修改当前订单关注状态，不退出会话；失败保留重试', async () => {
-  const handler=favorites.slice(favorites.indexOf('async function unfollowFavorite()'),favorites.indexOf('watch(favoritesVisible'))
-  const calls=[], messages=[], item={projectId:'child',orderNo:'AP-261007-001.001'}, context={
-    favoriteMenuItem:{value:item},unfollowing:{value:false},favoriteMenuVisible:{value:true},
-    annotationChatRequest:async(...args)=>calls.push(args),refresh:async()=>calls.push('refresh'),
-    ElMessage:{success:text=>messages.push(text),error:text=>messages.push(text)},
-  }
-  await runInNewContext(handler+';unfollowFavorite()',context)
-  assert.equal(calls[0][0],'child');assert.equal(calls[0][1],'following')
-  assert.equal(calls[0][2].data.following,false)
-  assert.equal(calls[1],'refresh');assert.equal(context.favoriteMenuVisible.value,false)
-  assert.equal(context.unfollowing.value,false)
-  context.favoriteMenuVisible.value=true;context.annotationChatRequest=async()=>{throw {detail:'连接失败'}}
-  await runInNewContext(handler+';unfollowFavorite()',context)
-  assert.equal(context.favoriteMenuVisible.value,true)
-  assert.equal(context.unfollowing.value,false)
+  const handler = favorites.match(/^async function removeFavorite.*$/m)[0]
+  const calls=[], messages=[], item={projectId:'child',orderNo:'AP-261007-001.001'}
+  const context={item,setFavorite:async(...args)=>calls.push(args),ElMessage:{error:text=>messages.push(text)}}
+  await runInNewContext(handler+';removeFavorite(item)',context)
+  assert.deepEqual(calls, [[item,false]])
+  context.setFavorite=async()=>{throw {detail:'连接失败'}}
+  await runInNewContext(handler+';removeFavorite(item)',context)
   assert.equal(messages.at(-1),'连接失败')
 })
 
@@ -810,25 +802,14 @@ test('讨论群聊等所有会话均支持置顶、收藏、右键菜单及顶�
 })
 
 test('收藏夹支持展示并操作收藏的讨论群聊与各类会话', async () => {
-  assert.match(favorites, /收藏的会话/)
-  assert.match(favorites, /starredSessions/)
-  const handler = favorites.slice(favorites.indexOf('async function updateStarredPreference'), favorites.indexOf('function orderLabel'))
-  const calls = [], messages = []
-  const context = {
-    busyKey: { value: '' },
-    chatRequest: async (...args) => calls.push(args),
-    refresh: async () => calls.push('refresh'),
-    ElMessage: { success: text => messages.push(text), error: text => messages.push(text) },
-  }
-  await runInNewContext(handler + ';toggleStarredPin({ key: "discussion:r1", kind: "discussion", projectId: "r1", title: "TP-261126-018", pinned: false })', context)
+  const source = readFileSync(new URL('../src/composables/useChatFavorites.js', import.meta.url), 'utf8')
+  const handler = source.split(String.fromCharCode(10)).filter(line => !line.startsWith('import ')).join(String.fromCharCode(10)).replace('export function', 'function')
+  const calls = []
+  const context = {ref:value=>({value}),useAnnotationFollowed:()=>({sessions:{value:[]},refresh:async()=>calls.push('refresh')}),chatRequest:async(...args)=>calls.push(args)}
+  await runInNewContext(handler + ';useChatFavorites().setFavorite({kind:"discussion",projectId:"r1"},true)',context)
   assert.equal(calls[0][0], 'discussions/r1/preferences')
-  assert.equal(calls[0][1].data.pinned, true)
+  assert.equal(calls[0][1].data.starred, true)
   assert.equal(calls[1], 'refresh')
-  assert.equal(messages.at(-1), '已置顶会话')
-  await runInNewContext(handler + ';removeStarredSession({ key: "translation:p1", kind: "translation", projectId: "p1", title: "笔译群", starred: true })', context)
-  assert.equal(calls[2][0], 'sessions/translation/p1/preferences')
-  assert.equal(calls[2][1].data.starred, false)
-  assert.equal(messages.at(-1), '已从收藏夹移除「笔译群」')
 })
 
 test('会话支持标为未读并按用户持久化，重新点开或标为已读后自动清除', () => {
@@ -860,4 +841,59 @@ test('全部会话、我的项目、收藏夹与最近关闭均内联展示且�
   assert.match(workspace, /v-else-if="sessionScope === 'closed'"/)
   assert.match(workspace, /\.chat-workspace__session\.is-pinned\{background:var\(--chat-bubble-mention-bg,#fef9ec\)/)
   assert.match(workspace, /\.chat-workspace__session\.is-pinned:hover\{background:#fef3c7\}/)
+})
+
+test('独立小窗可逐个打开并分别最小化，切换模式保留多个底部会话', () => {
+  const {dock:instance,visible,storage}=createDockHarness()
+  instance.openChat({projectId:'first',projectType:'discussion',title:'会话甲'})
+  instance.setLayout('workspace')
+  instance.state.pinnedKey='discussion:first'
+  instance.state.tileMode='medium'
+  instance.openIndependentWindows()
+  assert.equal(instance.state.layout,'float')
+  assert.equal(instance.state.pinnedKey,'')
+  assert.equal(instance.state.tileMode,'')
+  instance.minimizeChat('discussion:first')
+  instance.openChat({projectId:'second',projectType:'discussion',title:'会话乙'})
+  instance.minimizeChat('discussion:second')
+  assert.equal(instance.state.windows.filter(row=>row.minimized).length,2)
+  assert.ok(instance.state.windows.every(row=>!visible(row)))
+  instance.restoreChat('discussion:first')
+  assert.ok(visible(instance.state.windows.find(row=>row.key==='discussion:first')))
+  assert.ok(instance.state.windows.find(row=>row.key==='discussion:second').minimized)
+  instance.minimizeChat('discussion:first')
+  instance.setLayout('workspace')
+  instance.openIndependentWindows()
+  assert.ok(instance.state.windows.find(row=>row.key==='discussion:second').minimized)
+  assert.ok([...storage.values()].some(value=>JSON.parse(value).layout==='float'))
+})
+
+
+test('独立小窗最后调整的宽高位置跨会话及刷新复用，按账号隔离', () => {
+  const storage=new Map([['user_id','geometry-owner']])
+  const h=createDockHarness(storage),a=h.dock.openChat({projectId:'a',projectType:'discussion',title:'甲'})
+  const expected={x:125,y:60,width:610,height:810}
+  h.dock.setFloatRect(a,expected)
+  h.dock.minimizeChat(a)
+  const b=h.dock.openChat({projectId:'b',projectType:'direct',title:'乙'})
+  assert.deepEqual({...h.dock.state.windows.find(row=>row.key===b).floatRect},expected)
+  assert.deepEqual(JSON.parse(storage.get('xinshi.chatDock.geometry-owner')).latestFloatRect,expected)
+  const fresh=createDockHarness(storage),c=fresh.dock.openChat({projectId:'c',projectType:'discussion',title:'丙'})
+  assert.deepEqual({...fresh.dock.state.windows.find(row=>row.key===c).floatRect},expected)
+  fresh.dock.setFloatRect(c,{x:190,y:90,width:700,height:790})
+  fresh.dock.openChat({projectId:'d',projectType:'discussion',title:'丁'})
+  assert.equal(fresh.dock.state.windows.at(-1).floatRect.width,700)
+  storage.set('user_id','other-user')
+  const other=createDockHarness(storage);other.dock.openChat({projectId:'e',projectType:'discussion',title:'戊'})
+  assert.equal(other.dock.state.windows[0].floatRect,null)
+})
+
+test('独立小窗保存的尺寸在较小视口内仍保留可操作边界', () => {
+  const h=createDockHarness()
+  const key=h.dock.openChat({projectId:'a',projectType:'discussion',title:'甲'})
+  h.dock.setFloatRect(key,{x:900,y:500,width:700,height:820})
+  h.viewport.innerWidth=600;h.viewport.innerHeight=500;h.dock.clampAllPositions()
+  const rect=h.dock.state.windows[0].floatRect
+  assert.ok(rect.width<=584&&rect.height<=484)
+  assert.ok(rect.x>=8&&rect.y>=8&&rect.x+rect.width<=592&&rect.y+rect.height<=492)
 })

@@ -3,6 +3,8 @@
     <template #reference><el-button link aria-label="更多会话操作" title="更多操作" @mousedown.stop @dblclick.stop><el-icon><MoreFilled /></el-icon></el-button></template>
     <div class="chat-header-more" @mousedown.stop @dblclick.stop>
       <slot />
+      <ChatWorkReportEntry :project-id="projectId" :project-type="projectType" :title="title" :order-no="orderNo" @opened="visible=false" />
+      <el-button v-if="projectId" link @click="toggleWindowMode"><el-icon><CopyDocument /></el-icon>{{ dock.state.layout === 'workspace' || dock.state.tileMode || dock.state.pinnedKey ? '独立小窗模式' : '合并会话窗口' }}</el-button>
       <el-button v-if="canDuplicate" link @click="command('duplicate')"><el-icon><CopyDocument /></el-icon>另开一窗</el-button>
       <el-button link @click="command('multiple')"><el-icon><Grid /></el-icon>多窗平铺</el-button>
       <ChatProjectActions :project-id="projectId" :project-type="projectType" menu-layout />
@@ -12,10 +14,18 @@
 <script setup>
 import {ref} from 'vue'
 import {MoreFilled,CopyDocument,Grid} from '@element-plus/icons-vue'
+import {useProjectChatDock} from '@/composables/useProjectChatDock'
 import ChatProjectActions from './ChatProjectActions.vue'
-defineProps({projectId:String,projectType:String,canDuplicate:Boolean})
+import ChatWorkReportEntry from './ChatWorkReportEntry.vue'
+defineProps({projectId:String,projectType:String,title:String,orderNo:String,canDuplicate:Boolean})
 const emit=defineEmits(['duplicate','multiple'])
+const dock=useProjectChatDock()
 const visible=ref(false)
+function toggleWindowMode(){
+  visible.value=false
+  if(dock.state.layout==='workspace'||dock.state.tileMode||dock.state.pinnedKey)dock.openIndependentWindows()
+  else dock.setLayout('workspace')
+}
 function command(value){visible.value=false;emit(value)}
 </script>
 <style>

@@ -60,7 +60,11 @@ def test_discussion_mentions_all_and_explicit_invitation_idempotency_read_recall
     assert row['member_count'] == 2
     assert row['mention_unread']==1 and row['last_message']['mentions_me']
     assert row['mention_all_unread'] == 1 and row['last_message']['mention_all']
-    inbox=list_mentions(db,receiver,project_type='discussion');assert inbox['total']==1
+    inbox=list_mentions(db,receiver,project_type='discussion',include_senders=True);assert inbox['total']==1
+    assert inbox['senders']==[dict(name=sender.full_name,count=1,unread=1)]
+    assert list_mentions(db,receiver,sender_name=sender.full_name)['total']==1
+    other=list_mentions(db,receiver,sender_name='不存在的人员',include_senders=True)
+    assert other['total']==0 and other['senders']==inbox['senders']
     assert inbox['items'][0]['message_id']==result['id']
     assert list_mentions(db, receiver, mention_kind='personal')['total'] == 0
     assert list_mentions(db, receiver, mention_kind='all')['items'][0]['mention_all'] is True

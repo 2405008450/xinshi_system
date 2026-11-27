@@ -65,6 +65,37 @@ def test_pagination_and_read_move_record_between_filters(environment):
     assert client.get('/notifications/page',params={**base,'read_status':'read'}).json()['total']==2
 
 
+def test_sender_options_and_execution_status_use_full_authorized_business_scope(environment):
+    db,user,client=setup_notifications(environment)
+    from models import AppNotification
+    from resource_request_dispatch_models import ResourceRequestDispatch,ResourceRequestDispatchRecipient
+    from business_time import business_now
+    other=environment[1][1]
+    batch=ResourceRequestDispatch(id=uuid4(),request_id=uuid4(),sender_id=other.id,kind='circle',snapshot={},idempotency_key=str(uuid4()))
+    db.add(batch)
+    receiver=ResourceRequestDispatchRecipient(dispatch_id=batch.id,user_id=user.id)
+    db.add(receiver)
+    db.add(AppNotification(id=uuid4(),recipient_user_id=user.id,notification_type='resource_request_dispatch',related_entity_id=batch.id,is_read=True,title='筛选执行测试',content='组合条件',created_at=business_now()))
+    db.commit()
+    options=client.get('/notifications/filter-options',params={'channel':'business'})
+    assert options.status_code==200,options.text
+    assert options.json()['senders']==[dict(id=str(other.id),name=other.full_name)]
+    base={'channel':'business','sender_user_id':str(other.id),'keyword':'组合 条件','read_status':'read','limit':1}
+    result=client.get('/notifications/page',params={**base,'execution_status':'pending'})
+    assert result.status_code==200,result.text
+    assert result.json()['total']==1
+    receiver.received_at=business_now();db.commit()
+    assert client.get('/notifications/page',params={**base,'execution_status':'pending'}).json()['total']==0
+    assert client.get('/notifications/page',params={**base,'execution_status':'received'}).json()['total']==1
+    receiver.processed_at=business_now();db.commit()
+    assert client.get('/notifications/page',params={**base,'execution_status':'completed'}).json()['total']==1
+    assert client.get('/notifications/page',params={**base,'sender_user_id':str(user.id)}).json()['total']==0
+    db.add(ResourceRequestDispatch(id=uuid4(),request_id=batch.request_id,sender_id=other.id,kind='cancellation',snapshot={},idempotency_key=f'cancel-dispatch:{batch.id}'));db.commit()
+    assert client.get('/notifications/page',params={**base,'execution_status':'completed'}).json()['total']==0
+    assert client.get('/notifications/page',params={**base,'execution_status':'cancelled'}).json()['total']==1
+    assert client.get('/notifications/page',params={'execution_status':'invalid'}).status_code==422
+
+
 def test_system_bell_excludes_conversation_feed_and_read_all_is_isolated(environment):
     db, user, client = setup_notifications(environment)
     from models import AppNotification

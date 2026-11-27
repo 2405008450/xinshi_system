@@ -7,7 +7,7 @@ import { matchesSearch } from '../src/utils/searchMatching.js'
 import { groupSessionList, mentionUnreadCount, firstUnreadMentionSession, compareSessionActivity } from '../src/utils/chatSessionList.js'
 
 const source = readFileSync(new URL('../src/components/chat/ChatWorkspace.vue', import.meta.url), 'utf8')
-const expression = source.slice(source.indexOf('const visibleSessions ='), source.indexOf('\nfunction syncActiveConversation'))
+const expression = "const personalFollowingFolderId = 'personal-following';\n" + source.slice(source.indexOf('const visibleSessions ='), source.indexOf('\nfunction syncActiveConversation'))
 
 test('列表保留置顶顺序，消息入口清除筛选并打开最新未读提及', () => {
   const sessions = [

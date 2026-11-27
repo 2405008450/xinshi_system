@@ -19,7 +19,7 @@
             <template v-else>
               <AnnotationCreationCard v-if="message.contentJson?.type==='annotation_creation'" :card="message.contentJson" :chat-message-id="message.id" />
               <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" />
-              <p v-else-if="message.content" class="group-content"><template v-for="(part, index) in mentionParts(message)" :key="index"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+            <p v-else-if="message.content" class="group-content"><ChatFormattedText :message="message" :user-id="currentUserId" /></p>
             </template>
             <span v-if="message.editedAt && editingMessageId !== message.id" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span>
             <el-tag v-if="message.topicPath" size="small" effect="plain" class="group-topic-label">{{ message.topicPath }}</el-tag>
@@ -52,6 +52,7 @@
 import ChatMediaAttachment from './ChatMediaAttachment.vue'
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import { computed, inject, nextTick, ref } from 'vue'
+import ChatFormattedText from './ChatFormattedText.vue'
 import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
 import AnnotationCreationCard from './AnnotationCreationCard.vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'

@@ -13,6 +13,85 @@ import translation_customer_finance as finance
 import crud
 
 
+def test_statement_toggle_uses_same_effective_value_as_editor(setup):
+    http,db,_,_,_,_,order,_=setup
+    item=http.get(f'/translation-customer-finance/project/{order.id}').json()['item']
+    assert item['effective_billing_tax_mode']=='excl_tax'
+    assert item['statement_required'] is True
+    response=http.put(f'/translation-customer-finance/project/{order.id}/statement-required',json={
+        'statement_required':False,'expected_statement_required':item['statement_required'],
+        'expected_updated_at':item['updated_at'],
+    })
+    assert response.status_code==200,response.text
+    assert response.json()['statement_required'] is False
+    assert http.get(f'/translation-customer-finance/project/{order.id}').json()['item']['statement_required'] is False
+
+
+def test_statement_toggle_uses_existing_board_effective_value_and_persists_change(setup,monkeypatch):
+    from customer_statement_workspace import StatementWorkspace
+    import translation_document_requirements as documents
+    http,db,clients,_,_,_,order,_=setup
+    uid=str(order.id)
+    db.add(TranslationProjectDocuments(project_id=order.id,statement_required=False))
+    db.add(StatementWorkspace(client_id=clients[0].id,revision=1,payload={
+        'roots':{uid:{}},'boards':[{'id':'existing','name':'已有对账单','status':'active'}],
+        'tasks':{uid:{'id':uid,'month':'2026-11','board_id':'existing','rows':[{'root_id':uid,'order_no':order.order_no}]}},
+    }));db.commit()
+    item=http.get(f'/translation-customer-finance/project/{uid}').json()['item']
+    assert item['statement_required'] is True
+    assert item['statement_status']
+    calls=[];save=documents.save
+    def recording_save(db,project,**kwargs):
+        calls.append(kwargs.get('statement_required'))
+        return save(db,project,**kwargs)
+    monkeypatch.setattr(documents,'save',recording_save)
+    response=http.put(f'/translation-customer-finance/project/{uid}/statement-required',json={
+        'statement_required':True,'expected_statement_required':True,'expected_updated_at':item['updated_at'],
+    })
+    assert response.status_code==200,response.text
+    assert True in calls
+
+
+def test_statement_toggle_still_rejects_actual_effective_change_without_project_timestamp_change(setup):
+    http,db,_,_,_,_,order,_=setup
+    old=http.get(f'/translation-customer-finance/project/{order.id}').json()['item']
+    assert old['statement_required'] is True
+    db.add(TranslationProjectDocuments(project_id=order.id,statement_required=False));db.commit()
+    response=http.put(f'/translation-customer-finance/project/{order.id}/statement-required',json={
+        'statement_required':True,'expected_statement_required':old['statement_required'],
+        'expected_updated_at':old['updated_at'],
+    })
+    assert response.status_code==409
+    assert db.get(TranslationProjectDocuments,order.id).statement_required is False
+
+
+@pytest.mark.parametrize('mode',['excl_tax','incl_tax'])
+@pytest.mark.parametrize('required',[False,True])
+def test_statement_tax_basis_independent_from_explicit_requirement(setup,mode,required):
+    from translation_billing_tax_mode import TranslationBillingTaxMode
+    http,db,_,_,_,_,order,_=setup
+    db.add(TranslationProjectDocuments(project_id=order.id,statement_required=required,quotation_data={'_payment_method':'individual'}))
+    db.add(TranslationBillingTaxMode(project_id=order.id,order_id=order.id,mode=mode));db.commit()
+    item=http.get(f'/translation-customer-finance/project/{order.id}').json()['item']
+    assert item['effective_billing_tax_mode']==mode
+    assert item['statement_required'] is required
+    assert item['invoice_required'] is (mode=='incl_tax')
+    listing=http.get('/translation-customer-finance/page',params={'keyword':order.order_no}).json()['items']
+    assert listing and listing[0]['statement_required'] is required
+
+
+@pytest.mark.parametrize('mode',['excl_tax','incl_tax'])
+def test_statement_tax_basis_never_overrides_customer_type_default(setup,mode):
+    from translation_billing_tax_mode import TranslationBillingTaxMode
+    http,db,_,_,_,_,company,personal=setup
+    for order in [company,personal]:db.add(TranslationBillingTaxMode(project_id=order.id,order_id=order.id,mode=mode))
+    db.commit()
+    company_item=http.get(f'/translation-customer-finance/project/{company.id}').json()['item']
+    personal_item=http.get(f'/translation-customer-finance/project/{personal.id}').json()['item']
+    assert company_item['statement_required'] is True
+    assert personal_item['statement_required'] is False
+
+
 @pytest.fixture
 def setup(context, request):
     http,db,clients,granted,user=context
@@ -184,8 +263,8 @@ def test_finance_payment_method_is_shared_with_main_table(setup):
     page_url = '/translation-customer-finance/page'
     current = http.get(url).json()
     assert current['item']['payment_method'] == 'individual'
-    assert current['item']['statement_required'] is False
-    for method, required in [('monthly', False), ('individual', False), ('special', True)]:
+    assert current['item']['statement_required'] is True
+    for method, required in [('monthly', True), ('individual', True), ('special', True)]:
         response = http.put(url, json={
             'version': current['version'], 'order_id': str(project_row.id),
             'documents_only': True, 'payment_method': method,

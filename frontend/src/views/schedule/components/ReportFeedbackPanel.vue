@@ -8,29 +8,37 @@
     <template v-if="selected">
       <p class="subject"><ScreenshotText :text="subject" /></p>
       <div class="messages"><article v-for="message in currentMessages" :key="message.id"><header><b>{{message.author_name}}</b><small>{{formatBusinessDateTime(message.created_at)}}</small></header><p><ScreenshotText :text="message.content" /></p></article><p v-if="!currentMessages.length" class="muted">此项暂无反馈</p></div>
-      <AppForm ref="formRef" :model="draft" :rules="rules" label-position="top" @submit.prevent="send"><el-form-item label="反馈 / 回复" prop="content"><el-input :key="selected" v-model="draft.content" type="textarea" :rows="3" maxlength="4000" show-word-limit placeholder="围绕此项工作沟通，可多次来回回复" :disabled="sending||!ready" /></el-form-item><el-button type="primary" :loading="sending" :disabled="!ready" @click="send">发送{{currentMessages.length?'回复':'反馈'}}</el-button></AppForm>
+      <AppForm ref="formRef" :model="draft" :rules="rules" label-position="top" @submit.prevent="send">
+        <el-form-item label="发送给" prop="recipient_mode"><el-select v-model="draft.recipient_mode" aria-label="反馈接收范围" :disabled="sending||!recipientReady"><el-option label="报告作者及当前参与人" value="default" /><el-option label="所有人" value="all" /><el-option label="按部门选择" value="departments" /><el-option label="指定人员（可多选）" value="people" /></el-select></el-form-item>
+        <el-form-item v-if="draft.recipient_mode==='departments'" label="接收部门" prop="department_ids" :rules="[{type:'array',min:1,required:true,message:'请选择接收部门',trigger:'change'}]"><el-select v-model="draft.department_ids" multiple filterable clearable collapse-tags collapse-tags-tooltip aria-label="反馈接收部门" :disabled="sending"><el-option v-for="department in recipientDirectory.departments" :key="department.id" :label="department.name" :value="department.id" /></el-select></el-form-item>
+        <el-form-item v-if="draft.recipient_mode==='people'" label="接收人员" prop="recipient_ids" :rules="[{type:'array',min:1,required:true,message:'请选择接收人员',trigger:'change'}]"><el-select v-model="draft.recipient_ids" multiple filterable clearable collapse-tags collapse-tags-tooltip aria-label="反馈接收人员" :disabled="sending"><el-option v-for="person in recipientDirectory.people" :key="person.id" :label="`${person.name}（${person.username}）`" :value="person.id" /></el-select></el-form-item>
+        <p class="muted">报告作者会同步收到。其他接收人可查看、回复此工作项沟通。</p>
+        <el-form-item label="反馈 / 回复" prop="content"><el-input :key="selected" v-model="draft.content" type="textarea" :rows="3" maxlength="4000" show-word-limit placeholder="围绕此项工作沟通，可多次来回回复" :disabled="sending||!ready" /></el-form-item><el-button type="primary" :loading="sending" :disabled="!ready" @click="send">发送{{currentMessages.length?'回复':'反馈'}}</el-button></AppForm>
     </template>
   </section>
 </template>
 <script setup>
 import {computed,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
-import {getReportFeedback,addReportFeedback} from '@/api/tasks'
+import {getReportFeedback,addReportFeedback,getReportFeedbackRecipients} from '@/api/tasks'
+import {ElMessage} from 'element-plus'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 const props=defineProps({reportId:{type:String,required:true},workItems:{type:Array,default:()=>[]},allowNew:Boolean})
-const messages=ref([]),ready=ref(true),loading=ref(false),sending=ref(false),error=ref(''),selected=ref(''),draft=reactive({content:''}),formRef=ref()
+const messages=ref([]),ready=ref(true),loading=ref(false),sending=ref(false),error=ref(''),selected=ref(''),draft=reactive({content:'',recipient_mode:'default',recipient_ids:[],department_ids:[]}),formRef=ref()
+const recipientDirectory=reactive({people:[],departments:[]}),recipientReady=ref(false)
 const drafts=new Map()
 const rules={content:[{required:true,whitespace:true,message:'请输入反馈或回复',trigger:'blur'}]}
 const targets=computed(()=>{const map=new Map();if(props.allowNew)props.workItems.forEach((item,index)=>{const key=item.display_metadata?._feedback_key||item.id;if(key)map.set(key,{key,label:`第${index+1}项 ${item.task_name||item.progress_content||item.task_type}`})});messages.value.forEach(message=>{if(!map.has(message.item_key))map.set(message.item_key,{key:message.item_key,label:message.item_snapshot.task_name||message.item_snapshot.progress_content||'原工作项'})});return [...map.values()]})
 const currentMessages=computed(()=>messages.value.filter(message=>message.item_key===selected.value))
 const subject=computed(()=>currentMessages.value[0]?.item_snapshot?.progress_content||props.workItems.find(item=>(item.display_metadata?._feedback_key||item.id)===selected.value)?.progress_content||'')
-watch(selected,(value,previous)=>{if(previous)drafts.set(previous,draft.content);draft.content=drafts.get(value)||'';formRef.value?.clearValidate()})
+watch(selected,(value,previous)=>{if(previous)drafts.set(previous,{...draft,recipient_ids:[...draft.recipient_ids],department_ids:[...draft.department_ids]});Object.assign(draft,drafts.get(value)||{content:'',recipient_mode:'default',recipient_ids:[],department_ids:[]});formRef.value?.clearValidate()})
 let sequence=0,timer
 async function load(){const current=++sequence;loading.value=true;try{const result=await getReportFeedback(props.reportId);if(current!==sequence)return;messages.value=result.items;ready.value=result.ready;error.value='';if(!selected.value&&targets.value.length)selected.value=targets.value[0].key}catch(e){if(current===sequence){messages.value=[];error.value=e.detail||'读取沟通失败'}}finally{if(current===sequence)loading.value=false}}
-async function send(){if(sending.value)return;try{await formRef.value.validate()}catch{return}sending.value=true;try{await addReportFeedback(props.reportId,{item_key:selected.value,content:draft.content.trim()});draft.content='';drafts.delete(selected.value);await load()}catch(e){error.value=e.detail||'发送失败'}finally{sending.value=false}}
+async function send(){if(sending.value)return;try{await formRef.value.validate()}catch{return}sending.value=true;try{await addReportFeedback(props.reportId,{item_key:selected.value,content:draft.content.trim(),recipient_mode:draft.recipient_mode,recipient_ids:draft.recipient_mode==='people'?draft.recipient_ids:[],department_ids:draft.recipient_mode==='departments'?draft.department_ids:[]});draft.content='';drafts.delete(selected.value);await load();ElMessage.success('反馈已发送，接收人可在系统通知中查看')}catch(e){error.value=e.detail||'发送失败'}finally{sending.value=false}}
+async function loadRecipients(){try{const data=await getReportFeedbackRecipients(props.reportId);Object.assign(recipientDirectory,data);recipientReady.value=data.ready===true}catch(e){error.value=e.detail||'接收人员加载失败'}}
 function focusItem(key){selected.value=key}
 defineExpose({focusItem})
-onMounted(()=>{load();timer=setInterval(load,20000);window.addEventListener('focus',load)})
+onMounted(()=>{load();loadRecipients();timer=setInterval(load,20000);window.addEventListener('focus',load)})
 onBeforeUnmount(()=>{sequence++;clearInterval(timer);window.removeEventListener('focus',load)})
 </script>
 <style scoped>.report-feedback{display:flex;flex-direction:column;gap:12px}.report-feedback>header,.messages header{display:flex;align-items:center;justify-content:space-between;gap:10px}.messages{max-height:300px;overflow-y:auto}.messages article{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px;padding:10px}.messages p,.subject{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0}.messages small,.muted{color:#64748b;font-size:12px}.subject{font-size:13px;color:#475569}.report-feedback :deep(.el-select){width:100%}</style>

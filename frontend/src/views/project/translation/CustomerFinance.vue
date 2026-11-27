@@ -1280,12 +1280,6 @@ function changedPaymentMethod(){
 function changeEditorSettlementMode(mode){
   const order=editor.value
   order.paymentMethod=mode
-  if(mode!=='special'){
-    order.statementRequired=effectiveBillingTaxMode(order)==='incl_tax'
-    order.statementRequiredDirty=false
-    order.statementSync=null
-    order.statementCustomerSync=null
-  }
 }
 function statementPayload(){
   const draft=editor.value
@@ -1529,7 +1523,6 @@ async function changeEditorBillingTax(mode){
   if(order.paymentMethod!=='special'){
     if(!await confirmBillingTaxChange(mode,isGroupedSettlement(order.paymentMethod)&&mergedSettlement.value) || editor.value!==order)return
     order.unifiedBillingTaxMode=mode
-    order.statementRequired=mode==='incl_tax'
   }
   order.billingTaxMode=mode
 }

@@ -302,6 +302,10 @@ class InterpretationProject(Base):
         return "；".join(value for value in values if value) or None
 
     @property
+    def assigned_interpreter_count(self) -> int:
+        return len({row.translator_id for row in self.interpreter_assignments})
+
+    @property
     def translator_codes(self) -> Optional[str]:
         values = [item.translator_code for item in self.interpreter_assignments]
         return "；".join(value for value in values if value) or None

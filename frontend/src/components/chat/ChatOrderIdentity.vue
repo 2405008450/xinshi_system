@@ -7,8 +7,9 @@
       <ChatProjectActions v-if="showManagers && projectId" :project-id="projectId" :project-type="projectType" hide-materials><template #detail-reference><button type="button" class="chat-order-identity__number chat-order-identity__link" :title="`订单号：${orderNo} · 点击查看项目详情`" :aria-label="`查看项目详情 ${orderNo}`" @mousedown.stop @dblclick.stop @click.stop>{{ orderNo }}</button></template></ChatProjectActions>
       <span v-else class="chat-order-identity__number" :title="`订单号：${orderNo}`">{{ orderNo }}</span>
       <ChatProjectActions v-if="showManagers && projectId && projectType === 'annotation'" :project-id="projectId" :project-type="projectType" hide-details icon-only />
-      <ChatProjectManagersSummary v-if="showManagers && projectId" :project-id="projectId" :project-type="projectType" />
+      <ChatProjectManagersSummary v-if="showManagers && projectId" :project-id="projectId" :project-type="projectType" @project-state="projectState=$event" />
       <slot name="filters" />
+      <span v-if="showManagers && projectId" class="chat-order-identity__status" role="status" aria-label="当前项目状态">项目状态：{{ projectState.loading ? '加载中…' : projectState.error ? '暂时无法加载' : projectStatusLabel }}</span>
     </span>
   </span>
   <el-config-provider v-if="progressVisible" :z-index="10000"><AnnotationProgressHost :key="projectId" embedded progress-only :progress-project-id="projectId" @progress-closed="progressVisible=false" /></el-config-provider>
@@ -16,11 +17,14 @@
 <script setup>
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import ChatProjectManagersSummary from './ChatProjectManagersSummary.vue'
+import {getProjectStatusLabel} from '@/utils/projectStatus'
 import ChatProjectActions from './ChatProjectActions.vue'
 const AnnotationProgressHost = defineAsyncComponent(() => import('@/views/project/AnnotationProjects.vue'))
 const progressVisible = ref(false)
+const projectState=ref({loading:true})
+const projectStatusLabel=computed(()=>projectState.value.status ? getProjectStatusLabel(props.projectType,projectState.value.status) : '未设置')
 const props = defineProps({ orderNo: { type: String, default: '' }, projectType: { type: String, default: '' }, title: { type: String, default: '' }, projectId: { type: String, default: '' }, showManagers: Boolean })
-watch(()=>props.projectId,()=>{progressVisible.value=false})
+watch(()=>[props.projectId,props.projectType],()=>{progressVisible.value=false;projectState.value={loading:true}})
 const orderDepth = computed(() => /^AP-\d{6}-\d+(?:\.\d{3}){1,2}$/.test(props.orderNo) ? props.orderNo.split('.').length - 1 : 0)
 const childOrder = computed(() => props.projectType === 'annotation' && orderDepth.value > 0)
 </script>
@@ -28,6 +32,7 @@ const childOrder = computed(() => props.projectType === 'annotation' && orderDep
 .chat-order-identity{display:flex;min-width:0;flex-direction:column;gap:5px;user-select:text;cursor:text}
 .chat-order-identity__title{display:block;font-size:13px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-order-identity__details{display:flex;align-items:center;flex-wrap:wrap;gap:5px;font-size:11px;color:#64748b;line-height:1.5}
+.chat-order-identity__status{white-space:nowrap;user-select:text;cursor:text;padding:0 6px;border-left:1px solid #e2e8f0}
 .chat-order-identity__number{overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .chat-order-identity__badge{flex:none;padding:1px 6px;border:1px solid #f59e0b;border-radius:4px;background:#fef3c7;color:#92400e;font-size:11px}
 .is-child .chat-order-identity__number{color:#92400e;font-weight:600}

@@ -34,8 +34,9 @@
         start-placeholder="开始日期"
         end-placeholder="结束日期"
       />
+      <el-select v-model="filters.formats" multiple clearable collapse-tags placeholder="文字格式（多选同时满足）" aria-label="文字格式筛选"><el-option v-for="option in formatSearchOptions" :key="option.value" :value="option.value" :label="option.label" /></el-select>
       <div class="chat-history__actions">
-        <el-checkbox v-model="filters.favorites">只看收藏</el-checkbox>
+        <el-checkbox v-model="filters.favorites">消息收藏</el-checkbox>
         <span class="chat-history__action-buttons">
           <el-button size="small" @click="resetFilters">重置</el-button>
           <el-button size="small" type="primary" @click="searchNow">查询</el-button>
@@ -56,6 +57,8 @@
             preview-teleported
             fit="cover"
           />
+          <span v-else-if="item.attachment?.available === false" class="chat-history__hint">截图已过期或暂不可用</span>
+          <span v-else-if="thumbErrors[item.attachment?.id]" class="chat-history__hint">图片加载失败 <el-button link @click="ensureThumb(item)">重试</el-button></span>
           <span v-else class="chat-history__hint">图片加载中…</span>
           <div class="chat-history__meta">
             <span>{{ item.senderName }} · {{ formatDateTime(item.createdAt) }}</span>
@@ -88,6 +91,8 @@
 </template>
 
 <script setup>
+import api from '@/api'
+import {formatSearchOptions} from '@/utils/chatTextFormat'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { annotationChatRequest, getProjectChatAttachmentBlob, searchProjectChatHistory } from '@/api/projectChat'
@@ -103,10 +108,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:visible', 'locate'])
 
-const filters = reactive({ keyword: '', kind: 'all', sender: '', dates: [], favorites: false })
+const filters = reactive({ keyword: '', kind: 'all', sender: '', dates: [], favorites: false,formats:[] })
 const items = ref([])
 const totals = reactive({ all: 0, image: 0, link: 0, file: 0 })
-const thumbs = reactive({})
+const thumbs = reactive({}),thumbErrors=reactive({})
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
@@ -139,6 +144,7 @@ const buildParams = cursor => ({
   keyword: filters.keyword.trim() || undefined,
   sender_user_id: filters.sender || undefined,
   favorites_only: filters.favorites || undefined,
+  format_filters:filters.formats.join(',')||undefined,
   date_from: filters.dates?.[0] ? `${filters.dates[0]}T00:00:00` : undefined,
   date_to: filters.dates?.[1] ? `${filters.dates[1]}T23:59:59.999999` : undefined,
   cursor: cursor || undefined,
@@ -149,11 +155,12 @@ function revokeThumbs(exceptIds = new Set()) {
   Object.keys(thumbs).forEach((id) => {
     if (exceptIds.has(id)) return
     URL.revokeObjectURL(thumbs[id])
-    delete thumbs[id]
+    delete thumbs[id];delete thumbErrors[id]
   })
 }
 
-async function loadBlob(file) {
+async function loadBlob(file,messageId) {
+  if(file.source==='screenshot')return api.get(`/editor-screenshots/${file.id}`,{responseType:'blob',timeout:60000,screenshotIds:[file.id],params:{chat_message_id:messageId,chat_kind:'project'}})
   if (props.projectType === 'annotation') {
     try {
       return await annotationChatRequest(props.projectId, `files/${file.id}`, { responseType: 'blob' })
@@ -167,13 +174,14 @@ async function loadBlob(file) {
 
 async function ensureThumb(item) {
   const file = item.attachment
-  if (!file?.id || thumbs[file.id]) return
+  if (!file?.id || thumbs[file.id] || file.available===false) return
+  delete thumbErrors[file.id]
   try {
-    const blob = await loadBlob(file)
+    const blob = await loadBlob(file,item.messageId)
     if (!items.value.some(row => row.attachment?.id === file.id)) return
     thumbs[file.id] = URL.createObjectURL(blob)
   } catch {
-    // 单张缩略图失败不阻断其余结果，定位和下载仍可使用。
+    if(items.value.some(row=>row.attachment?.id===file.id))thumbErrors[file.id]=true
   }
 }
 
@@ -220,7 +228,7 @@ function searchNow() {
 
 function resetFilters() {
   silent = true
-  Object.assign(filters, { keyword: '', kind: 'all', sender: '', dates: [], favorites: false })
+  Object.assign(filters, { keyword: '', kind: 'all', sender: '', dates: [], favorites: false,formats:[] })
   nextTick(() => { silent = false })
   return runSearch()
 }
@@ -256,7 +264,7 @@ watch(() => filters.keyword, (value) => {
   if (!value) runSearch()
   else keywordTimer = window.setTimeout(() => runSearch(), 400)
 })
-watch(() => [filters.kind, filters.sender, filters.favorites, (filters.dates || []).join('|')], () => {
+watch(() => [filters.kind, filters.sender, filters.favorites,filters.formats.join(','), (filters.dates || []).join('|')], () => {
   if (silent || !props.visible) return
   runSearch()
 })

@@ -3086,6 +3086,8 @@ def _notification_query(
     read_status: str = 'all',
     category: Optional[str] = None,
     summary_category: Optional[str] = None,
+    sender_user_id: Optional[UUID] = None,
+    execution_status: Optional[str] = None,
 ):
     from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
@@ -3111,6 +3113,11 @@ def _notification_query(
             query = query.filter(category_expression(AppNotification) == category)
         if summary_category:
             query = query.filter(summary_category_expression(AppNotification) == summary_category)
+    if sender_user_id or execution_status:
+        from notification_execution_filters import expressions
+        sender, execution = expressions(db, AppNotification)
+        if sender_user_id: query=query.filter(sender==sender_user_id)
+        if execution_status: query=query.filter(execution==execution_status)
     return query
 
 
@@ -3122,8 +3129,9 @@ def get_notifications(
     notification_ids: Optional[List[UUID]] = None,
     category: Optional[str] = None, summary_category: Optional[str] = None,
     include_classification: bool = False,
+    sender_user_id: Optional[UUID] = None, execution_status: Optional[str] = None,
 ) -> List[AppNotification]:
-    query = _notification_query(db, recipient_user_id, unread_only, channel, notification_type, notification_types, notification_ids, keyword, read_status, category, summary_category)
+    query = _notification_query(db, recipient_user_id, unread_only, channel, notification_type, notification_types, notification_ids, keyword, read_status, category, summary_category, sender_user_id, execution_status)
     if include_classification:
         from notification_categories import category_expression, summary_category_expression
         query = query.add_columns(category_expression(AppNotification), summary_category_expression(AppNotification))

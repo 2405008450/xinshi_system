@@ -254,7 +254,7 @@ def read(project_id: UUID, payload: ReadRequest, db: Session = Depends(get_db), 
 @router.get('/{project_id}/history')
 def history(project_id: UUID, kind: str = Query('all', pattern='^(all|image|link|file)$'),
             topic_id: UUID | None = None,
-            keyword: str = '', sender_user_id: UUID | None = None, favorites_only: bool = False,
+            format_filters: str = '', keyword: str = '', sender_user_id: UUID | None = None, favorites_only: bool = False,
             date_from: str | None = None, date_to: str | None = None, cursor: str | None = None,
             limit: int = Query(30, ge=1, le=50),
             db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
@@ -264,7 +264,7 @@ def history(project_id: UUID, kind: str = Query('all', pattern='^(all|image|link
         parsed_from = datetime.fromisoformat(date_from) if date_from else None
         parsed_to = datetime.fromisoformat(date_to) if date_to else None
         return search_chat_history(
-            db, project_type='annotation', project_id=project_id, user_id=user.id, kind=kind,
+            db, project_type='annotation', project_id=project_id, user_id=user.id, kind=kind, format_filters=format_filters,
             keyword=keyword, sender_user_id=sender_user_id, date_from=parsed_from, date_to=parsed_to,
             favorites_only=favorites_only, cursor=cursor, limit=limit,
             topic_id=topic_id,

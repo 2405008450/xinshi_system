@@ -1,7 +1,5 @@
 <template>
   <el-config-provider :z-index="10000">
-    <el-button v-if="projectType === 'annotation' && projectId" class="chat-work-report-entry"
-      :loading="openingReport" @mousedown.stop @dblclick.stop @click="openWorkReport">工作报告</el-button>
     <el-dropdown v-if="projectType === 'annotation' && projectId && hasPermission('projects:read')" ref="projectMenu" trigger="click" @command="open">
       <el-button class="chat-project-entry" size="small" aria-label="项目入口" title="项目入口" @mousedown.stop @dblclick.stop><el-icon><Menu /></el-icon></el-button>
       <template #dropdown><el-dropdown-menu>
@@ -23,22 +21,17 @@
 </template>
 <script setup>
 import { defineAsyncComponent, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { Menu } from '@element-plus/icons-vue'
 import { hasPermission } from '@/utils/permission'
 import { chatRequest } from '@/api/projectChat'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { ElMessage } from 'element-plus'
-import { copyTextToClipboard } from '@/utils/clipboard'
-import { getAnnotationProject } from '@/api/annotationProjects'
 const ResourceRequestEditor = defineAsyncComponent(() => import('@/views/resource/ResourceRequests.vue'))
 const AnnotationProgressHost = defineAsyncComponent(() => import('@/views/project/AnnotationProjects.vue'))
 const AnnotationTrialsHost = defineAsyncComponent(() => import('@/views/project/AnnotationTrials.vue'))
 const AnnotationChatAiDialog = defineAsyncComponent(() => import('./AnnotationChatAiDialog.vue'))
 const props = defineProps({ projectId: String, projectType: String, orderNo: String })
 const emit = defineEmits(['navigate'])
-const router = useRouter()
-const openingReport = ref(false)
 const progressProjectId=ref(''),trialsProjectId=ref('')
 const source = ref(null)
 const editRequest = ref(0)

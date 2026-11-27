@@ -141,7 +141,7 @@
               class="status-switch-tag"
               :class="{ 'is-updating': projectStatusSavingIds.has(row.id) }"
             >
-              <span class="status-switch-text">{{ statusLabel(row.projectStatus) }}</span>
+              <span class="status-switch-text">{{ statusLabel(row.projectStatus,row.assignedInterpreterCount ?? row.interpreterAssignments?.length) }}</span>
               <el-icon class="status-switch-caret"><EditPen /></el-icon>
             </el-tag>
           </el-button>
@@ -440,7 +440,7 @@
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12">
                 <el-form-item label="项目状态" prop="projectStatus">
-                  <el-select v-model="form.projectStatus" style="width: 100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
+                  <el-select v-model="form.projectStatus" style="width: 100%"><el-option v-for="item in editorStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -452,6 +452,7 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item v-if="form.id&&form.projectStatus!==projectStatusBaseline" label="状态变更原因" prop="statusChangeReason" :rules="[{required:true,message:'请填写状态变更原因',trigger:'blur'}]"><el-input v-model="form.statusChangeReason" type="textarea" :rows="2" maxlength="10000" placeholder="填写原因，随本次状态通知发送" /></el-form-item>
             <el-form-item label="价格与付款">
               <InterpretationFinanceEditor v-model:pending="form.financeDraft" :target-id="form.id"
                 :project="financeProject" :can-write="canWrite" defer-save />
@@ -511,7 +512,7 @@
 <div v-for="(item, index) in form.interpreterAssignments" :key="interpreterRowKey(item)" class="repeat-card">
               <div class="repeat-title"><span class="interpreter-assignment-heading">译员 {{ index + 1 }}<el-checkbox v-model="item.clientSelected">客户选定</el-checkbox></span><el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
-                <el-col :xs="24" :md="12">
+                <el-col :span="24">
                   <el-form-item label="译员">
                     <InterpreterTalentSelect
                       v-model="item.translatorId"
@@ -588,6 +589,7 @@
       :send-project-chat="mailAlsoChat"
       :project-chat-audience="mailChatAudience"
       :emergency-notice="emergencyNotice"
+      :status-change-id="mailStatusChangeId"
     />
     <ConsultationWorkReportDialog v-if="pendingReportId && !submitLoading" :key="pendingReportId" :project-id="pendingReportId" project-type="interpretation" @saved="completeReport" />
   </el-card>
@@ -627,6 +629,7 @@ import ProjectClientManagerField from '@/components/common/ProjectClientManagerF
 import {projectClientManagerPayload} from '@/utils/projectClientManagerPayload'
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
+const projectStatusBaseline=ref('initial_follow_up')
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 const props=defineProps({embedded:Boolean,myProjects:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
@@ -695,6 +698,7 @@ function openSavedProjectMail() {
 }
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
+const mailStatusChangeId = ref('')
 const loading = ref(true)
 const submitLoading = ref(false)
 let submitLocked = false
@@ -775,6 +779,9 @@ let namePreviewRequestId = 0
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value, item.label]))
 const statusOptions = [
   { value: 'initial_follow_up', label: '初步跟进中' },
+  { value: 'candidates_provided', label: '已提供人选' },
+  { value: 'client_selected', label: '客户已定人选' },
+  { value: 'client_changed', label: '客户改变人选' },
   { value: 'deal_pending_execution', label: '已成交待执行' },
   { value: 'in_progress', label: '进行中' },
   { value: 'cancelled', label: '已取消' },
@@ -783,13 +790,15 @@ const statusOptions = [
   { value: 'settled', label: '已结款' },
 ]
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value, item.label]))
+const candidateStatuses=new Set(['candidates_provided','client_selected','client_changed'])
+const editorStatusOptions=computed(()=>statusOptions.filter(item=>!candidateStatuses.has(item.value)||item.value===form.projectStatus))
 const progressGroups = computed(() => groupProjectProgressRows(progressRows.value, activeProgressProject.value?.projectStatus))
 const progressStatusOptions = computed(() => {
   const reached = new Set(progressGroups.value.map((group) => group.status))
   if (activeProgressProject.value?.projectStatus) reached.add(activeProgressProject.value.projectStatus)
   return statusOptions.filter((item) => reached.has(item.value))
 })
-const availableEntryStatusOptions = computed(() => statusEntryMode.value === 'progress' ? progressStatusOptions.value : statusOptions)
+const availableEntryStatusOptions = computed(() => statusEntryMode.value === 'progress' ? progressStatusOptions.value : statusOptions.filter(item => !candidateStatuses.has(item.value)))
 const statusRules = {
   projectStatus: [
     { required: true, message: '请选择项目状态', trigger: 'change' },
@@ -935,7 +944,7 @@ const defaultForm = () => ({
   id: '', orderNo: '', projectName: '', socialPostRequest:'', demandReleaseKey:createRequestUuid(), projectTypes: [], taskDescription: '',
   financeDraft: null,
   clientId: '', subClientId: '', parentClientShortName: '', subClientName: '', clientShortName: '', clientFullName: '', clientCode: '',
-  clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
+  statusChangeReason:'',clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
   requiredInterpreterGender: '', requiredInterpretationLevel: '', interpreterRequirements:emptyInterpreterRequirements(),
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
@@ -1376,6 +1385,7 @@ const buildPayload = () => {
   const nested = normalizedNestedPayload()
   validateNested(nested)
   return {
+    statusChangeReason:form.projectStatus!==projectStatusBaseline.value?form.statusChangeReason?.trim()||null:null,
     ...projectContactPayload(form),
     ...(form.financeDraft ? { financeDraft: form.financeDraft } : {}),
     ...projectClientManagerPayload(form, clientManagerBaseline.value, !form.id),
@@ -1419,6 +1429,7 @@ const buildPayload = () => {
   }
 }
 const assignForm = (detail) => {
+  projectStatusBaseline.value=detail.projectStatus||'initial_follow_up'
   const client = clients.value.find((item) => item.id === detail.clientId)
   const knownTranslatorIds = new Set(translators.value.map((item) => item.id))
   for (const item of detail.interpreterAssignments || []) {
@@ -1519,13 +1530,14 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     clearDraft()
     dialogVisible.value = false
     prepareDelivery(emergency,wasNew&&sendChat)
-    if(!wasNew || (sendChat&&!sendAfterSave))await sendConversation(saved?.id||form.id,emergency,wasNew?'':saved?.updatedAt||'')
+    if(!wasNew || (sendChat&&!sendAfterSave))await sendConversation(saved?.id||form.id,emergency,wasNew?'':saved?.updatedAt||'',wasNew?null:saved?.statusChangeId)
     if (sendAfterSave) {
       const savedId = saved?.id || form.id
       const consultationId = saved?.consultationId || form.consultationId || ''
       afterReportSaved(() => {
         mailProjectId.value = savedId
         mailConsultationId.value = consultationId
+        mailStatusChangeId.value = wasNew?'':saved?.statusChangeId||''
         mailComposerVisible.value = true
       })
     }
@@ -1630,6 +1642,7 @@ const confirmStatusChange = async () => {
     await nextTick()
     statusFormRef.value?.clearValidate()
     ElMessage.success(progressOnly ? '具体进度已添加' : '项目状态已更新')
+    if(!progressOnly&&updated.statusChangeId)await sendConversation(updated.id,false,updated.updatedAt||'',updated.statusChangeId)
     if (!progressOnly && (isBlankFilter(searchForm.projectStatus) || (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)))) await fetchData()
   } catch (error) {
     await statusFormRef.value?.applyServerErrors(error)

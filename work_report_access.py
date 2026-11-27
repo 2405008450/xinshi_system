@@ -186,8 +186,9 @@ def sender_ids_for_rules(db, rules):
 
 def access_context(db, user):
     from work_report_collaboration import supervisor
+    from work_report_feedback_recipients import has_received
     statistics=can_statistics(db,user)
-    return {'can_configure': can_configure(user,db), 'can_receive': bool(receiving_rules(db, user)) or supervisor(user) or statistics, 'can_statistics':statistics,'can_supervise':supervisor(user)}
+    return {'can_configure': can_configure(user,db), 'can_receive': bool(receiving_rules(db, user)) or supervisor(user) or statistics or has_received(db,user), 'can_statistics':statistics,'can_supervise':supervisor(user)}
 
 
 def received_reports(db, user, date_from, date_to, sender_id, page, page_size, department_id=None, keyword=None):
@@ -214,7 +215,8 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
     aliases = alias_map(db)
     primary_department = func.coalesce(func.nullif(func.trim(AppUser.department), ''), '未分配部门')
     department_order = case(aliases, value=primary_department, else_=primary_department) if aliases else primary_department
-    rows = query.join(DailyReport.user).order_by(department_order, DailyReport.report_date.desc(), AppUser.full_name, DailyReport.id).offset((page - 1) * page_size).limit(page_size).all()
+    person_order = func.coalesce(func.nullif(AppUser.full_name, ''), AppUser.username)
+    rows = query.join(DailyReport.user).order_by(department_order, person_order, AppUser.username, AppUser.id, DailyReport.report_date.desc(), DailyReport.id).offset((page - 1) * page_size).limit(page_size).all()
     period_totals = totals_for_reports(db, rows)
     from attendance_service import shifts_for
     people_by_day = {}
@@ -224,11 +226,15 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
         day: shifts_for(db, list(people.values()), day)
         for day, people in people_by_day.items()
     }
+    report_clocks = report_clock_times_for(db, {(row.user_id, row.report_date) for row in rows})
     return {'total': total, 'idle_over_limit_count': over_limit_count, 'items': [{
         'id': row.id, 'user_name': row.user.full_name or row.user.username, 'report_date': row.report_date,
+        'user_id': row.user_id,
         'department_name': aliases.get((row.user.department or '').strip(), (row.user.department or '').strip()) or '未分配部门',
         'finalized_at': api_time(row.finalized_at), 'duration_minutes': sum(item.duration_minutes for item in row.items),
         'saved_at': api_time(row.updated_at),
+        'clock_in': api_time(next((clock['check_in'] for clock in (report_clocks[(row.user_id,row.report_date)] or []) if clock['check_in']), None)),
+        'clock_available': report_clocks[(row.user_id,row.report_date)] is not None,
         'shift': report_shifts[row.report_date].get(str(row.user_id)),
         'idle_minutes': declared_minutes(row.idle_declaration),
         'has_lunch_work': any((item.display_metadata or {}).get('lunch_overtime') is True for item in row.items),
@@ -244,7 +250,34 @@ def received_report(db, user, report_id):
         raise HTTPException(404, '报告不存在或无权查看')
     from task_service import serialize_report
     from attendance_service import shift_for
-    return api_time({**serialize_report(row), 'shift': shift_for(db, row.user, row.report_date)})
+    return api_time({**serialize_report(row), 'shift': shift_for(db, row.user, row.report_date),
+                     'clock_sessions': report_clock_times(db,row.user_id,row.report_date)})
+
+
+def report_clock_times(db,user_id,day):
+    """只读报告所属日的实际打卡；分段记录优先，避免重复展示已导入的旧记录。"""
+    return report_clock_times_for(db, {(user_id,day)})[(user_id,day)]
+
+
+def report_clock_times_for(db,pairs):
+    """仅批量读取当前有权查看的报告人员及业务日期。"""
+    from attendance_models import AttendanceClockSession,AttendanceDay
+    from sqlalchemy import tuple_
+    if not pairs:return {}
+    inspector=inspect(db.connection())
+    available=False
+    result={}
+    if inspector.has_table(AttendanceClockSession.__tablename__):
+        available=True
+        rows=db.query(AttendanceClockSession).filter(tuple_(AttendanceClockSession.user_id,AttendanceClockSession.day).in_(pairs)).order_by(AttendanceClockSession.check_in,AttendanceClockSession.segment).all()
+        for row in rows:result.setdefault((row.user_id,row.day),[]).append({'check_in':row.check_in,'check_out':row.check_out})
+    if inspector.has_table(AttendanceDay.__tablename__):
+        available=True
+        missing=pairs-result.keys()
+        if missing:
+            for row in db.query(AttendanceDay).filter(tuple_(AttendanceDay.user_id,AttendanceDay.day).in_(missing)):
+                result[(row.user_id,row.day)]=[{'check_in':row.check_in,'check_out':row.check_out}]
+    return {key:result.get(key,[] if available else None) for key in pairs}
 
 
 def can_statistics(db,user):

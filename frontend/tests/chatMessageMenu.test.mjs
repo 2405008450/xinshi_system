@@ -25,7 +25,7 @@ test('消息菜单按照消息状态和权限限制操作',()=>{
 test('选中文字、收藏及自己的撤回文案',()=>{
  const items=buildMessageMenu({content:'文字',senderUserId:'me',isFavorited:true,canRecall:true},{handlers,currentUserId:'me',excerpt:'选中',canProgress:true})
  assert.equal(items.find(x=>x.id==='copy').label,'复制选中内容')
- assert.equal(items.find(x=>x.id==='favorite').label,'取消收藏')
+ assert.equal(items.find(x=>x.id==='favorite').label,'取消消息收藏')
  assert.equal(items.find(x=>x.id==='progress').label,'添加选中内容为进度')
  assert.equal(items.find(x=>x.id==='recall').label,'撤回')
 })

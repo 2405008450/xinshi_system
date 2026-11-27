@@ -48,12 +48,16 @@ test('标注分组数量按主订单系列统计，与会话列表保持一致',
   assert.equal(api.sessionFolderCount(sessions, api.annotationFolderId, api.sessionFolderNodes()), 2)
 })
 
-test('默认五个一级分组、各模块状态目录及六个资源会话', () => {
+test('默认一级分组保留各模块目录并移除个人关注', () => {
   const nodes = api.sessionFolderNodes()
   assert.deepEqual(Array.from(nodes.filter(row => !row.parentKey), row => row.name), ['资源开拓讨论', '标注项目', '笔译项目', '口译项目', '招聘项目'])
   assert.equal(nodes.filter(row => row.parentKey === api.annotationStatusGroupId).length, Object.keys(annotationStatusLabels).length + 1)
   assert.equal(nodes.some(row => row.name === '平台讨论'), true)
   assert.equal(api.sessionMatchesFolder({ projectType: 'discussion', subtitle:'资源开拓讨论' }, api.resourceFolderId, nodes), true)
+})
+
+test('旧关注目录不再显示，原个人收藏标记不受影响',()=>{
+ const nodes=api.sessionFolderNodes([{id:'old-follow',name:'关注',active:true,parentKey:null}]);assert.equal(nodes.some(row=>row.id==='old-follow'||row.name==='我的关注'),false)
 })
 
 test('自建群聊只显示于所属分组，不混入资源讨论', () => {

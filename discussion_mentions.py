@@ -33,13 +33,18 @@ def group(db, user, room_id):
     return dict(members=[serialize(person) for person in users if person.id in member_ids],eligible_users=[serialize(person) for person in users if person.id in member_ids],invitable_users=[serialize(person) for person in users if person.id not in member_ids])
 
 
-def recipients(db,user,room_id,payload,*,room):
+def recipients(db,user,room_id,payload,*,room=None):
+    if room is None:
+        from discussion_chat_service import require_room
+        room = require_room(db, user, room_id)
     explicit=set(getattr(payload,'mentioned_user_ids',[]) or [])-{user.id}
     mention_all = bool(getattr(payload, 'mention_all', False))
-    if not explicit and not mention_all:
+    if not explicit and not mention_all and not getattr(payload, 'mention_managers', False):
         return [], set()
     members={uid for uid, in db.query(Member.user_id).filter_by(room_id=room_id)}
-    requested=explicit|(members-{user.id} if mention_all else set())
+    from chat_mention_recipients import manager_role_user_ids
+    managers=(members & manager_role_user_ids(db))-{user.id} if getattr(payload,'mention_managers',False) else set()
+    requested=explicit|managers|(members-{user.id} if getattr(payload,'mention_all',False) else set())
     people=eligible_users(db,room,requested) if requested else []
     if not explicit.issubset({person.id for person in people}):raise HTTPException(422,'被提及的用户不存在、已停用或没有会话权限')
     return people,members

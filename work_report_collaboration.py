@@ -1,6 +1,7 @@
 """工作报告逐项沟通和一次修订，所有时间使用 UTC+8。"""
 from datetime import datetime
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
+from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from chat_time import now, api_time
 from models import AppUser, Base
 import work_report_access as access
+import work_report_feedback_recipients as recipients
 
 json_type=JSONB().with_variant(JSON, 'sqlite')
 
@@ -42,6 +44,9 @@ class ReportRevision(Base):
 class FeedbackWrite(BaseModel):
     item_key: UUID
     content: str=Field(min_length=1,max_length=4000)
+    recipient_mode:Literal['default','all','departments','people']='default'
+    recipient_ids:list[UUID]=Field(default_factory=list,max_length=2000)
+    department_ids:list[UUID]=Field(default_factory=list,max_length=2000)
 
     @model_validator(mode='after')
     def clean(self):
@@ -95,15 +100,23 @@ def authorized_report(db,user,report_id,communication=False):
         raise HTTPException(404,'报告不存在或无权查看')
     if report.user_id==user.id or communication and supervisor(user):return report
     allowed=access.sender_ids_for_rules(db,access.receiving_rules(db,user))
-    if report.status!='finalized' or report.user_id not in allowed:raise HTTPException(404,'报告不存在或无权查看')
+    if report.status!='finalized' or report.user_id not in allowed:
+        if not (communication and recipients.has_received(db,user,report_id)):raise HTTPException(404,'报告不存在或无权查看')
     return report
 
 
+def full_feedback_access(db,user,report):
+    if supervisor(user) or report.user_id==user.id:return True
+    return report.status=='finalized' and report.user_id in access.sender_ids_for_rules(db,access.receiving_rules(db,user))
+
+
 def feedback_rows(db,user,report_id):
-    authorized_report(db,user,report_id,communication=True)
+    report=authorized_report(db,user,report_id,communication=True)
     if not table_ready(db,ReportFeedback):return {'ready':False,'items':[]}
-    rows=db.query(ReportFeedback).filter_by(report_id=report_id).order_by(ReportFeedback.created_at,ReportFeedback.id).all()
-    return {'ready':True,'items':[serialize_feedback(row) for row in rows]}
+    query=db.query(ReportFeedback).filter_by(report_id=report_id)
+    if not full_feedback_access(db,user,report):query=query.filter(ReportFeedback.item_key.in_(recipients.received_query(db,user,report_id).with_entities(ReportFeedback.item_key)))
+    rows=query.order_by(ReportFeedback.created_at,ReportFeedback.id).all()
+    return {'ready':True,'items':[serialize_feedback(row) for row in rows],'report':{'report_id':report.id,'user_name':report.user.full_name or report.user.username,'report_date':report.report_date}}
 
 
 def serialize_feedback(row):
@@ -115,6 +128,7 @@ def add_feedback(db,user,report_id,payload):
     # 与修订共用报告行锁，确保快照与当前工作项一致。
     db.query(DailyReport).filter_by(id=report_id).with_for_update().first()
     report=authorized_report(db,user,report_id,communication=True)
+    if not full_feedback_access(db,user,report) and not recipients.has_received(db,user,report_id,payload.item_key):raise HTTPException(404,'工作项不存在或无权回复')
     if not table_ready(db,ReportFeedback):raise HTTPException(503,'报告沟通表尚未初始化')
     key=str(payload.item_key)
     item=next((item for item in report.items if item_key(item)==key),None)
@@ -124,9 +138,16 @@ def add_feedback(db,user,report_id,payload):
     if not previous:
         if report.user_id==user.id:raise HTTPException(403,'收到反馈后可在此回复')
         access.received_report(db,user,report_id)
-    snapshot=previous.item_snapshot if previous else {'task_name':item.task_name,'progress_content':item.progress_content,'task_type':item.task_type}
-    row=ReportFeedback(report_id=report_id,item_key=key,item_snapshot=snapshot,author_id=user.id,author_name=user.full_name or user.username,content=payload.content)
-    db.add(row);db.commit()
+    people=recipients.resolve(db,user,report,payload)
+    snapshot=dict(previous.item_snapshot) if previous else {'task_name':item.task_name,'progress_content':item.progress_content,'task_type':item.task_type}
+    snapshot['feedback_recipients']=[{'id':str(person.id),'name':person.full_name or person.username} for person in people]
+    snapshot['feedback_recipient_mode']=payload.recipient_mode
+    row=ReportFeedback(id=uuid4(),report_id=report_id,item_key=key,item_snapshot=snapshot,author_id=user.id,author_name=user.full_name or user.username,content=payload.content)
+    db.add(row);db.flush()
+    events=recipients.queue(db,user,report,row,people)
+    db.commit()
+    from attendance_notifications import publish_leave_notifications
+    publish_leave_notifications(events)
     return serialize_feedback(row)
 
 
@@ -135,7 +156,10 @@ def feedback_inbox(db,user,date_from=None,date_to=None,page=1,page_size=20):
     if not table_ready(db,ReportFeedback):return {'ready':False,'total':0,'items':[]}
     allowed=access.sender_ids_for_rules(db,access.receiving_rules(db,user))
     query=db.query(DailyReport).filter(DailyReport.id.in_(db.query(ReportFeedback.report_id)))
-    if not supervisor(user):query=query.filter(or_(DailyReport.user_id==user.id,(DailyReport.user_id.in_(allowed))&(DailyReport.status=='finalized')))
+    if not supervisor(user):
+        scopes=[DailyReport.user_id==user.id,(DailyReport.user_id.in_(allowed))&(DailyReport.status=='finalized')]
+        if recipients.ready(db):scopes.append(DailyReport.id.in_(recipients.received_query(db,user).with_entities(ReportFeedback.report_id)))
+        query=query.filter(or_(*scopes))
     if date_from:query=query.filter(DailyReport.report_date>=date_from)
     if date_to:query=query.filter(DailyReport.report_date<=date_to)
     return {'ready':True,'total':query.count(),'items':[{'report_id':r.id,'user_name':r.user.full_name or r.user.username,'report_date':r.report_date} for r in query.order_by(DailyReport.report_date.desc(),DailyReport.id).offset((page-1)*page_size).limit(page_size)]}

@@ -87,7 +87,7 @@
         :data-chat-key="chatWindow.key"
         class="project-chat-window"
         :class="windowClass(chatWindow)"
-        :style="windowStyle(chatWindow)"
+        :style="[windowStyle(chatWindow),windowGroupStyle(chatWindow)]"
         @mousedown="onWindowMouseDown(chatWindow)"
       >
         <WindowFrameHandles v-if="state.layout!=='workspace'" :ref="el=>el?windowFrames.set(chatWindow.key,el):windowFrames.delete(chatWindow.key)" @change="rect=>resizeChatRect(chatWindow,rect)" />
@@ -121,11 +121,11 @@
           <div class="chat-header-command-row" title="横向滚动查看更多操作" @mousedown.stop>
 
           <div class="project-chat-window__actions">
+            <ChatSessionQuickActions :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <ChatTopicNavigation v-if="chatWindow.projectType !== 'discussion'" compact icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
-            <ChatConversationMore :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" :can-duplicate="['annotation','translation'].includes(chatWindow.projectType)" @duplicate="duplicateChat(chatWindow.key)" @multiple="multiPicker.open(state.tileMode || 'small')">
+            <ChatConversationMore :title="chatWindow.title" :order-no="chatWindow.subtitle" :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" :can-duplicate="['annotation','translation'].includes(chatWindow.projectType)" @duplicate="duplicateChat(chatWindow.key)" @multiple="multiPicker.open(state.tileMode || 'small')">
             <div :id="`chat-tools-${chatWindow.key.replaceAll(':', '-')}`" class="chat-header-session-tools" />
             <ChatConversationParticipants menu-layout v-if="['translation', 'discussion'].includes(chatWindow.projectType)" :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
-            <AnnotationChatInbox menu-layout @navigate="minimizeChat(chatWindow.key)" />
             </ChatConversationMore>
             <el-button v-if="!isCompactScreen" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="pinChat(chatWindow.key)"><el-icon><ChatPinIcon /></el-icon></el-button>
             <div :id="`chat-close-${chatWindow.key.replaceAll(':', '-')}`" class="chat-header-session-close" />
@@ -217,7 +217,7 @@ import ChatMultiWindowPicker from './ChatMultiWindowPicker.vue'
 import { chatTileLayout } from '@/utils/chatTiling'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotRound, CircleClose } from '@element-plus/icons-vue'
+import { ChatDotRound, CircleClose, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { chatRequest } from '@/api/projectChat'
 import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
@@ -225,6 +225,9 @@ import { ElMessage } from 'element-plus'
 import DirectChat from './DirectChat.vue'
 import DiscussionConversation from './DiscussionConversation.vue'
 import ChatConversationMore from './ChatConversationMore.vue'
+import ChatSessionQuickActions from './ChatSessionQuickActions.vue'
+import {chatGroupStyle} from '@/utils/chatGroupColors'
+import {useChatSessionCategories} from '@/composables/useChatSessionCategories'
 import ChatPinIcon from './ChatPinIcon.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import { useChatWorkspaceSplit } from '@/composables/useChatWorkspaceSplit'
@@ -245,6 +248,8 @@ import {
 } from '@/composables/useProjectChatDock'
 
 defineProps({ hasExtraTasks: { type: Boolean, default: false } })
+const {categories:colorCategories}=useChatSessionCategories()
+function windowGroupStyle(row){return chatGroupStyle({...row,...followed.value.find(item=>item.key===(row.conversationKey||row.key))},colorCategories.items)}
 useChatNotifications()
 
 const {
@@ -265,6 +270,7 @@ const {
   focusChat,
   focusWorkspace,
   setPosition,
+  setFloatRect,
   setWorkspacePosition,
   clampAllPositions,
   incrementUnread,
@@ -286,10 +292,10 @@ const { sessions: followed, mentionTotal, mentionHistoryTotal, annotationMention
 watch(followed, syncClosedSessionCatalog, { immediate: true })
 
 const COMPACT_SCREEN_WIDTH = 768
-const workspaceRect=ref(null),chatRects=ref({})
+const workspaceRect=ref(null)
 const workspaceFrame=ref(),windowFrames=new Map()
 function resizeWorkspaceRect(rect){focusWorkspace();workspaceRect.value=rect;state.workspaceX=rect.x;state.workspaceY=rect.y}
-function resizeChatRect(chat,rect){if(tiled.value)state.tileMode='';focusChat(chat.key);chatRects.value[chat.key]=rect;chat.x=rect.x;chat.y=rect.y}
+function resizeChatRect(chat,rect){if(tiled.value)state.tileMode='';focusChat(chat.key);setFloatRect(chat.key,rect)}
 function normalWorkspace(){const active=state.activeKey;workspaceRect.value=null;if(state.workspaceMaximized)toggleWorkspaceMaximize();else setWorkspaceSize(state.workspaceSize);if(state.layout==='float'&&active)restoreChat(active)}
 watch(()=>state.workspaceMaximized,()=>{workspaceRect.value=null})
 watch(()=>state.workspaceSize,()=>{workspaceRect.value=null})
@@ -378,7 +384,7 @@ const minimizedWindows = computed(() => (
 ))
 const sessionPanelDragging = ref(false)
 const workspaceSplitRoot = ref(null)
-const workspaceSplit = useChatWorkspaceSplit(workspaceSplitRoot, workspaceVisible, workspaceNarrow, computed(() => state.workspaceMaximized))
+const workspaceSplit = useChatWorkspaceSplit(workspaceSplitRoot, workspaceVisible, workspaceNarrow, computed(() => state.workspaceMaximized),{reservedWidth:()=>sessionPanelWidth.value})
 const sidebarWidth = computed(() => !workspaceVisible.value || workspaceNarrow.value ? 0 : workspaceSplit.width.value)
 const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey && item.accessConfirmed !== false) || null)
 const sessions = computed(() => {
@@ -562,7 +568,7 @@ const windowStyle = (chatWindow) => {
       borderRadius: state.workspaceMaximized ? '0' : (sidebarWidth.value ? '0 0 12px 0' : '0 0 12px 12px'),
     }
   }
-  if(chatRects.value[chatWindow.key]){const r=chatRects.value[chatWindow.key];return {left:`${r.x}px`,top:`${r.y}px`,width:`${r.width}px`,height:`${r.height}px`,zIndex:chatWindow.zIndex,position:'fixed',maxWidth:'none',maxHeight:'none'}}
+  if(chatWindow.floatRect){const r=chatWindow.floatRect;return {left:`${r.x}px`,top:`${r.y}px`,width:`${r.width}px`,height:`${r.height}px`,zIndex:chatWindow.zIndex,position:'fixed',boxSizing:'border-box',maxWidth:'none',maxHeight:'none'}}
   if (isCompactScreen.value) return { zIndex: chatWindow.zIndex }
   const size = resolveChatSize(chatWindow.sizeMode || 'small')
   return {
@@ -1011,3 +1017,4 @@ onBeforeUnmount(() => {
 .project-chat-window__body>.chat-session-close-btn{position:absolute;top:8px;right:10px;z-index:3;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--chat-border,#e2e8f0);border-radius:var(--chat-radius,6px);background:rgba(255,255,255,.92);color:var(--chat-text-muted,#64748b);cursor:pointer}
 .project-chat-window__body>.chat-session-close-btn:hover{background:var(--chat-danger-bg,#fee2e2);border-color:var(--chat-danger-border,#fecaca);color:var(--chat-danger,#dc2626)}
 </style>
+<style src="./chatBusinessTheme.css" />

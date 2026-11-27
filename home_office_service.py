@@ -357,11 +357,11 @@ def company(db,user):
     people={person['id']:person for person in directory(db,user)['people']}
     from attendance_models import AttendanceClockSession
     overtime=db.query(AttendanceClockSession).filter(AttendanceClockSession.segment==2).order_by(AttendanceClockSession.check_in.desc()).limit(500).all()
-    overtime_records=[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'day':row.day,'check_in':row.check_in,'check_out':row.check_out,'invalid_minutes':row.confirmations.get('invalid_minutes',0),'invalid_reason':row.confirmations.get('invalid_reason','')} for row in overtime]
+    overtime_records=[{'id':row.id,'user_id':str(row.user_id),'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'day':row.day,'check_in':row.check_in,'check_out':row.check_out,'invalid_minutes':row.confirmations.get('invalid_minutes',0),'invalid_reason':row.confirmations.get('invalid_reason','')} for row in overtime]
     applications=application_values(db,db.query(Application).order_by(Application.created_at.desc()).limit(500).all())
     for item in applications:item['name']=people.get(item['user_id'],{}).get('name','已删除人员')
     return api_time({'company_overtime':overtime_records,'year':now().year,'usage_people':usage_people(db,people),'applications':applications,'can_manage_restrictions':True,
-        'qualification_requests':[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Qualification).order_by(Qualification.created_at.desc()).limit(500).all()],'approval_note':'审批：待开发'})
+        'qualification_requests':[{'id':row.id,'user_id':str(row.user_id),'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Qualification).order_by(Qualification.created_at.desc()).limit(500).all()],'approval_note':'审批：待开发'})
 
 
 def usage_people(db,people):

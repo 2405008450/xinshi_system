@@ -42,7 +42,7 @@ def test_customer_progress_and_message_share_transaction_and_exact_child_id(envi
     monkeypatch.setattr(chat,'send_message',send)
     payload=CustomerProgressWrite(change_note='隔离测试进度',effective_on=datetime(2026,10,22,14,0,tzinfo=timezone(timedelta(hours=8))),chat_delivery=ProgressChatDelivery(send_to_chat=True,user_ids=[member.id,owner.id]))
     create_customer_progress(db,child.id,payload,owner.id)
-    assert len(seen)==1 and seen[0].content=='隔离测试进度'
+    assert len(seen)==1 and seen[0].content=='隔离测试进度\n\n【登记时自动发送】'
     assert db.query(ChatProjectMessage).filter_by(annotation_project_id=child.id).count()==1
     assert db.query(AnnotationCustomerProgress).count()==1
 

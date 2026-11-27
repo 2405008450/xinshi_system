@@ -116,9 +116,9 @@ test('会话分组主入口、历史列表辅助入口与工作区右键菜单�
   assert.match(treeSource, /archivedExpanded\.value = nextArchived/)
   assert.match(treeSource, /is-locate-flash/)
 
-  assert.match(historySource, /defineEmits\(\['open', 'locate'\]\)/)
-  assert.match(historySource, /v-if="item\.kind !== 'direct'"/)
-  assert.match(historySource, /\$emit\('locate', \{ \.\.\.item, projectType: item\.kind \}\)/)
+  assert.match(historySource, /defineEmits\(\[.*'locate'.*\]\)/)
+  assert.match(historySource, /v-if="session\.projectType !== 'direct'"/)
+  assert.match(historySource, /emit\('locate', session\)/)
 
   assert.match(workspaceSource, /@locate-active="locateActiveConversation"/)
   assert.match(workspaceSource, /@locate="locateSessionInFolders"/)

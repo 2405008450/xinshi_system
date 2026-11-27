@@ -13,6 +13,10 @@
         <el-button size="small" :type="editor.isActive('blockquote') ? 'primary' : ''" @click="editor.chain().focus().toggleBlockquote().run()">引用</el-button>
       </el-button-group>
       <template v-if="formatColors">
+        <el-button size="small" @click="editor.chain().focus().setMark('textColor',{color:'#dc2626'}).run()">红字</el-button>
+        <el-button size="small" @click="editor.chain().focus().setMark('textColor',{color:'#2563eb'}).run()">蓝字</el-button>
+        <el-button size="small" @click="editor.chain().focus().toggleMark('highlight',{color:'#dbeafe'}).run()">浅蓝高亮</el-button>
+        <el-button v-for="line in [{label:'黑色下划线',color:'#111827'},{label:'红色下划线',color:'#dc2626'},{label:'蓝色下划线',color:'#2563eb'}]" :key="line.color" size="small" @click="editor.chain().focus().toggleMark('underline',{color:line.color}).run()">{{line.label}}</el-button>
         <span class="rich-editor__color-label">字体颜色</span>
         <el-color-picker
           v-model="selectedColor"
@@ -44,7 +48,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
-import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
+import { TextColor, YellowHighlight, ColoredUnderline } from '@/utils/richTextMarks'
 import { pasteWithoutFormatting } from '@/utils/plainTextPaste'
 import { handleWebLinkClick, linkifyDocument, noticeLinkOptions } from '@/utils/richTextLinks'
 import { clipboardImageTokens, createAuthenticatedImage, imageFileKey, imagePasteSlice, pasteImageFile } from '@/utils/richTextImages'
@@ -173,12 +177,13 @@ function chooseImages(event){const files=Array.from(event.target.files||[]);even
 const editor = useEditor({
   content: (props.enableLinks ? linkifyDocument(props.modelValue) : props.modelValue) || emptyDocument(),
   extensions: [
-    StarterKit.configure({
+    StarterKit.configure({ underline:false,
       heading: { levels: [1, 2, 3] },
       link: props.enableLinks ? noticeLinkOptions : false
     }),
     TextColor,
     YellowHighlight,
+    ColoredUnderline,
     ...(imageApi.value ? [createAuthenticatedImage(imageApi.value.read)] : [])
   ],
   editorProps: {

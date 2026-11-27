@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" title="恢复取消关注的项目" width="min(660px, calc(100vw - 32px))" top="5vh" class="chat-favorite-recovery" append-to-body :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" @closed="reset">
+  <DraggableFormDialog v-model="visible" title="恢复已移除的项目" width="min(660px, calc(100vw - 32px))" top="5vh" class="chat-favorite-recovery" append-to-body :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" @closed="reset">
     <p class="favorite-recovery-hint">恢复后重新出现在收藏夹，保留聊天记录、参与人和未读状态。每次最多恢复 10 个。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button link :disabled="saving" @click="load">重试</el-button></el-alert>
     <div v-loading="loading">

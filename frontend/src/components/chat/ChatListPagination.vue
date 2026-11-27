@@ -1,6 +1,6 @@
 <template>
   <div class="chat-list-pagination" aria-label="会话分页">
-    <el-select :model-value="pageSize" size="small" aria-label="每页条数" @update:model-value="changeSize">
+    <el-select :model-value="pageSize" :teleported="teleported" size="small" aria-label="每页条数" @update:model-value="changeSize">
       <el-option v-for="size in [10,20,50]" :key="size" :value="size" :label="`${size} 条/页`" />
     </el-select>
     <el-pagination small :current-page="page" :page-size="pageSize" :total="total" :pager-count="5" layout="prev, pager, next" @current-change="changePage" />
@@ -8,7 +8,7 @@
   </div>
 </template>
 <script setup>
-const props = defineProps({ page: {type:Number,default:1}, pageSize: {type:Number,default:20}, total: {type:Number,default:0} })
+const props = defineProps({ page: {type:Number,default:1}, pageSize: {type:Number,default:20}, total: {type:Number,default:0}, teleported: {type:Boolean,default:true} })
 const emit = defineEmits(['update:page','update:pageSize','change'])
 function changeSize(size) { if(size===props.pageSize)return;emit('update:pageSize',size);emit('update:page',1);emit('change') }
 function changePage(page) { if(page===props.page)return;emit('update:page',page);emit('change') }
