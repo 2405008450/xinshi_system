@@ -9,6 +9,7 @@ defineProps({module:{type:String,required:true},myProjects:Boolean})
 const views={
   translation:defineAsyncComponent(()=>import('@/views/project/translation/ProjectDetails.vue')),
   interpretation:defineAsyncComponent(()=>import('@/views/project/interpretation/InterpretationProjectDetails.vue')),
+  recruitment:defineAsyncComponent(()=>import('@/views/project/RecruitmentProjects.vue')),
   consultation:defineAsyncComponent(()=>import('@/views/client/Consultations.vue')),
 }
 </script>

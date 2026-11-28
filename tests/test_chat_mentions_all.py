@@ -63,6 +63,8 @@ def test_discussion_mentions_all_and_explicit_invite_idempotency_read_recall(cha
     inbox=list_mentions(db,receiver,project_type='discussion',include_senders=True);assert inbox['total']==1
     assert inbox['senders']==[dict(name=sender.full_name,count=1,unread=1)]
     assert list_mentions(db,receiver,sender_name=sender.full_name)['total']==1
+    assert list_mentions(db,receiver,sender_names=['不存在',sender.full_name])['total']==1
+    assert list_mentions(db,receiver,sender_names=['不存在'])['total']==0
     other=list_mentions(db,receiver,sender_name='不存在的人员',include_senders=True)
     assert other['total']==0 and other['senders']==inbox['senders']
     assert inbox['items'][0]['message_id']==result['id']

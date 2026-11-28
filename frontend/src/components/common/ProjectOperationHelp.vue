@@ -15,13 +15,15 @@
           <pre v-if="section.example" class="order-example">{{ section.example }}</pre>
           <el-alert v-if="section.tip" :title="section.tip" type="info" :closable="false" show-icon />
           <el-alert v-if="section.warning" :title="section.warning" type="warning" :closable="false" show-icon />
-          <figure v-if="section.image"><el-image :src="section.image.src" :alt="section.image.alt" :preview-src-list="[section.image.src]" preview-teleported loading="lazy" fit="contain" /><figcaption>{{ section.image.caption }}</figcaption></figure>
+          <HelpScreenshotGallery :images="helpSectionImages(moduleLabel,section)"/>
         </section>
       </main>
     </div>
   </el-card>
 </template>
 <script setup>
+import HelpScreenshotGallery from './HelpScreenshotGallery.vue'
+import {helpSectionImages} from '@/utils/helpScreenshots'
 import {computed,onBeforeUnmount,ref,watch,nextTick} from 'vue'
 import {matchesSearchFields} from '@/utils/searchMatching'
 const props=defineProps({title:String,intro:String,updatedAt:String,moduleLabel:String,sections:{type:Array,required:true},idPrefix:{type:String,default:'project-help-'},searchPlaceholder:{type:String,default:'搜索操作帮助'}})

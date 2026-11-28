@@ -31,6 +31,12 @@ export function normalizeReportRow(row,{editable=false}={}) {
   return {...row,progress_content:initializationLog?'':row.progress_content,display_metadata:{...(row.display_metadata||{}),_feedback_key:row.display_metadata?._feedback_key||row.id,report_types:rowTypes(row)},duration_minutes:Number(row.duration_minutes)||0}
 }
 export function newReportRow() {return {source_type:'manual',source_id:null,task_type:'非项目工作',task_name:'',progress_content:'',result_content:'',duration_minutes:0,display_metadata:{report_types:[]}}}
+export function reportClientName(row){return row?.display_metadata?.client_name||row?.display_metadata?.client_short_name||''}
+export function applyReportProject(row,project){
+  row.task_name=String(project.project_name||'').slice(0,255)
+  delete row.display_metadata.client_id
+  Object.assign(row.display_metadata,{order_no:project.order_no,project_id:project.id,selected_project_type:project.project_type,selected_project_name:project.project_name,client_name:project.client_name||'',client_short_name:project.client_short_name||''})
+}
 export function isEmptyReportRow(row) {
   if (row.source_type !== 'manual' || row.id || row.source_id || Number(row.duration_minutes)) return false
   if (row.task_type && row.task_type !== '非项目工作') return false

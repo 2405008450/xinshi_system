@@ -241,7 +241,7 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
             'currency': currency, 'overall': {'amount': money(overall), 'mom': comparison(overall, value(groups[1])),
             'yoy': comparison(overall, value(groups[2])), 'customers': sum(row['projects'] > 0 for row in groups[0].values()),
             'missing': sum(row['missing'] for row in groups[0].values())},
-            'items': page, 'total': len(rows), 'ranked_customers': ranked_count,
+            'items': page, 'distribution_rows':rows, 'total': len(rows), 'ranked_customers': ranked_count,
             'amount_shortcuts': amount_shortcuts, 'amount_shortcut_total': len(matching_rows),
             'filtered_amount': money(sum((Decimal(row['amount']) for row in rows), ZERO)),
             'timeline': timeline, 'focus_client': focus_client,
@@ -548,6 +548,14 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year', 'all'] = 'month'
                           for entry in entries for order in entry['order_details']]}
     result = report(entries, period, anchor, currency, modes, keyword, rank_min, rank_max, amount_min, amount_max,
                     focus_client, skip, limit)
+    from client_cohort import snapshots,order_records
+    cohort_ids=[row['client_id'] for row in result['distribution_rows'] if row.get('client_id')]
+    cohort_records=order_records(db,cohort_ids)
+    cohort_states=snapshots(db,cohort_ids,start=None if period=='all' else start,end=end-timedelta(days=1),records=cohort_records)
+    for row in result['distribution_rows']:
+        state=cohort_states.get(row['client_id'],{})
+        row['cohort']=state.get('cohort','unknown');row['order_count']=state.get('order_count',row['projects']);row['currency']=currency
+        row['orders']=[dict(id=item['id'],module=item['module'],order_no=item['order_no'],project_name=item['project_name'],order_date=item['day'].isoformat() if item['day'] else None) for item in cohort_records if item['client_id']==row['client_id'] and (period=='all' or item['day'] and start<=item['day']<end)]
     if project_type == 'all':
         result['project_type_totals'] = project_type_totals(entries, start, end, currency, modes)
     result.update(currencies=sorted(currencies), missing_date=missing_date if period!='all' else 0,undated_included=missing_date if period=='all' else 0, fallback_date=fallback_date,

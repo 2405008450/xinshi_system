@@ -1,4 +1,4 @@
-export const meetingWorkbenchHelpUpdatedAt='2026-11-27'
+export const meetingWorkbenchHelpUpdatedAt='2026-11-29'
 export const meetingWorkbenchHelpSections=[
  {id:'meeting-create',group:'会议安排',title:'新建会议与选择参会人员',steps:[
   '点击会话左侧导航“会议”（新咨询下方、设置上方），在弹窗内选择“新增会议”。保存后自动生成会议编号，如MT-261126-001：按UTC+8创建日期、每日从001开始排列。列表左侧另有随分页连续的序号。',
@@ -72,7 +72,7 @@ meetingWorkbenchHelpSections.push(
 
 meetingWorkbenchHelpSections.push(
  {id:'reports-period-order',group:'工作报告',title:'收到的报告：日期、打卡与任务类型汇总',paragraphs:[
-  '收到的工作报告默认查看昨天，可切换前天、大前天、上周、上个月或全部日期，也可手动选择日期范围。多日报告按部门、人员、日期排列。',
+  '收到的工作报告按UTC+8：18:00前默认昨日（自然日），18:00起默认今日；可切换今日、昨日、前日、大前天、上周、上个月或全部日期，也可手动选择日期范围。多日报告按部门、人员、日期排列。',
   '报告顶部显示对应日期的实际上下班打卡时间，可展示多段记录；班次与实际打卡分开核对。',
   '按任务类型排序后，按大类、子类、具体任务整理，分别汇总耗时；同一任务在同一大类内不重复计时。可恢复原顺序，总计时间仍覆盖完整报告。']},
  {id:'reports-feedback-audience',group:'工作报告',title:'工作项反馈：指定人员、部门或全部',steps:[
@@ -82,3 +82,7 @@ meetingWorkbenchHelpSections.push(
  {id:'attendance-department-pages',group:'考勤与安排',title:'考勤列表按部门分组及分页',paragraphs:[
   '考勤管理相关列表支持每页10、20、50条，按主部门归组，同部门人员集中排列。各列表分别切换页码和条数。',
   '分页只控制当前列表显示，累计统计仍采用当前筛选范围；有服务端分页的列表按接口返回的总数翻页，不把本页当作全部人员。']})
+
+meetingWorkbenchHelpSections.push(
+ {id:'report-client-and-paths',group:'工作报告',title:'客户名、项目路径与只读工作量',paragraphs:['项目任务的客户名由关联项目自动带入。未关联订单的任务，可搜索客户全称或简称并选择，客户名随报告保存。','报告中的项目详情补齐项目路径、原文路径及其他流程文件路径；工作量摘要可点击打开只读表单。查看权限、文件权限仍沿用原规则。','上班时间显示报告当天首次实际打卡时间，没有记录显示未打卡；多天范围按部门、人员和日期排列。']},
+ {id:'status-reminder',group:'我的任务与思考',title:'状态汇报提醒是网页弹窗',paragraphs:['状态汇报提醒在网页内弹出，可选择进入状态汇报或稍后填写，不是铃铛通知或Windows通知。','按UTC+8每天11:00、15:00、18:00、21:00，对符合条件且当时在岗的标注部门人员或本人负责标注项目的人员提醒。每账号、每日每时段最多一次。','离线或未打开页面时不会按时弹出；该时点后一小时内返回且符合条件可补提醒，超过则不补发。它不是面向所有账号的每日工作报告统一催报。']})

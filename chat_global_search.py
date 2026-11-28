@@ -1,6 +1,7 @@
 """跨会话历史检索；所有分页和统计共用参与人及模块权限过滤。"""
 from sqlalchemy import String, case, cast, func, literal, select, union_all
 from sqlalchemy.orm import aliased
+from uuid import UUID
 from models import AppUser, ChatDirectConversation, ChatProjectMessage, ChatProjectEnabled, ChatProjectMessageFavorite, Client, SubClient
 from annotation_models import AnnotationProject
 from models import TranslationProject
@@ -13,11 +14,17 @@ import discussion_chat_service as discussion
 from discussion_chat_models import DiscussionMessage
 
 
-def search_messages(db, user, keyword, *, offset=0, limit=30, favorites_only=False):
+def search_messages(db, user, keyword, *, offset=0, limit=30, favorites_only=False, tag_id=None):
     if not user.is_active or getattr(user,'is_deleted',False) or (not keyword.strip() and not favorites_only):
         return dict(items=[], total=0, has_more=False)
     message = ChatProjectMessage
     queries = []
+    from chat_favorite_tags import require_ready,matches_tag,decorate
+    if tag_id:
+        require_ready(db)
+        if not favorites_only:
+            from fastapi import HTTPException
+            raise HTTPException(422,'标签筛选仅用于消息收藏')
 
     def project_query(kind, model, column):
         query=select(cast(message.id, String).label('message_id'), literal(kind).label('project_type'),
@@ -27,6 +34,7 @@ def search_messages(db, user, keyword, *, offset=0, limit=30, favorites_only=Fal
                 keyword_any([message.content, message.sender_name], keyword) if not favorites_only else True)
         if favorites_only:
             query=query.join(ChatProjectMessageFavorite,ChatProjectMessageFavorite.message_id==message.id).where(ChatProjectMessageFavorite.user_id==user.id)
+            if tag_id:query=query.where(matches_tag(user.id,kind,column,message.id,tag_id))
             if keyword.strip():
                 query=query.outerjoin(Client,Client.id==model.client_id).outerjoin(SubClient,SubClient.id==model.sub_client_id).where(keyword_any(
                     [message.content,message.sender_name,model.project_name,model.order_no,Client.client_name,Client.client_short_name,SubClient.client_name,SubClient.client_short_name],keyword))
@@ -48,6 +56,7 @@ def search_messages(db, user, keyword, *, offset=0, limit=30, favorites_only=Fal
             message.message_type == 'user', message.recalled_at.is_(None),
             keyword_any([message.content,message.sender_name,peer.full_name,peer.username] if favorites_only else [message.content,message.sender_name],keyword))
     if favorites_only:direct_query=direct_query.join(ChatProjectMessageFavorite,ChatProjectMessageFavorite.message_id==message.id).where(ChatProjectMessageFavorite.user_id==user.id)
+    if tag_id:direct_query=direct_query.where(matches_tag(user.id,'direct',conversation.id,message.id,tag_id))
     queries.append(direct_query)
     if discussion.schema_ready(db):
         # 名称含内置讨论与自建会话；只有仍有效、当前用户有权访问的房间进入查询。
@@ -66,6 +75,7 @@ def search_messages(db, user, keyword, *, offset=0, limit=30, favorites_only=Fal
                 from discussion_chat_models import DiscussionMessageAction
                 discussion_query=discussion_query.join(DiscussionMessageAction,DiscussionMessageAction.message_id==DiscussionMessage.id).where(
                     DiscussionMessageAction.user_id==user.id,DiscussionMessageAction.favorited_at.is_not(None))
+                if tag_id:discussion_query=discussion_query.where(matches_tag(user.id,'discussion',DiscussionMessage.room_id,DiscussionMessage.id,tag_id))
                 if keyword.strip():
                     metadata=_discussion_business_keywords(db,rooms)
                     business=case(*[(DiscussionMessage.room_id==UUID(rid),text) for rid,text in metadata.items()],else_='') if metadata else literal('')
@@ -75,9 +85,10 @@ def search_messages(db, user, keyword, *, offset=0, limit=30, favorites_only=Fal
     total = db.scalar(select(func.count()).select_from(results))
     rows = db.execute(select(results).order_by(results.c.created_at.desc(), results.c.project_type,
         results.c.message_id.desc()).offset(offset).limit(limit)).mappings()
-    items = [dict(message_id=row['message_id'], project_id=row['project_id'], project_type=row['project_type'],
-        key=f"{row['project_type']}:{row['project_id']}", title=row['title'] or '会话', subtitle=row['subtitle'] or '',
+    items = [dict(message_id=str(UUID(row['message_id'])) if row['project_type']!='discussion' else row['message_id'], project_id=str(UUID(row['project_id'])), project_type=row['project_type'],
+        key=f"{row['project_type']}:{UUID(row['project_id'])}", title=row['title'] or '会话', subtitle=row['subtitle'] or '',
         sender_name=row['sender_name'], preview=' '.join(row['content'].split())[:500], created_at=api_time(row['created_at'])) for row in rows]
+    if favorites_only:decorate(db,user.id,items)
     return dict(items=items, total=total, has_more=offset + len(items) < total)
 
 

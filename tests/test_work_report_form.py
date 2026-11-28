@@ -25,9 +25,12 @@ def test_vocabulary_clients_search_and_report_roundtrip(environment, monkeypatch
     options = report_client_options('bb aa', 50, db, owner)
     assert len(options) == 2 and all(set(item) == {'id', 'name'} for item in options)
     assert [item['name'] for item in report_client_options('100%', 50, db, owner)] == ['100%客户']
+    full_options=report_client_options('全称0',50,db,owner,full_name=True)
+    assert full_options==[{'id':clients[0].id,'name':'全称0'}]
+    assert report_client_options('全称0 AA',50,db,owner,full_name=True)==full_options
     assert '词汇整理' in DEFAULT_CATEGORIES['非项目工作']
     selected = [{'id': str(client.id), 'name': client.client_short_name} for client in clients[:2]]
-    item = row(report_types=['非项目工作::词汇整理'], order_no='', vocabulary_clients=selected)
+    item = row(report_types=['非项目工作::词汇整理'], order_no='', vocabulary_clients=selected,client_id=str(clients[0].id),client_name='全称0')
     item.task_name = 'AA-BB、BB-AA'
     db.add(DailyReport(id=uuid4(), user_id=owner.id, report_date=date(2026, 10, 29), status='draft'))
     db.commit()
@@ -38,6 +41,8 @@ def test_vocabulary_clients_search_and_report_roundtrip(environment, monkeypatch
     preview = service.preview_daily_report(db, owner, saved.report_date)
     assert preview['items'][0]['task_name'] == item.task_name
     assert preview['items'][0]['display_metadata']['vocabulary_clients'] == selected
+    assert preview['items'][0]['display_metadata']['client_name']=='全称0'
+    assert preview['items'][0]['display_metadata']['client_id']==str(clients[0].id)
 
 @pytest.mark.parametrize('metadata',[{'quantity':-1},{'quantity':'abc'},{'quantity':'nan'},{'quantity_unit':''},{'quantity_unit':'其他'},{'report_types':[]},{'report_types':['无效']},{'report_types':['其他项目']}])
 def test_invalid_form_metadata_rejected(metadata):

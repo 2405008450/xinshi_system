@@ -230,6 +230,7 @@
               </el-descriptions>
             </div>
           </el-popover>
+          <span v-else-if="column.key==='customer_cohort'">{{row.customer_cohort==='old'?'老客户':'新客户'}}</span>
           <el-tag
             v-else-if="column.key === 'client_status'"
             :type="row.client_status === 'active' ? 'success' : 'info'"
@@ -335,6 +336,7 @@
             <el-form-item label="客户类型" prop="customer_type"><el-select v-model="form.customer_type" clearable placeholder="请选择客户类型" @clear="form.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
         </el-row>
+        <ClientCohortSettings v-if="form.id" :client-id="form.id" :can-write="canWrite"/>
         <el-form-item prop="contact_names" :rules="contactListRules" label-width="0px"><ClientContactNamesEditor :model-value="peopleFor(form)" @update:model-value="rows=>setPeople(form,rows)" /></el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
@@ -505,6 +507,7 @@
 import ClientShortNameInput from '@/components/common/ClientShortNameInput.vue'
 import FieldWorkPanel from '@/views/schedule/components/FieldWorkPanel.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
+import ClientCohortSettings from '@/components/common/ClientCohortSettings.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
 import ClientNameHistory from '@/components/common/ClientNameHistory.vue'
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
@@ -603,6 +606,8 @@ const clientColumnOptions = [
   { key: 'city', label: '地级市', width: 100 },
   { key: 'district', label: '区县', width: 100 },
   { key: 'client_status', label: '客户状态', width: 120 },
+  {key:'customer_cohort',label:'新老客户',width:110},
+  {key:'order_count',label:'订单数',width:100},
   { key: 'cooperation_start_date', label: '开始合作时间', width: 180 },
   { key: 'remarks', label: '备注', width: 220 }
 ]

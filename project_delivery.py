@@ -92,7 +92,7 @@ def interpretation_editor_extras(db,project,existing_body=''):
     return '\n'.join(lines)
 
 
-def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,audience=(),status_change_id=None):
+def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,audience=(),status_change_id=None,progress_notice=None,mention_override=None):
     require_ready(db)
     if module not in LABELS:raise HTTPException(422,'不支持的项目类型')
     from business_mail_service import PROJECT_MODELS, PROJECT_FK_FIELDS, build_preview, _project_source
@@ -106,7 +106,9 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
         if previous.module!=module or previous.project_id!=project_id or (previous.actor_id!=actor.id and not same_mail):raise HTTPException(409,'发送请求标识已用于其他操作')
         return {'room_id':str(previous.room_id),'sent':True}
     status_only=module=='interpretation' and status_change_id is not None
-    if status_only and not mail_id:
+    if progress_notice is not None:
+        subject,body=progress_notice
+    elif status_only and not mail_id:
         from interpretation_status_notice import content
         subject,body=project.order_no+' · 项目状态更新',content(db,project_id,status_change_id)
     elif mail_id:
@@ -155,12 +157,14 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
         if person.id not in existing:db.add(DiscussionMember(room_id=room_id,user_id=person.id,last_read_id=0,pinned=False,starred=False))
     db.flush()
     from automatic_project_notice import mark_automatic
+    if module=='interpretation':
+        body=link_interpreter_names(db,project,body)
     message=DiscussionMessage(room_id=room_id,sender_id=actor.id,sender_name=actor.full_name or actor.username,client_message_id=request_key,content=mark_automatic(subject+'\n\n'+body))
     db.add(message);db.flush()
     if module=='interpretation':
         from interpretation_settings import mention_ids
         target_ids=mention_ids(db,members)
-        if project.project_status=='candidates_provided':
+        if project.project_status in {'candidates_provided','candidates_added','candidates_adjusted','interpreter_contract_signed'}:
             from project_client_manager import attach as attach_manager
             attach_manager(db,'interpretation',[project])
             manager_id=getattr(project,'client_manager_id',None)
@@ -173,6 +177,8 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
             if assignment.get('assignee_id'):target_ids.add(str(assignment['assignee_id']))
             target_ids.update(str(value) for value in assignment.get('assignee_ids',[]))
     target_ids.update(extra_ids)
+    if mention_override is not None:
+        target_ids={str(value) for value in mention_override}
     targets={person.id:person for person in members if person.id!=actor.id and str(person.id) in target_ids}
     from discussion_mentions import create as create_mentions
     notifications=create_mentions(db,actor,message,SimpleNamespace(mention_all='all' in audience),list(targets.values()),existing|{item.id for item in members})
@@ -236,3 +242,15 @@ def retry_mail_chat(mail_id:UUID,db=Depends(get_db),actor=Depends(get_current_us
     error=db.get(ProjectMailChatIntent,mail_id).error
     if error:raise HTTPException(502,error)
     return {'sent':True}
+
+
+def link_interpreter_names(db,project,body):
+    import re
+    from models import Translator
+    parts={re.sub(r'（[^）]*）$','',value.strip()) for value in re.split(r'[：、；\n]+| 调整为 ',body)}
+    current=[row.translator for row in project.interpreter_assignments]
+    others=db.query(Translator).filter(Translator.translator_name.in_(parts)).all() if parts else []
+    candidates={row.translator_name:row for row in [*current,*others] if row and row.translator_name}
+    if not candidates:return body
+    pattern=re.compile('|'.join(re.escape(name) for name in sorted(candidates,key=len,reverse=True)))
+    return pattern.sub(lambda match:'['+match[0].replace('[','（').replace(']','）')+'](talent://'+str(candidates[match[0]].resource_person_id or candidates[match[0]].id)+')',body)

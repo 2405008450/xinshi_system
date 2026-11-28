@@ -97,3 +97,24 @@ def apply_registration(payload, billing):
 def history_snapshot(payload):
     result = registration(payload)
     return {**result['confirmation'], 'payment_details': result['payments']}
+
+
+def promote_payment_proofs(db,registration):
+    from editor_screenshot_service import references,valid_references,ready,api_time,now,promote_business_references
+    from editor_screenshot_models import EditorScreenshot
+    texts=[]
+    def collect(value):
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if key in {'proofs','receipt_proofs'} and isinstance(item,str):texts.append(item)
+                else:collect(item)
+        elif isinstance(value,list):
+            for item in value:collect(item)
+    collect(registration)
+    text='\n'.join(texts);ids=references(text)
+    if not ids:return
+    if ids!=valid_references(text):raise HTTPException(422,'付款或收款截图引用无效，请重新上传')
+    if not ready(db):raise HTTPException(503,'截图存储尚未初始化')
+    images=db.query(EditorScreenshot).filter(EditorScreenshot.id.in_(ids)).all()
+    if len(images)!=len(ids) or any(not row.blob_sha256 or row.expires_at and api_time(row.expires_at)<=now() for row in images):raise HTTPException(422,'付款或收款截图不存在或已过期，请重新上传')
+    promote_business_references(db,ids)

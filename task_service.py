@@ -561,6 +561,7 @@ def _project_identity(db: Session, workflow_id: UUID) -> tuple[str, str, dict]:
             {
                 "order_no": sub.sub_order_no if sub else None,
                 "project_name": project.project_name if project else None,
+                "client_name": project.client.client_name if project and project.client else None,
                 "client_short_name": project.client.client_short_name if project and project.client else None,
                 "workflow_instance_id": str(workflow_id),
             },
@@ -576,6 +577,7 @@ def _project_identity(db: Session, workflow_id: UUID) -> tuple[str, str, dict]:
         {
             "order_no": project.order_no if project else None,
             "project_name": project.project_name if project else None,
+            "client_name": project.client.client_name if project and project.client else None,
             "client_short_name": project.client.client_short_name if project and project.client else None,
             "workflow_instance_id": str(workflow_id),
         },

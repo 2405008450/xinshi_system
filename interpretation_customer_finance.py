@@ -1,5 +1,6 @@
 """口译客户财务：组合单价、客户参考价、金额计算及不可覆盖的调整记录。"""
 from decimal import Decimal, ROUND_HALF_UP
+from interpretation_rate_groups import rate_totals,has_adjustments
 from tax_prices import reference_tax_prices
 from interpretation_finance_schemas import (
     FinanceWrite, InterpretationInvoice, InterpretationInvoiceWrite, InterpretationQuotationWrite, InterpretationSettlement,
@@ -43,6 +44,20 @@ class InterpretationCustomerFinanceHistory(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=business_now)
 
 
+def overtime_lines(payload):
+    overtime=payload.get('overtime') or {}
+    if not payload.get('has_overtime') or overtime.get('pricing_mode','total')=='total':return []
+    if overtime['pricing_mode']=='rates':return overtime.get('rates',[])
+    index=overtime.get('base_rate_index',0)
+    if index>=len(payload.get('rates',[])):raise HTTPException(422,'请选择有效的加班费基准单价')
+    from copy import deepcopy
+    row=deepcopy(payload['rates'][index]);row['group_adjustments']=[];row['combined_adjustments']=[];factor=Decimal(str(overtime.get('multiplier',1)))
+    row['amount']=str(Decimal(str(row['amount']))*factor);row['quantity']=overtime.get('quantity',1)
+    prices=row.get('tax_prices') or {}
+    row['tax_prices']={key:(str(Decimal(str(value))*factor) if value is not None else None) for key,value in prices.items() if key.startswith('unit_price_')}
+    return [row]
+
+
 def calculate(payload):
     settlement_adjustments=payload.get('settlement_adjustments',[])
     fixed = settlement(payload).pricing_mode == 'fixed'
@@ -53,17 +68,11 @@ def calculate(payload):
     def cents(value):
         return Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
 
-    for row in payload.get('rates', []):
-        currency = row['currency']
-        totals[currency] = totals.get(currency, Decimal(0)) + cents(Decimal(row['amount']) * Decimal(str(row['quantity'])))
-        prices = row.get('tax_prices') or {}
-        for kind, values in tax_totals.items():
-            value = prices.get('total_' + kind)
-            if value is None and prices.get('unit_price_' + kind) is not None:
-                value = Decimal(str(prices['unit_price_' + kind])) * Decimal(str(row['quantity']))
-            if value is not None:
-                values[currency] = values.get(currency, Decimal(0)) + cents(value)
-    if payload.get('has_overtime') and payload.get('overtime'):
+    for rows in [payload.get('rates', []),overtime_lines(payload)]:
+        for currency,value in rate_totals(rows,'legacy').items():totals[currency]=totals.get(currency,Decimal(0))+value
+        for kind,values in tax_totals.items():
+            for currency,value in rate_totals(rows,kind).items():values[currency]=values.get(currency,Decimal(0))+value
+    if payload.get('has_overtime') and payload.get('overtime') and payload['overtime'].get('pricing_mode','total')=='total':
         row = payload['overtime']
         totals[row['currency']] = totals.get(row['currency'], Decimal(0)) + Decimal(row['amount'])
         for kind, values in tax_totals.items():
@@ -108,11 +117,11 @@ def incomplete_tax_basis(payload, basis):
         return any(row['currency'] not in final and (row.get('tax_prices') or {}).get('total_' + basis) is None for row in payload.get('fixed_totals', []))
     adjustments = final | {row['currency'] for row in payload.get('adjusted_totals', [])
                    if (row.get('tax_prices') or {}).get('total_' + basis) is not None}
-    for row in payload.get('rates', []):
+    for row in [*payload.get('rates', []),*overtime_lines(payload)]:
         prices = row.get('tax_prices') or {}
         if row['currency'] not in adjustments and all(prices.get(field + basis) is None for field in ('total_', 'unit_price_')):
             return True
-    overtime = payload.get('overtime') if payload.get('has_overtime') else None
+    overtime = payload.get('overtime') if payload.get('has_overtime') and (payload.get('overtime') or {}).get('pricing_mode','total')=='total' else None
     return bool(overtime and overtime['currency'] not in adjustments and
                 (overtime.get('tax_prices') or {}).get('total_' + basis) is None)
 
@@ -242,6 +251,9 @@ def save(db, user, scope, target, data, *, commit=True):
         if data.settlement and data.settlement.payment_method == 'sub_client' and not entity.sub_client_id:
             raise HTTPException(422, '子客户合并结算需要先关联子客户')
     payload = data.model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed','quotation_draft','library_client_id'})
+    if scope=='project' and payload.get('payment_registration'):
+        from business_finance_payment import promote_payment_proofs
+        promote_payment_proofs(db,payload['payment_registration'])
     row = record(db, scope, target)
     before = row.payload if row else {}
     for key in ('_oral_workspace','_oral_invoice_requests','_oral_settlement_settings'):
@@ -460,14 +472,18 @@ def quotation_context(project, row, payload=None):
                           currency=item['currency']) for item in payload.get('fixed_totals', [])]
         else:
             items = []
-            for rate in payload.get('rates', []):
+            for rate in [*payload.get('rates', []),*[{**item,'direction':'加班费 '+item['direction']} for item in overtime_lines(payload)]]:
                 price = rate['amount'] if basis == 'legacy' else (rate.get('tax_prices') or {}).get('unit_price_' + basis)
                 items.append(dict(description=project.project_name or '口译服务', language_pair=rate['direction'],
                                   quantity=rate['quantity'], unit=rate['unit'], unit_price=price, currency=rate['currency']))
-            overtime = payload.get('overtime') if payload.get('has_overtime') else None
+            overtime = payload.get('overtime') if payload.get('has_overtime') and (payload.get('overtime') or {}).get('pricing_mode','total')=='total' else None
             if overtime:
                 price = overtime['amount'] if basis == 'legacy' else (overtime.get('tax_prices') or {}).get('total_' + basis)
                 items.append(dict(description='加班费', quantity=1, unit='项', unit_price=price, currency=overtime['currency']))
+        if setting.pricing_mode!='fixed' and any(has_adjustments(rows) for rows in [payload.get('rates',[]),overtime_lines(payload)]):
+            amounts=calculate(payload)
+            final=billing_totals(payload,amounts)
+            items=[dict(description=(project.project_name or '口译服务')+'（含组合折扣及调整）',quantity=1,unit='项',unit_price=value,currency=currency) for currency,value in final.items()]
         saved = dict(client_name=project.client_full_name or project.client_short_name or '',
                      items=items[:100] or [dict(description=project.project_name or '口译服务')],
                      notes=settlement(payload).customer_explanation)
@@ -512,10 +528,15 @@ def invoice_context(project, row):
         from interpretation_settlement_settings import state,party_value
         from interpretation_statements import billing_month
         if party_value(state(object_session(project),project.client_id),sub_client_id,billing_month(project,payload),setting.period_number)=='client':sub_client_id=None
+    from sqlalchemy.orm import object_session
+    from annotation_progress_time import business_datetime
+    events=object_session(project).query(InterpretationCustomerFinanceHistory).filter_by(finance_id=row.id).order_by(InterpretationCustomerFinanceHistory.revision.desc()).limit(50).all() if row else []
+    history=[dict(id=event.id,actor_name=event.actor_name,at=business_datetime(event.created_at).isoformat(),before=event.before.get('invoice') or {},after=event.after.get('invoice') or {}) for event in events if event.before.get('invoice')!=event.after.get('invoice')]
     return dict(id=str(project.id), order_no=project.order_no, project_name=project.project_name,
                 client_id=str(project.client_id) if project.client_id else None,
                 sub_client_id=str(sub_client_id) if sub_client_id else None,
                 revision=row.revision if row else 0, required=setting.invoice_required,
+                note=setting.document_notes.invoice,history=history,pricing=payload,
                 totals=calculate(payload)['totals_incl_tax'], **document.model_dump())
 
 

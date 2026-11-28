@@ -45,6 +45,8 @@ class StrictInput(BaseModel):
 
 
 class Rate(StrictInput):
+    group_adjustments: list['SettlementAmountAdjustment'] = Field(default_factory=list, max_length=20)
+    combined_adjustments: list['SettlementAmountAdjustment'] = Field(default_factory=list, max_length=20)
     tax_prices: TaxPrices | None = None
     direction: str = Field(min_length=1, max_length=500)
     amount: Decimal = Field(ge=0, max_digits=18, decimal_places=6)
@@ -74,6 +76,14 @@ class Money(StrictInput):
     tax_prices: TaxPrices | None = None
 
 
+class Overtime(Money):
+    pricing_mode: Literal['total','multiplier','rates'] = 'total'
+    multiplier: Decimal = Field(default=Decimal('1'), gt=0, le=100, max_digits=8, decimal_places=4)
+    quantity: Decimal = Field(default=Decimal('1'), ge=0, max_digits=10, decimal_places=4)
+    base_rate_index: int = Field(default=0, ge=0, le=99)
+    rates: list[Rate] = Field(default_factory=list, max_length=100)
+
+
 class SettlementAmountAdjustment(StrictInput):
     currency: str = Field(default='CNY', pattern=r'^[A-Z]{3}$')
     excl_discount: int | None = Field(default=None, ge=1, le=99)
@@ -88,7 +98,7 @@ class FinanceWrite(StrictInput):
     revision: int = Field(ge=0)
     rates: list[Rate] = Field(default_factory=list, max_length=100)
     has_overtime: bool = False
-    overtime: Money | None = None
+    overtime: Overtime | None = None
     adjusted_totals: list[Money] = Field(default_factory=list, max_length=20)
     fixed_totals: list[Money] = Field(default_factory=list, max_length=20)
     settlement_adjustments: list[SettlementAmountAdjustment] = Field(default_factory=list, max_length=20)
@@ -146,6 +156,7 @@ class InterpretationQuotationWrite(StrictInput):
 class InterpretationInvoice(StrictInput):
     invoice_status: Literal['unissued', 'partial', 'issued'] = 'unissued'
     proofs: str = Field(default='', max_length=20000)
+    receipt_proofs: str = Field(default='', max_length=20000)
     subject_key: Literal['guangzhou','shenzhen','shanghai'] | None = None
     invoice_type: Literal['electronic_special','electronic_normal','paper_special','paper_normal'] = 'electronic_normal'
     buyer_index: int = Field(default=0, ge=0, le=29)

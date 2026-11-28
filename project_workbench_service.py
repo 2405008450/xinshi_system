@@ -31,7 +31,7 @@ PROJECT_DETAIL_ROUTES = {
     'recruitment': 'RecruitmentProjectDetails',
 }
 ACTIVE_STATUSES = {
-    'interpretation': {'initial_follow_up', 'candidates_provided', 'client_selected', 'client_changed', 'deal_pending_execution', 'in_progress'},
+    'interpretation': {'initial_follow_up', 'client_contract_signed','interpreter_contract_signed','both_contracts_signed','client_interpreter_connected','candidates_provided', 'candidates_added', 'candidates_adjusted', 'client_selected', 'client_changed', 'client_cancelled','client_added','client_reduced','client_mixed', 'deal_pending_execution', 'in_progress'},
     'annotation': {
         'initial_consultation', 'resource_sourcing', 'trial_preparation',
         'trial_in_progress', 'trial_submitted', 'trial_passed', 'trial_partially_passed',

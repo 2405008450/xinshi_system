@@ -123,3 +123,19 @@ def test_translation_manager_change_overrides_legacy_client_name(environment):
     db.commit()
     owned = {pid for pid, in db.query(TranslationProject.id).filter(mine_condition(db, 'translation', TranslationProject, member))}
     assert owned == {projects[0].id, projects[2].id}
+
+
+def test_groups_only_excludes_direct_from_total_and_pages(environment):
+    from uuid import uuid4
+    from models import ChatDirectConversation,ChatDirectMember,AnnotationChatMember
+    from chat_session_history import list_sessions
+    db,(owner,member,outsider)=environment
+    group=project(db,owner,'AP-GROUPS-001')
+    db.add(AnnotationChatMember(project_id=group.id,user_id=owner.id))
+    room=ChatDirectConversation(id=uuid4(),user_low_id=owner.id,user_high_id=member.id)
+    db.add(room);db.flush();db.add(ChatDirectMember(conversation_id=room.id,user_id=owner.id));db.commit()
+    all_rows=list_sessions(db,owner)
+    assert any(row['kind']=='direct' for row in all_rows['items'])
+    groups=list_sessions(db,owner,groups_only=True,limit=1)
+    assert groups['total']==all_rows['total']-1
+    assert all(row['kind']!='direct' for row in groups['items'])

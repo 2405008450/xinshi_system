@@ -4,6 +4,7 @@
 """
 
 from typing import List
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -58,3 +59,18 @@ def read_talent_options(
         capability_status="active" if capability_type else None,
         include_contact_search=can_view_talent_contacts(db, current_user),
     )
+
+
+@router.get('/profile/{person_id}')
+def read_project_talent_profile(person_id:UUID, db:Session=Depends(get_db)):
+    """项目会话可查看的非敏感译员资料，绝不返回联系方式。"""
+    from fastapi import HTTPException
+    from models import Translator
+    person=db.get(ResourcePerson,person_id)
+    legacy=db.get(Translator,person_id) if person is None else None
+    if person is None and legacy and legacy.resource_person_id:person=db.get(ResourcePerson,legacy.resource_person_id)
+    if person is None:
+        if not legacy:raise HTTPException(404,'译员资料不存在')
+        return dict(id=str(legacy.id),full_name=legacy.translator_name,resource_code=legacy.translator_code,language_skills=[],resume_path=legacy.resume_path)
+    return dict(id=str(person.id),full_name=person.full_name,chinese_name=person.chinese_name,english_name=person.english_name,nickname=person.nickname,resource_code=person.resource_code,gender=person.gender,resume_path=person.resume_path,
+        language_skills=[dict(language_id=str(row.language_id),label=row.language_label,role=row.role,priority=row.priority) for row in person.language_skills])

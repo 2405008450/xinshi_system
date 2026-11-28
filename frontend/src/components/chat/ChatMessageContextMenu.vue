@@ -9,12 +9,13 @@
       <template v-if="submenu==='annotation-progress'">
         <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('project')"><el-icon aria-hidden="true"><TrendCharts /></el-icon><span>项目进度</span></button>
         <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('customer')"><el-icon aria-hidden="true"><User /></el-icon><span>客户进度</span></button>
-        <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('annotator')"><el-icon aria-hidden="true"><UserFilled /></el-icon><span>标注员情况</span></button>
+        <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('annotator')"><el-icon aria-hidden="true"><UserFilled /></el-icon><span>{{progressType==='interpretation'?'译员情况':'标注员情况'}}</span></button>
       </template>
       <template v-else><button v-for="category in issueCategories" :key="category.value" type="button" role="menuitem" class="chat-message-context-menu__item" @click="collectIssue(category.value)"><el-icon aria-hidden="true"><component :is="categoryIcons[category.value]" /></el-icon><span>{{ category.label }}</span></button></template>
     </div>
   </Teleport>
-  <ChatAnnotationProgressDialog ref="annotationProgressRef" />
+  <ChatAnnotationProgressDialog ref="annotationProgressRef" /><InterpretationProgressDialog ref="interpretationProgressRef"/>
+  <ChatFavoriteTagEditor ref="favoriteTagEditor" />
 </template>
 <script setup>
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -24,9 +25,11 @@ import { useResourceIssues } from '@/composables/useResourceIssues'
 import { issueCategories } from '@/utils/resourceIssues'
 import { buildMessageMenu, clampMessageMenu, nativeMessageContextSelector } from '@/utils/chatMessageMenu'
 import ChatMessageTopic from './ChatMessageTopic.vue'
+import InterpretationProgressDialog from '@/components/interpretation/InterpretationProgressDialog.vue'
 import ChatAnnotationProgressDialog from './ChatAnnotationProgressDialog.vue'
+import ChatFavoriteTagEditor from './ChatFavoriteTagEditor.vue'
 import { hasPermission } from '@/utils/permission'
-const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{type:Object,default:()=>({})}, projectType:String,projectId:[String,Number],canProgress:Boolean, selecting:Boolean, messages:{type:Array,default:()=>[]}, active:{type:Boolean,default:true} })
+const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{type:Object,default:()=>({})}, progressProjectType:String,progressProjectId:String,projectType:String,projectId:[String,Number],canProgress:Boolean, selecting:Boolean, messages:{type:Array,default:()=>[]}, active:{type:Boolean,default:true} })
 const { access, collect, refreshIssueAccess } = useResourceIssues()
 const instanceId = getCurrentInstance().uid
 const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,technical:DocumentAdd,select:Select,recall:Delete}
@@ -34,8 +37,11 @@ const categoryIcons = {arrangement:Refresh,request:DocumentAdd,idea:ChatDotRound
 const visible=ref(false), message=ref(null), excerpt=ref(''), menuRef=ref(), submenuRef=ref(), topicRef=ref(), submenu=ref('')
 const position=reactive({left:0,top:0}), subPosition=reactive({left:0,top:0})
 let origin, point={x:0,y:0}, openVersion=0
-const items=computed(()=>buildMessageMenu(message.value,{handlers:props.handlers,currentUserId:props.currentUserId,canCollect:access.can_collect,canProgress:props.canProgress,annotationProgress:props.projectType==='annotation'&&!!props.projectId&&hasPermission('projects:write'),selecting:props.selecting,excerpt:excerpt.value}))
+const items=computed(()=>buildMessageMenu(message.value,{handlers:props.handlers,currentUserId:props.currentUserId,canCollect:access.can_collect,canProgress:props.canProgress,annotationProgress:['annotation','interpretation'].includes(progressType.value)&&!!(props.progressProjectId||props.projectId)&&hasPermission('projects:write'),selecting:props.selecting,excerpt:excerpt.value}))
+const progressType=computed(()=>props.progressProjectType||props.projectType)
+const interpretationProgressRef=ref()
 const annotationProgressRef=ref()
+const favoriteTagEditor=ref()
 const activeMessageId=computed(()=>visible.value ? String(message.value?.id || '') : '')
 function close(restore=false) {
   visible.value=false; submenu.value=''; openVersion++
@@ -88,6 +94,9 @@ function hover(item,event) { if (item.submenu) showSubmenu(event,false,item.id);
 async function activate(item,event) {
   if (item.submenu) { await showSubmenu(event,true,item.id); return }
   const row=message.value, text=excerpt.value
+  const favoriteNew=item.id==='favorite'&&!row.isFavorited
+  const favoriteScope={kind:props.projectType||'translation',id:props.projectId}
+  if(item.id==='favorite-tags'){close();favoriteTagEditor.value.open(props.projectType||'translation',props.projectId,String(row.id));return}
   if (item.id==='classify') {
     const rect=event.currentTarget.getBoundingClientRect()
     const anchor={left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,width:rect.width,height:rect.height,x:rect.x,y:rect.y}
@@ -96,10 +105,18 @@ async function activate(item,event) {
     return
   }
   close(!['reply','progress','select','recall'].includes(item.id))
-  try { await props.handlers[item.id]?.(row,text) } catch(e) { ElMessage.error(e.detail || e.message || '操作失败，请重试') }
+  try {
+    const result=await props.handlers[item.id]?.(row,text)
+    if(favoriteNew){
+      await nextTick()
+      const current=props.messages.find(item=>String(item.id)===String(row.id))||row
+      if((result?.isFavorited||current.isFavorited)&&props.active&&favoriteScope.kind===(props.projectType||'translation')&&favoriteScope.id===props.projectId)
+        favoriteTagEditor.value.open(favoriteScope.kind,favoriteScope.id,String(row.id))
+    }
+  } catch(e) { ElMessage.error(e.detail || e.message || '操作失败，请重试') }
 }
 function collectIssue(category) { const id=message.value.id; close(); collect(id,category,props.projectType==='discussion'?props.projectId:null) }
-function addAnnotationProgress(track){const row=message.value,text=excerpt.value,id=props.projectId;close();void annotationProgressRef.value.open(id,row,track,text)}
+function addAnnotationProgress(track){const row=message.value,text=excerpt.value,id=props.progressProjectId||props.projectId;close();void (progressType.value==='interpretation'?interpretationProgressRef:annotationProgressRef).value.open(id,row,track,text)}
 function onKeydown(event) {
   if (event.key==='Tab') { close(); return }
   const root=event.currentTarget, buttons=[...root.querySelectorAll('[role="menuitem"]')], index=buttons.indexOf(document.activeElement)

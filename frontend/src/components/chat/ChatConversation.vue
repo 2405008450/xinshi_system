@@ -295,7 +295,7 @@ async function invite() {
 }
 async function copy(message, excerpt = '') { const copied = await copyTextToClipboard(excerpt || message.content || (message.attachments || []).map(f => f.originalName).join('\n')); copied ? ElMessage.success('已复制') : ElMessage.error('复制失败，请使用 Ctrl+C') }
 async function favorite(message) {
-  try { const result = await (message.isFavorited ? unfavoriteProjectChatMessage : favoriteProjectChatMessage)(message.id); Object.assign(message, result) } catch (e) { ElMessage.error(detail(e)) }
+  try { const result = await (message.isFavorited ? unfavoriteProjectChatMessage : favoriteProjectChatMessage)(message.id); Object.assign(message, result);return result } catch (e) { ElMessage.error(detail(e)) }
 }
 async function acknowledge(message) {
   try { const result = await (message.isAcknowledged ? unacknowledgeProjectChatMessage : acknowledgeProjectChatMessage)(message.id); Object.assign(message, result) } catch (e) { ElMessage.error(detail(e)) }

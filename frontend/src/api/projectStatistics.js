@@ -1,10 +1,7 @@
 import api from './index'
 
 export const getProjectStatistics=(module,params,config={})=>api.get(
-  module==='translation'?'/projects/translation/statistics':`/project-statistics/${module}`,
-  {
-    ...(module === 'translation' ? { timeout: 30000 } : {}),
-    ...config,
-    params: module === 'translation' ? params : Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'tax_basis')),
-  }
+  `/project-statistics/${module}`,
+  // 完整历史统计包含跨业务客户及项目金额汇总，使用独立于普通列表的超时。
+  {timeout:60000,...config,params}
 )

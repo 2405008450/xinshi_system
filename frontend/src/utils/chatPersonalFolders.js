@@ -1,0 +1,1 @@
+export function dragChatSession(event,session){event.dataTransfer.effectAllowed='copy';event.dataTransfer.setData('application/x-xinshi-chat-session',JSON.stringify({key:session.key,projectType:session.projectType,projectId:session.projectId||session.project_id,title:session.title,subtitle:session.subtitle}))}

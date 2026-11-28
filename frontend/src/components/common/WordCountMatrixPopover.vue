@@ -24,7 +24,7 @@
 
           <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '字数类、份数、页数与时长可同时填写；分钟和小时可切换。0 表示已登记为零，预统计不用于计算费用。' }}</p>
         </div>
-        <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (aggregated ? '下级自动汇总' : (localMode ? '随项目保存' : '已保存统计')) }}</el-tag>
+        <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ readOnly ? '只读查看' : hasChanges ? '未保存修改' : (aggregated ? '下级自动汇总' : (localMode ? '随项目保存' : '已保存统计')) }}</el-tag>
       </div>
       <OrderWordCountSource :order="draft" />
 
@@ -77,7 +77,7 @@
       </div>
 
       <div class="word-count-matrix__footer">
-        <span>{{ hybridMode ? '项目统计立即保存；新译员统计随稿件安排保存' : (localMode ? '统计随项目保存；关闭后保留本账号未保存的修改' : '保存后同步项目；未保存的修改仅当前账号可见') }}</span>
+        <span>{{ readOnly ? '当前为工作量统计只读视图' : hybridMode ? '项目统计立即保存；新译员统计随稿件安排保存' : (localMode ? '统计随项目保存；关闭后保留本账号未保存的修改' : '保存后同步项目；未保存的修改仅当前账号可见') }}</span>
         <div>
           <el-button @click="visible = false">关闭</el-button>
           <el-button v-if="!readOnly" type="primary" :loading="saving" :disabled="loading || !draft" @click="saveMatrix">

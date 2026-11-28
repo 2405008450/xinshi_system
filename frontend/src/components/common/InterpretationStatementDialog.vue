@@ -2,11 +2,11 @@
   <DraggableFormDialog :model-value="modelValue" class="interpretation-statement-dialog" width="min(1450px, calc(100vw - 32px))" top="4vh" append-to-body destroy-on-close @update:model-value="emit('update:modelValue',$event)">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="moduleLabel+(initialMode==='special'?'特殊结算':'对账单')" :subtitle="managerLabel" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="body" v-loading="loading||saving">
-      <h3>对账单管理</h3>
+      <h3>对账单管理</h3><BusinessFinanceScopePicker v-if="!projectId" v-model="filters.id" :module="module" :query="query" @select="selectScope"/>
       <AppForm :model="filters" inline @submit.prevent="load">
-        <el-form-item label="客户／项目"><el-select v-model="filters.id" filterable remote :remote-method="searchProjects" :loading="searching" placeholder="搜索订单号、项目名称或客户" style="width:300px;max-width:100%" @change="changeProject"><el-option v-for="row in options" :key="row.id" :value="row.id" :label="`${row.client_short_name||row.client_name||''} · ${row.order_no} · ${row.project_name||'-'}`" /></el-select></el-form-item>
+        <el-form-item v-if="projectId" label="当前项目"><ReadonlyField :model-value="options.find(row=>row.id===filters.id)?.order_no||filters.id" source="auto"/></el-form-item>
         <el-form-item label="账单月份"><el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" :clearable="false" @change="load" /></el-form-item>
-        <el-form-item label="结算模式"><el-select v-model="filters.mode" :disabled="initialMode==='special'" style="width:180px" @change="filters.period=undefined;load()"><el-option v-for="(label,key) in modeLabels" :key="key" :value="key" :label="label" /></el-select></el-form-item>
+        <el-form-item label="结算模式"><el-select v-model="filters.mode" :disabled="initialMode==='special'||!!projectId" style="width:180px" @change="filters.period=undefined;load()"><el-option v-for="(label,key) in modeLabels" :key="key" :value="key" :label="label" /></el-select></el-form-item>
         <el-form-item v-if="filters.mode!=='special'" label="账期"><el-select v-model="filters.period" clearable placeholder="全部期次" style="width:140px"><el-option label="未分账期（整月）" :value="0" /><el-option v-for="period in periods" :key="period" :value="period" :label="`第${period}期`" /></el-select></el-form-item>
       </AppForm>
       <el-alert v-if="error" type="error" :title="error" :closable="false"><el-button link @click="load">重新加载</el-button></el-alert>
@@ -48,12 +48,14 @@ import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTim
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {translationSettlementModeLabels as modeLabels} from '@/utils/settlementModes'
 import {hasPermission} from '@/utils/permission'
+import BusinessFinanceScopePicker from './BusinessFinanceScopePicker.vue'
+import ReadonlyField from './ReadonlyField.vue'
 import CustomerStatementPaper from './CustomerStatementPaper.vue'
 import InterpretationBoardPayment from './InterpretationBoardPayment.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import AppForm from './AppForm.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
-const props=defineProps({modelValue:Boolean,projects:{type:Array,default:()=>[]},query:{type:Object,default:()=>({})},initialMode:String,module:{type:String,default:'interpretation'}})
+const props=defineProps({modelValue:Boolean,projectId:String,projects:{type:Array,default:()=>[]},query:{type:Object,default:()=>({})},initialMode:String,module:{type:String,default:'interpretation'}})
 const moduleLabel=computed(()=>({interpretation:'口译',annotation:'标注',recruitment:'招聘'}[props.module]))
 const emit=defineEmits(['update:modelValue'])
 const body=ref(),options=ref([]),state=ref(null),loading=ref(false),saving=ref(false),searching=ref(false),error=ref(''),exporting=ref(false)
@@ -63,7 +65,7 @@ const {fieldSearchRef:editFieldSearchRef,fieldSearchKeyword:editFieldKeyword,fet
 const editVisible=ref(false),editingRow=ref(null),editingBoard=ref(null),editForm=reactive({})
 const canWrite=hasPermission('projects:write')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
-const managerLabel=computed(()=>props.query.only_mine?'客户经理：本人':props.query.client_manager?`客户经理：${props.query.client_manager}`:'客户经理：全部')
+const managerLabel=computed(()=>!props.projectId?'可在窗口内调整客户经理及客户':props.query.only_mine?'客户经理：本人':props.query.client_manager?`客户经理：${props.query.client_manager}`:'客户经理：全部')
 const visibleBoards=computed(()=>(state.value?.documents||[]).filter(board=>board.status==='active'&&board.months.some(month=>filters.months.includes(month))&&(filters.mode==='special'||filters.period==null||(board.period_number||0)===filters.period)))
 const periods=computed(()=>[...new Set((state.value?.documents||[]).map(board=>board.period_number).filter(Boolean))].sort((a,b)=>a-b))
 const modeHint=computed(()=>({individual:'逐笔结算：仅当前项目，保留独立账单及版本。',monthly:'多单合并：同客户、同模式项目合并出账；每月份／账期仅一份有效单。',sub_client:'子客户合并：只列当前子客户的项目和账单，独立制作。',special:'特殊结算：同月可多份有效单，可重复使用项目，不区分账期；单据编辑不回写财务主表。'}[filters.mode]))
@@ -74,6 +76,7 @@ const memberships=id=>(state.value?.documents||[]).filter(board=>board.status===
 const editFields=computed(()=>editingRow.value?[{key:'project_name',label:'项目名称'},{key:'subtotal',label:'单内金额'},{key:'remarks',label:'单内备注'}]:[{key:'company',label:'对账单主体／公司抬头'},{key:'title',label:'标题'},{key:'issue_date',label:'账单日期'},{key:'bank_name',label:'开户行'},{key:'account_name',label:'账户名称'},{key:'account_number',label:'银行账号'}])
 let searchController,loadController,sequence=0
 async function searchProjects(keyword=''){searchController?.abort();const request=searchController=new AbortController();searching.value=true;try{const data=await (props.module==='interpretation'?getInterpretationFinancePage({...props.query,keyword,payment_method:props.initialMode||undefined,skip:0,limit:100},request.signal):api.get(`/business-finance/${props.module}/page`,{params:{...props.query,keyword,skip:0,limit:100},signal:request.signal}));if(!request.signal.aborted){const current=options.value.find(row=>row.id===filters.id);options.value=data.items;if(current&&!options.value.some(row=>row.id===current.id))options.value.unshift(current)}}catch(e){if(!request.signal.aborted)error.value=getLocalizedErrorMessage(e,'项目加载失败')}finally{if(!request.signal.aborted)searching.value=false}}
+function selectScope(row){state.value=null;if(!row)return;options.value=[row];filters.id=row.id;changeProject()}
 function changeProject(){const row=options.value.find(item=>item.id===filters.id);filters.mode=props.initialMode||row?.settlement_mode||'individual';filters.months=[row?.billing_month||businessDateTimeInputValue().slice(0,7)];filters.period=undefined;void load()}
 async function load(){loadController?.abort();if(!filters.id||!filters.months.length)return;const request=loadController=new AbortController(),seq=++sequence;loading.value=true;error.value='';try{const data=await api.get(`/interpretation-customer-finance/statement-workspace/project/${filters.id}`,{params:{module:props.module,mode:filters.mode,months:filters.months},paramsSerializer:{indexes:null},signal:request.signal});if(seq===sequence){state.value=data;candidateIds.value=[];selectedBoards.value=[]}}catch(e){if(!request.signal.aborted)error.value=getLocalizedErrorMessage(e,'对账单加载失败')}finally{if(seq===sequence)loading.value=false}}
 async function change(action,boardId,data={},message='',ids=[] ,extra={}){if(!canWrite||saving.value||!state.value)return false;if(message){try{await ElMessageBox.confirm(message,'确认口译对账单修改',{type:'warning',confirmButtonText:'确认并记录',cancelButtonText:'取消',closeOnClickModal:false})}catch{return false}}saving.value=true;error.value='';try{const result=await api.post(`/interpretation-customer-finance/statement-workspace/project/${filters.id}`,{revision:state.value.revision,mode:filters.mode,action,board_id:boardId,months:filters.months,period_number:filters.period||null,project_ids:ids,data,...extra},{params:{module:props.module}});state.value={...result,candidates:state.value.candidates};selectedBoards.value=[];return true}catch(e){error.value=getLocalizedErrorMessage(e,'对账单操作失败');return false}finally{saving.value=false}}
@@ -91,7 +94,8 @@ function editHeader(board){editingBoard.value=board;editingRow.value=null;Object
 async function saveEdit(){const data=editingRow.value?{row_id:editingRow.value.line_id,fields:{...editForm}}:{...editForm};if(await change(editingRow.value?'edit_row':'edit_header',editingBoard.value.id,data,'保存本单修改并记录？源项目财务不变。'))editVisible.value=false}
 async function restoreRemoved(row){const id=removedBoard.value.id;if(await change('restore_project',id,{removed_id:row.id},'恢复所选项目原内容，保留后续其他修改？'))removedBoard.value=state.value.documents.find(board=>board.id===id)}
 async function download(board,format){exporting.value=true;try{const data=await api.get(`/interpretation-customer-finance/statement-workspace/project/${filters.id}/export/${board.id}`,{params:{format,module:props.module},responseType:'blob'});const url=URL.createObjectURL(data);const link=document.createElement('a');link.href=url;link.download=`${board.number}-${board.name}.${format==='excel'?'xlsx':'pdf'}`;link.click();URL.revokeObjectURL(url)}catch(e){error.value=getLocalizedErrorMessage(e,'导出失败')}finally{exporting.value=false}}
-watch(()=>[props.modelValue,props.projects[0]?.id,props.initialMode],async([visible])=>{if(!visible){loadController?.abort();searchController?.abort();return}clearFieldSearch();options.value=[...props.projects];filters.id=props.projects[0]?.id||'';if(filters.id)changeProject();await searchProjects();if(!filters.id&&options.value.length){filters.id=options.value[0].id;changeProject()}},{immediate:true})
+watch(()=>[props.modelValue,props.projectId,props.initialMode],async([visible])=>{if(!visible){loadController?.abort();searchController?.abort();return}clearFieldSearch();state.value=null;options.value=[...props.projects];filters.id=props.projectId||'';if(filters.id)changeProject()},{immediate:true})
+
 onBeforeUnmount(()=>{sequence++;loadController?.abort();searchController?.abort()})
 </script>
 <style>

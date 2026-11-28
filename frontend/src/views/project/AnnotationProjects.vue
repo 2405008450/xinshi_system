@@ -5,6 +5,7 @@
         <span>{{ props.orderScope === 'child' ? (effectiveOrderScope === 'grandchild' ? '标注三级订单管理' : '标注子订单管理') : '标注项目管理' }}</span>
         <div class="header-actions">
           <template v-if="!props.conversationPicker">
+          <el-button @click="projectHelpVisible=true">帮助</el-button>
           <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="annotation" :build-filters="buildFilters" />
           <el-button v-if="props.orderScope === 'child'" @click="props.embedded ? emit('close-child-management') : router.push({ name: 'AnnotationProjectDetails' })">返回订单列表</el-button>
@@ -244,11 +245,10 @@
         <div class="progress-entry-panel__header">
           <div class="progress-entry-panel__title">
             项目进度
-            <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
+            <span v-if="statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
           </div>
-          <span v-if="statusEntryMode === 'status'" class="progress-current-status">当前状态：{{ statusLabel(activeProgressProject?.projectStatus) }}</span>
         </div>
-        <AppForm :key="statusEntryMode" ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressWriting || progressTrackSwitching" label-width="76px" size="small" class="progress-entry-form">
+        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressWriting || progressTrackSwitching" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14" class="progress-entry-metadata">
             <el-col :xs="24" :sm="12">
               <el-form-item label="项目状态" prop="projectStatus">
@@ -615,9 +615,12 @@
     <ConsultationWorkReportDialog v-if="pendingReportId && !submitLoading" :key="pendingReportId" :project-id="pendingReportId" project-type="annotation" @saved="completeReport" />
   </el-card>
   <ProjectStatisticsDialog v-model="statisticsVisible" module="annotation" />
+<DraggableFormDialog v-model="projectHelpVisible" title="标注项目帮助" class="basic-project-help-dialog" width="min(1100px,calc(100vw - 32px))" top="5vh" append-to-body><ProjectBasicsHelp module="annotation"/><template #footer><el-button @click="projectHelpVisible=false">关闭</el-button></template></DraggableFormDialog>
 </template>
 
 <script setup>
+import ProjectBasicsHelp from '@/components/common/ProjectBasicsHelp.vue'
+const projectHelpVisible=ref(false)
 import ExistingClientAutocomplete from '@/components/common/ExistingClientAutocomplete.vue'
 import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
 import { useProjectCreationReport } from '@/composables/useProjectCreationReport'
@@ -1108,8 +1111,7 @@ const loadReferenceData=async()=>{const results=await Promise.allSettled([client
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
 const resetProgressDialog=()=>{if(props.progressOnly)emit('progress-closed');entryTrack.value='project';customerProgress.reset();const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;projectEntryDrafts.reset();statusFormRef.value?.clearValidate();if(!props.embedded && route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn)progressSearchVisible.value=true}
 const focusProjectProgressEntry=async()=>{await nextTick();const target=progressNoteInputRef.value?.$el;scrollFormTarget(target);focusFormTarget(target)}
-const handleStatusEntryModeChange=async(mode)=>{if(mode===statusEntryMode.value||progressBusy.value)return;statusEntryMode.value=mode;await nextTick();statusFormRef.value?.clearValidate()}
-const handleProgressStatusSelect=()=>{if(statusEntryMode.value==='progress')selectedProgressStageKey.value=''}
+const handleProgressStatusSelect=()=>{selectedProgressStageKey.value=''}
 const selectProgressStage=async(group)=>{if(progressBusy.value)return;entryTrack.value='project';statusEntryMode.value='progress';selectedProgressStageKey.value=group.key;statusForm.value.projectStatus=group.status;await focusProjectProgressEntry()}
 const handleChatMessageToProgress=async(messages)=>{
   if(progressBusy.value)return
@@ -1293,7 +1295,7 @@ const confirmStatusChange=async()=>{
     })
     const row=tableData.value.find((item)=>item.id===project.id);if(row)Object.assign(row,updated)
     activeProgressProject.value=updated;detailCache[project.id]=updated;targetProgressRecordId.value='';entryTrack.value='project'
-    projectEntryDrafts.clear(statusEntryMode.value,progressOnly?selectedStatus:'')
+    projectEntryDrafts.clear('progress',progressOnly?selectedStatus:updated.projectStatus)
     if(progressOnly&&targetStage)selectedProgressStageKey.value=targetStage
     if(!progressOnly&&!projectEntryDrafts.hasDraft('progress'))projectEntryDrafts.setInitialProjectStatus(updated.projectStatus)
     await nextTick();statusFormRef.value?.clearValidate();ElMessage.success(progressOnly?'具体进度已添加':'项目状态已更新')
@@ -1463,3 +1465,5 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 </style>
 
 <style scoped>.unified-progress-note-label{display:flex;flex-direction:column;gap:6px}</style>
+
+<style>.basic-project-help-dialog.el-dialog{display:flex;flex-direction:column;height:min(820px,90vh);max-height:90vh;overflow:hidden}.basic-project-help-dialog>.el-dialog__body{display:flex;flex:1;min-height:0;overflow:hidden}.basic-project-help-dialog>.el-dialog__body>.project-operation-help{flex:1;min-width:0}.basic-project-help-dialog>.el-dialog__header,.basic-project-help-dialog>.el-dialog__footer{flex:none}</style>

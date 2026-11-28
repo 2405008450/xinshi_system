@@ -6,4 +6,4 @@ import {chatNavigationHelpSections,chatNavigationHelpUpdatedAt} from '@/utils/ch
 const visible=defineModel({type:Boolean,default:false})
 </script>
 
-<style>.chat-navigation-help-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.chat-navigation-help-dialog>.el-dialog__body{flex:1;min-height:0;overflow:auto}.chat-navigation-help-dialog>.el-dialog__header,.chat-navigation-help-dialog>.el-dialog__footer{flex:none}</style>
+<style>.chat-navigation-help-dialog{display:flex;flex-direction:column;height:min(820px,90vh);max-height:90vh;overflow:hidden}.chat-navigation-help-dialog>.el-dialog__body{display:flex;flex:1;min-height:0;overflow:hidden}.chat-navigation-help-dialog>.el-dialog__body>.project-operation-help{flex:1;min-width:0}.chat-navigation-help-dialog>.el-dialog__header,.chat-navigation-help-dialog>.el-dialog__footer{flex:none}</style>

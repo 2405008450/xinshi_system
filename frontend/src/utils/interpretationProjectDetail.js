@@ -38,8 +38,8 @@ export const ratingOptions = [
 const projectTypeMap = { escort: '陪同口译', ...Object.fromEntries(projectTypeOptions.map(item => [item.value, item.label])) }
 const ratingMap = Object.fromEntries(ratingOptions.map(item => [item.value, item.label]))
 const statusMap = Object.fromEntries(PROJECT_STATUS_OPTIONS.interpretation.map(item => [item.value, item.label]))
-export const statusLabel = (value,count) => (statusMap[value] || value || '-')+(value==='candidates_provided'&&count!=null?`（${count}人）`:'')
-export const statusType = (value) => ({ initial_follow_up: 'warning', candidates_provided:'primary',client_selected:'primary',client_changed:'warning',deal_pending_execution: 'primary', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
+export const statusLabel = (value,count) => (statusMap[value] || value || '-')+(['candidates_provided','candidates_added','candidates_adjusted'].includes(value)&&count!=null?`（${count}人）`:'')
+export const statusType = (value) => ({ initial_follow_up: 'warning', candidates_provided:'primary',candidates_added:'primary',candidates_adjusted:'warning',client_selected:'primary',client_changed:'warning','client_cancelled':'warning','client_added':'warning','client_reduced':'warning','client_mixed':'warning',deal_pending_execution: 'primary', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
 export const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
 export const internalRolesText = (row) => {
   const labels = { project_manager: '项目经理', project_specialist: '项目专员', project_assistant: '项目助理' }

@@ -13,6 +13,7 @@
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="项目 / 任务">{{row.task_name||'-'}}</el-descriptions-item>
           <el-descriptions-item label="订单号"><ReportItemLink v-if="identity.orderNo" :row="row" kind="project" :text="identity.orderNo" /><span v-else>-</span></el-descriptions-item>
+          <el-descriptions-item label="客户名" :span="2">{{reportClientName(row)||'-'}}</el-descriptions-item>
           <el-descriptions-item label="任务类型" :span="2">{{(row.display_metadata?.report_types||[row.task_type]).join('、')}}</el-descriptions-item>
           <el-descriptions-item label="具体任务" :span="2"><ScreenshotText :text="row.progress_content || '-'" /></el-descriptions-item>
           <el-descriptions-item label="工作量">{{row.display_metadata?.quantity??'-'}} {{row.display_metadata?.quantity_unit_other||row.display_metadata?.quantity_unit||''}}</el-descriptions-item>
@@ -40,7 +41,7 @@ import api from '@/api/index'
 import {associatedProjectError} from '@/utils/associatedProjectDetail'
 import {arrangementProjectRoute} from '@/utils/resourceArrangements'
 import {chatOverlayZIndex} from '@/utils/chatOverlay'
-import {durationLabel} from '@/utils/workReportForm'
+import {durationLabel,reportClientName} from '@/utils/workReportForm'
 import TechnicalTaskReference from '@/components/common/TechnicalTaskReference.vue'
 const TranslationProjectWindow=defineAsyncComponent(()=>import('@/views/project/translation/ProjectDetails.vue'))
 const translationEditorId=ref(''),translationEditorZIndex=ref(2200)

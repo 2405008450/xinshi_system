@@ -3,20 +3,20 @@
     <div class="chat-folder-tree__heading"><strong>会话分组</strong><span class="chat-folder-tree__heading-actions"><el-button v-if="categories.canManage" link :disabled="!!editing" @click.stop="start(null, null, true)"><el-icon><ChatDotRound /></el-icon>新建一级会话</el-button><el-button v-if="categories.canManage" link :disabled="!!editing" @click.stop="start()"><el-icon><Plus /></el-icon>新建分组</el-button></span></div>
     <p v-if="categories.canManage && !categories.hierarchyReady" class="chat-folder-tree__hint">分类管理暂未就绪，请联系系统管理员</p>
     <div class="chat-folder-tree__scroll">
-      <div class="chat-folder-tree__all-tools"><button type="button" class="chat-folder-tree__all" :aria-pressed="!selected" @click.stop="$emit('select', '')">全部分组</button><el-button link size="small" :disabled="!expanded.size || !!editing || saving" @click.stop="collapseAll">折叠全部会话</el-button></div>
+      <div class="chat-folder-tree__all-tools"><button type="button" class="chat-folder-tree__all chat-folder-tree__all-toggle" :disabled="!!editing||saving" :aria-expanded="!!expanded.size" @click.stop="toggleAll">全部分组<small>（{{ expanded.size ? '折叠' : '展开' }}）</small></button></div>
       <div v-for="root in roots" :key="root.id" class="chat-folder-tree__root" :style="{'--chat-folder-accent':folderAccent(root),'--chat-folder-soft':chatGroupPalette(root).soft}">
         <div class="chat-folder-tree__row" :data-folder-row="root.id" @click.stop="clickRow($event,root)" :class="{ 'is-active': selected === root.id, 'drop-before': dropTarget === root.id && dropSide === 'before', 'drop-after': dropTarget === root.id && dropSide === 'after' }" :draggable="false" @dragstart.stop="beginDrag($event, root.id)" @dragover.prevent="dragOver($event, root.id)" @drop.stop.prevent="drop(root.id)" @dragend="endDrag" @contextmenu="openProjects($event, root)" @keydown.shift.f10="openProjects($event, root)">
           <button v-if="!root.isConversation" type="button" class="chat-folder-tree__toggle" :title="expanded.has(root.id) ? '收起文件夹' : '展开文件夹'" :aria-label="`${expanded.has(root.id) ? '收起' : '展开'}${root.name}`" :aria-expanded="expanded.has(root.id)" @click.stop="toggle(root.id)"><el-icon><FolderOpened v-if="expanded.has(root.id)" /><Folder v-else /></el-icon></button>
           <span v-else class="chat-folder-tree__toggle" aria-hidden="true"><el-icon v-if="root.isConversation"><ChatDotRound /></el-icon><template v-else>#</template></span>
           <span class="chat-folder-tree__grip" :draggable="!editing" @pointerdown="beginPointerDrag($event,root.id)" role="button" tabindex="0" :aria-label="`拖动调整${root.name}顺序`" title="拖动调整顺序，Alt+↑/↓ 微调" @keydown.alt.up.prevent="moveBy(root.id,-1)" @keydown.alt.down.prevent="moveBy(root.id,1)">⠿</span>
           <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === root.id" :data-folder-id="root.id" :aria-expanded="!root.isConversation ? expanded.has(root.id) : undefined" :aria-haspopup="root.id === annotationFolderId ? 'dialog' : undefined" :title="root.id === annotationFolderId ? '右键搜索标注项目，加入会话' : undefined" @click.stop="openChild(root)"><span>{{ root.name }}</span><small class="chat-folder-tree__count" :aria-label="`${count(root.id)} 个对话`">{{ count(root.id) }}</small><b v-if="mentionCount(root.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(root.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',root.id)" @keydown.enter.stop.prevent="emit('unread',root.id)" @keydown.space.stop.prevent="emit('unread',root.id)">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b></button>
-          <el-button v-if="categories.canManage && !root.isConversation && root.ruleKey!=='personal-following'" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click.stop="start(root.id, null, true)"><el-icon><Plus /></el-icon></el-button>
-          <el-button v-if="categories.canManage && !root.isConversation && root.ruleKey!=='personal-following'" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click.stop="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></el-button>
-          <el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing" :aria-label="`重命名${root.name}`" @click.stop="start(root.parentKey, root)"><el-icon><Edit /></el-icon></el-button>
+          <el-button v-if="categories.canManage && !root.isConversation && root.ruleKey!=='personal-following' && !root.isPersonal" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click.stop="start(root.id, null, true)"><el-icon><Plus /></el-icon></el-button>
+          <el-button v-if="categories.canManage && !root.isConversation && root.ruleKey!=='personal-following' && !root.isPersonal" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click.stop="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></el-button>
+          <el-button v-if="root.isPersonal" link title="新建个人文件夹" @click.stop="startPersonal()"><el-icon><Plus/></el-icon></el-button><el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing" :aria-label="`重命名${root.name}`" @click.stop="start(root.parentKey, root)"><el-icon><Edit /></el-icon></el-button>
           <el-button v-if="categories.canManage && !root.builtin && !root.deletionProtected" link :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" @click.stop="remove(root)"><el-icon><Close /></el-icon></el-button>
         </div>
-        <div v-if="expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
-          <template v-for="child in visibleChildren(root.id)" :key="child.id">
+        <div v-if="root.isPersonal || expanded.has(root.id) || editing?.parentKey === root.id" v-show="expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
+          <ChatPersonalFolders v-if="root.isPersonal" ref="personalFolders" :expand-all="personalExpandAll" :expand-revision="personalExpandRevision" @open="emit('open-conversation',$event)" @count="personalCount=$event" @select="emit('personal-select',$event)"/><template v-for="child in visibleChildren(root.id)" :key="child.id">
           <el-button v-if="child.isTechnicalEntry" link class="chat-technical-entry" @click.stop="technicalPicker.open()">技术需求</el-button>
           <div v-else class="chat-folder-tree__row" :data-folder-row="child.id" @click.stop="clickRow($event,child)" :style="child.parentKey !== root.id ? {marginLeft:'18px'} : undefined" :class="{ 'is-active': selected === child.id, 'drop-before': dropTarget === child.id && dropSide === 'before', 'drop-after': dropTarget === child.id && dropSide === 'after' }" :draggable="false" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent="dragOver($event, child.id)" @drop.stop.prevent="drop(child.id)" @dragend="endDrag">
             <button v-if="!child.isConversation && children(child.id).length" type="button" class="chat-folder-tree__toggle" :aria-label="`${expanded.has(child.id) ? '收起' : '展开'}${child.name}`" :aria-expanded="expanded.has(child.id)" @click.stop="toggle(child.id)"><el-icon><FolderOpened v-if="expanded.has(child.id)" /><Folder v-else /></el-icon></button>
@@ -28,7 +28,7 @@
           <ChatInlineNameEditor v-if="editing?.parentKey === child.id" :key="editKey" :initial-name="editing.name" label="会话名称" :saving="saving" :error="error" @save="save" @cancel="cancel" />
           </template>
           <ChatInlineNameEditor v-if="editing?.parentKey === root.id" :key="editKey" :initial-name="editing.name" :label="editing?.directory || editing?.id && !editing?.isConversation ? '二级菜单名称' : '会话名称'" :saving="saving" :error="error" @save="save" @cancel="cancel" />
-          <small v-if="!children(root.id).length && editing?.parentKey !== root.id" class="chat-folder-tree__hint">暂无会话或分类</small>
+          <small v-if="!root.isPersonal && !children(root.id).length && editing?.parentKey !== root.id" class="chat-folder-tree__hint">暂无会话或分类</small>
         </div>
         <ChatInlineNameEditor v-if="editing?.id === root.id && !editing.parentKey" :key="editKey" :initial-name="editing.name" :label="editing.isConversation || editing.conversation ? '一级会话名称' : '一级目录名称'" :saving="saving" :error="error" @save="save" @cancel="cancel" />
       </div>
@@ -54,13 +54,16 @@ import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import {chatGroupPalette} from '@/utils/chatGroupColors'
 import TechnicalRequirementsPicker from './TechnicalRequirementsPicker.vue'
+import ChatPersonalFolders from './ChatPersonalFolders.vue'
+const personalFolders=ref(),personalCount=ref(0),personalExpandAll=ref(false),personalExpandRevision=ref(0)
 const technicalPicker=ref()
+async function startPersonal(){expanded.value=new Set([...expanded.value,'personal:root']);await nextTick();const list=Array.isArray(personalFolders.value)?personalFolders.value[0]:personalFolders.value;list?.edit()}
 function folderAccent(row){
   return chatGroupPalette(row).accent
 }
 const statusIcons = { Loading, Clock, CircleClose, CircleCheck, Document, Grid, UserFilled, Promotion, School, MoreFilled, ChatDotRound }
 const props = defineProps({ active: { type: Boolean, default: true }, selected: { type: String, default: '' }, sessions: { type: Array, default: () => [] } })
-const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation', 'unread'])
+const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation', 'unread', 'personal-select'])
 function openProjects(event, row) {
   if (row.isConversation) return openCategoryMenu(event, row)
   if (row.id !== annotationFolderId || !hasPermission('projects:read')) return
@@ -94,7 +97,7 @@ const annotationMenuZ = ref(2101)
 const createRequest = ref(0)
 const AnnotationProjectCreator = defineAsyncComponent(() => import('@/views/project/AnnotationProjects.vue'))
 const { categories, create, update, refresh } = useChatSessionCategories()
-const nodes = computed(() => sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }))
+const nodes = computed(() => [...sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }),{id:'personal:root',name:'自定义',parentKey:null,builtin:true,isPersonal:true}])
 const preferenceKey = `xinshi.chatFolderLayout.${localStorage.getItem('user_id') || 'anonymous'}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch { /* 使用默认布局。 */ }
@@ -175,12 +178,13 @@ function beginResize(event) {
 onBeforeUnmount(() => stopResize())
 const children = id => nodes.value.filter(row => row.parentKey === id).sort((a, b) => Number(!!b.fixedTop) - Number(!!a.fixedTop) || rank(a.id) - rank(b.id))
 const visibleChildren = id => annotationFolderEntries(children(id), id).flatMap(row => [row, ...(expanded.value.has(row.id) ? children(row.id) : [])])
-const count = id => sessionFolderCount(props.sessions, id, nodes.value)
+const count = id => id==='personal:root'?personalCount.value:sessionFolderCount(props.sessions, id, nodes.value)
 const expanded = ref(new Set(Array.isArray(saved.expanded) ? saved.expanded.filter(id=>typeof id==='string') : []))
 watch(expanded,()=>persist(),{flush:'sync'})
 watch(()=>props.active,active=>{if(!active)persist()})
 onBeforeUnmount(()=>persist())
 function collapseAll(){expanded.value=new Set()}
+function toggleAll(){if(editing.value||saving.value)return;emit('select','');personalExpandRevision.value++;personalExpandAll.value=!expanded.value.size;expanded.value=expanded.value.size?new Set():new Set(nodes.value.filter(row=>!row.isConversation&&!row.isTechnicalEntry).map(row=>row.id))}
 const editing = ref(null), saving = ref(false), error = ref(''), editKey = ref(0)
 function toggle(id) { const value = new Set(expanded.value); value.has(id) ? value.delete(id) : value.add(id); expanded.value = value }
 async function reveal(id=props.selected){
@@ -208,6 +212,7 @@ function clickRow(event,row) {
 }
 function openChild(row) {
   if(!row.isConversation)toggle(row.id)
+  if(row.isPersonal){const list=Array.isArray(personalFolders.value)?personalFolders.value[0]:personalFolders.value;list?.selectFolder();return}
   emit('select', row.id)
   if (row.isConversation) emit('open-conversation', { key: `discussion:${row.id}`, projectId: row.id, projectType: 'discussion', title: row.name, subtitle: '群聊', deletionProtected:!!row.deletionProtected })
 }
@@ -250,3 +255,4 @@ async function save(name) {
 .chat-folder-tree__mention{flex:none;min-width:18px;padding:1px 5px;border-radius:10px;background:#dc2626;color:white;text-align:center;font-size:11px;line-height:16px}
 .chat-folder-tree__all-tools{display:flex;align-items:center;justify-content:space-between;gap:8px}.chat-folder-tree__all-tools>.el-button{font-size:11px}
 </style>
+<style scoped>.chat-folder-tree__all-toggle{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;text-align:left}.chat-folder-tree__all-toggle small{font-size:10px;font-weight:400;color:#111827}</style>

@@ -32,7 +32,7 @@ def prepare(payload, before, billing):
                 if key in old:row[key]=old[key]
     value, old = current['confirmation'], previous['confirmation']
     if all(old.get(key) == value.get(key) for key in (
-        'is_paid','payment_option','payment_account','proofs','full_payment_amount',
+        'is_paid','payment_option','payment_account','proofs','receipt_proofs','full_payment_amount',
         'full_payment_currency','full_reference_amount','full_match_status','mismatch_reason')):
         for key in ('full_payment_confirmed_by_name','full_payment_confirmed_at'):
             if key in old:value[key]=old[key]

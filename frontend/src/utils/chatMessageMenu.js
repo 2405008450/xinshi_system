@@ -15,6 +15,7 @@ export function buildMessageMenu(message, { handlers = {}, currentUserId = '', c
   if (handlers.copy) items.push({ id: 'copy', label: excerpt ? '复制选中内容' : '复制', icon: 'copy' })
   if (normal && handlers.reply) items.push({ id: 'reply', label: '引用', icon: 'reply' })
   if (handlers.favorite) items.push({ id: 'favorite', label: message.isFavorited ? '取消消息收藏' : '消息收藏', icon: 'favorite' })
+  if (handlers.favorite && message.isFavorited) items.push({id:'favorite-tags',label:'收藏标签',icon:'classify'})
   if (normal && handlers.acknowledge && message.senderUserId !== currentUserId && (!handlers.canAcknowledge || handlers.canAcknowledge(message))) {
     items.push({ id: 'acknowledge', label: message.isAcknowledged ? '取消收到' : '收到', icon: 'acknowledge' })
   }

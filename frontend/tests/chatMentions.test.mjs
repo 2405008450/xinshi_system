@@ -120,3 +120,15 @@ test('失败不吞掉错误，重试可恢复历史提及列表', async () => {
   assert.equal(h.state.items.value.length, 1)
   h.stop()
 })
+
+test('多选发送人作为同一条件传递，切换时取消旧请求并重置分页',async()=>{
+ const h=harness();h.mount();h.requests[0].resolve(data([message(1)]));await settle()
+ await h.change(h.filters,{senderNames:['甲','乙'],includeSenders:true})
+ assert.equal(h.requests[1].params.sender_names,JSON.stringify(['甲','乙']))
+ assert.equal(h.requests[1].params.before,null)
+ await h.change(h.filters,{senderNames:['乙'],includeSenders:true})
+ assert.equal(h.requests[1].signal.aborted,true)
+ h.requests[2].resolve(data([message(2)]));await settle()
+ h.requests[1].resolve(data([message(3)]));await settle()
+ assert.deepEqual(Array.from(h.state.items.value,row=>row.messageId),['m2']);h.stop()
+})

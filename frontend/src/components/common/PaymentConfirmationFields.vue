@@ -9,7 +9,7 @@
       </div>
       <small v-if="value.paymentOption==='once'">历史：已登记分次付款</small>
     </el-form-item>
-    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :summary-label="summaryLabel" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" @reference-change="emit('reference-change',$event)" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)">
+    <FullPaymentMatchFields :hide-result="!detailsInPayments" @match-state="matchState=$event" v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :summary-label="summaryLabel" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" @reference-change="emit('reference-change',$event)" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)">
       <template v-if="value.paymentOption==='full'&&!detailsInPayments" #account>
         <el-form-item label="付款账户" :prop="`${prefix}.paymentAccount`">
           <PaymentAccountSelect :model-value="value.paymentAccount" @update:model-value="update('paymentAccount',$event)" />
@@ -20,20 +20,21 @@
       </template>
     </FullPaymentMatchFields>
     <el-form-item v-if="value.isPaid&&!detailsInPayments&&value.paymentOption!=='full'" label="付款账户" :prop="`${prefix}.paymentAccount`"><PaymentAccountSelect :model-value="value.paymentAccount" @update:model-value="update('paymentAccount',$event)" /></el-form-item>
-    <el-form-item v-if="value.isPaid&&!detailsInPayments" label="支付截图及备注"><ScreenshotInput :model-value="value.proofs" type="textarea" :rows="2" :maxlength="20000" placeholder="可粘贴、拖入或上传支付截图，填写付款备注" upload-help="清除选择后可在付款修改记录中查看原有凭证。" @update:model-value="update('proofs',$event)" /></el-form-item>
+    <PaymentProofFields v-if="value.isPaid&&!detailsInPayments" :proofs="value.proofs" :receipt-proofs="value.receiptProofs" @update:proofs="update('proofs',$event)" @update:receipt-proofs="update('receiptProofs',$event)"><template v-if="value.paymentOption==='full'" #status><el-tag size="small" :type="matchState.status==='matched'?'success':matchState.status==='mismatch'?'danger':'info'">{{matchState.status==='matched'?'已匹配':matchState.status==='mismatch'?'不匹配':'待核对'}}</el-tag><small>{{matchState.reference?matchState.reference.currency+' '+matchState.reference.amount:'项目暂无可匹配总价'}}</small></template></PaymentProofFields>
     <el-row v-if="value.isPaid && value.paymentOption==='full'" :gutter="12">
       <el-col :xs="24" :md="12"><el-form-item label="确认人"><ReadonlyField :model-value="value.fullPaymentConfirmedByName || ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="确认时间"><ReadonlyField :model-value="value.fullPaymentConfirmedAt ? formatDateTime(value.fullPaymentConfirmedAt) : ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
     </el-row>
     <slot v-if="value.isPaid && value.paymentOption==='full'" name="confirm-full" />
     <DraggableFormDialog v-model="historyVisible" title="付款修改记录" width="min(860px, calc(100vw - 32px))" top="5vh" append-to-body class="payment-confirmation-history">
-      <div v-loading="historyLoading"><el-alert v-if="historyError" :title="historyError" type="error" :closable="false" /><el-empty v-else-if="!historyItems.length" description="暂无修改记录" /><div v-for="item in historyItems" :key="item.id" class="confirmation-history-item"><p>{{item.after.action||'修改付款情况'}} · {{formatDateTime(item.created_at)}} · {{item.actor_name}}</p><el-descriptions :column="1" border><el-descriptions-item label="修改前">{{paymentConfirmationLabel(item.before)}}<ScreenshotText :text="item.before.proofs" /><PaymentDetailsHistoryTable :payments="item.before.payment_details||[]" /></el-descriptions-item><el-descriptions-item label="修改后">{{paymentConfirmationLabel(item.after)}}<ScreenshotText :text="item.after.proofs" /><PaymentDetailsHistoryTable :payments="item.after.payment_details||[]" /></el-descriptions-item></el-descriptions></div><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="prev, pager, next" @current-change="loadHistory" /></div>
+      <div v-loading="historyLoading"><el-alert v-if="historyError" :title="historyError" type="error" :closable="false" /><el-empty v-else-if="!historyItems.length" description="暂无修改记录" /><div v-for="item in historyItems" :key="item.id" class="confirmation-history-item"><p>{{item.after.action||'修改付款情况'}} · {{formatDateTime(item.created_at)}} · {{item.actor_name}}</p><el-descriptions :column="1" border><el-descriptions-item label="修改前">{{paymentConfirmationLabel(item.before)}}<p>信实收款截图及备注</p><ScreenshotText :text="item.before.receipt_proofs"/><p>客户支付截图及备注</p><ScreenshotText :text="item.before.proofs" /><PaymentDetailsHistoryTable :payments="item.before.payment_details||[]" /></el-descriptions-item><el-descriptions-item label="修改后">{{paymentConfirmationLabel(item.after)}}<p>信实收款截图及备注</p><ScreenshotText :text="item.after.receipt_proofs"/><p>客户支付截图及备注</p><ScreenshotText :text="item.after.proofs" /><PaymentDetailsHistoryTable :payments="item.after.payment_details||[]" /></el-descriptions-item></el-descriptions></div><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="prev, pager, next" @current-change="loadHistory" /></div>
       <template #footer><el-button @click="historyVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
   </div>
 </template>
 <script setup>
 import {computed,ref} from 'vue'
+import PaymentProofFields from './PaymentProofFields.vue'
 import api from '@/api'
 import {ElMessageBox,ElMessage} from 'element-plus'
 import {formatBusinessDateTime as formatDateTime} from '@/utils/dateTime'
@@ -50,6 +51,7 @@ const props=defineProps({sectionPrefix:{type:String,default:''},modelValue:Objec
 const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
+const matchState=ref({status:'pending',reference:null})
 const switching=ref(false)
 async function selectStatus(option){
   if(switching.value)return

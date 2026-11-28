@@ -1,6 +1,7 @@
 """口译项目业务逻辑、查询与命名。"""
 
 from __future__ import annotations
+from interpretation_partial_cancellation import validate_reason as validate_partial_cancel_reason,preserve_screenshots as preserve_partial_cancel_screenshots,prepare_cancellation,store_cancellation
 from search_matching import keyword_ilike, keyword_like, keyword_or
 
 from datetime import datetime, time
@@ -28,6 +29,7 @@ from interpretation_models import (
     InterpretationProjectTimeRange,
 )
 from interpretation_interpreter_requirements import attach as attach_interpreter_requirements, save as save_interpreter_requirements
+from interpretation_lifecycle import attach as attach_lifecycle, save_assignments as save_lifecycle, contract_signature, apply_contract_status, notify_contracts
 from interpretation_client_selection import attach as attach_client_selection, save as save_client_selection
 from interpretation_schedule_groups import attach as attach_schedule_groups, save as save_schedule_groups
 from interpretation_schemas import (
@@ -235,6 +237,7 @@ def get_interpretation_project(db: Session, project_id: UUID) -> Optional[Interp
         attach_schedule_groups(db, [project])
         attach_client_selection(db, [project])
         attach_interpreter_requirements(db, [project])
+        attach_lifecycle(db,[project])
     return project
 
 
@@ -287,6 +290,7 @@ def get_interpretation_projects(
     attach(db, 'interpretation', projects)
     attach_schedule_groups(db, projects)
     attach_client_selection(db, projects)
+    attach_lifecycle(db,projects)
     return projects
 
 
@@ -471,7 +475,7 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
-NESTED_FIELDS = {"status_change_reason", "client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "interpreter_requirements", "role_assignments", "finance_draft"}
+NESTED_FIELDS = {"cancellation_details","status_change_reason", "client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "interpreter_requirements", "role_assignments", "finance_draft"}
 
 
 def _save_finance_draft(db, project, draft, actor_id):
@@ -548,9 +552,11 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
     if set(translator_ids_by_resource.values())-translators.keys():
         raise ValueError('所选译员关联已失效，请重新选择')
     project.interpreter_assignments = [
-        InterpretationProjectInterpreter(sequence_no=index,translator=translators[translator_ids_by_resource[item.translator_id]], **{**item.model_dump(exclude={'client_selected'}),'translator_id':translator_ids_by_resource[item.translator_id]})
+        InterpretationProjectInterpreter(sequence_no=index,translator=translators[translator_ids_by_resource[item.translator_id]], **{**item.model_dump(exclude={'client_selected','contract_path','language_ids','rates'}),'translator_id':translator_ids_by_resource[item.translator_id]})
         for index, item in enumerate(payload.interpreter_assignments, start=1)
     ]
+    save_lifecycle(db,project,payload.interpreter_assignments,translator_ids_by_resource)
+    attach_lifecycle(db,[project])
     # 实际服务 autoflush=False；状态及通知读取姓名、客户选定前必须完成本事务内的同步。
     # flush 不提交事务，后续校验失败时仍与项目资料一起回滚。
     db.flush()
@@ -582,22 +588,29 @@ def create_interpretation_project(
     db.flush()
     from project_client_manager import apply as apply_client_manager
     apply_client_manager(db, 'interpretation', project, payload.client_manager_id, payload.client_manager_change_reason, created_by, creating=True)
-    db.add(InterpretationProjectStatusHistory(
+    initial_status_event=InterpretationProjectStatusHistory(
         project_id=project.id,
         from_status=None,
         to_status=project.project_status,
         effective_on=project_progress_datetime(business_now()),
         changed_at=project_progress_datetime(business_now()),
         changed_by=created_by,
-    ))
+        change_note=payload.status_change_reason if project.project_status in {'partially_cancelled','cancelled'} else None,
+    )
+    db.add(initial_status_event)
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
     validate_assignment_map(db, assignments)
     ensure_project_responsibilities(db, 'interpretation', project.id, assignments)
     _sync_nested(db, project, payload)
+    if project.project_status in {'partially_cancelled','cancelled'}:
+        initial_status_event.change_note=prepare_cancellation(db,project,project.project_status,payload.cancellation_details,payload.status_change_reason)
+        store_cancellation(db,project,initial_status_event,payload.cancellation_details,payload.status_change_reason)
     from interpretation_candidate_status import apply as apply_candidate_status
     old_status=project.project_status
     apply_candidate_status(db,project,set())
+    attach_client_selection(db,[project])
+    apply_contract_status(project,(False,False))
     if project.project_status!=old_status:
         db.add(InterpretationProjectStatusHistory(project_id=project.id,from_status=old_status,
             to_status=project.project_status,effective_on=project_progress_datetime(business_now()),changed_by=created_by,
@@ -640,15 +653,26 @@ def update_interpretation_project(
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     previous_status = project.project_status
+    before_contract=contract_signature(project)
+    previous_contract_path=project.contract_path
+    previous_interpreter_paths={str(row.translator_id):getattr(row,'contract_path','') for row in project.interpreter_assignments}
     status_event=None
-    from interpretation_candidate_status import selected_ids,apply as apply_candidate_status
+    from interpretation_candidate_status import selected_ids,roster,apply as apply_candidate_status
     previous_selected=selected_ids(db,project)
+    previous_roster=roster(project)
+    previous_roster_names=[row.translator_name for row in project.interpreter_assignments]
+    previous_selected_names=[row.translator_name for row in project.interpreter_assignments if row.translator_id in previous_selected]
     for key, value in data.items():
         setattr(project, key, value)
     _sync_nested(db, project, payload)
-    apply_candidate_status(db,project,previous_selected)
-    if project.project_status != previous_status:
+    roster_change=apply_candidate_status(db,project,previous_selected,previous_roster)
+    current_selected=selected_ids(db,project)
+    selection_changed=current_selected!=previous_selected
+    contract_changed=previous_contract_path!=project.contract_path or any(getattr(row,'contract_path','')!=previous_interpreter_paths.get(str(row.translator_id),'') for row in project.interpreter_assignments)
+    contract_reason=apply_contract_status(project,before_contract,force=True) if contract_changed else None
+    if project.project_status != previous_status or roster_change or selection_changed:
         from interpretation_status_notice import automatic_reason
+        reason=prepare_cancellation(db,project,project.project_status,payload.cancellation_details,payload.status_change_reason) if project.project_status in {'partially_cancelled','cancelled'} and previous_status!=project.project_status else contract_reason or (automatic_reason(project,roster_change,previous_roster_names,previous_selected_names) if roster_change or selection_changed else (payload.status_change_reason or '').strip() or automatic_reason(project))
         status_event=InterpretationProjectStatusHistory(
             project_id=project.id,
             from_status=previous_status,
@@ -656,16 +680,26 @@ def update_interpretation_project(
             effective_on=project_progress_datetime(business_now()),
             changed_at=project_progress_datetime(business_now()),
             changed_by=changed_by,
-            change_note=(payload.status_change_reason or '').strip() or (automatic_reason(project) if project.project_status in {'candidates_provided','client_selected','client_changed'} else '在项目编辑窗口调整状态'),
+            change_note=reason,
         )
         db.add(status_event)
+        if project.project_status in {'partially_cancelled','cancelled'} and previous_status!=project.project_status:store_cancellation(db,project,status_event,payload.cancellation_details,payload.status_change_reason)
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
     validate_assignment_map(db, assignments)
     ensure_active_project_responsibilities(db, 'interpretation', project.id, project.project_status, assignments)
     _save_finance_draft(db, project, payload.finance_draft, changed_by)
     project.updated_at = project_progress_datetime(business_now())
+    db.flush()
+    contract_notifications=notify_contracts(db,project,previous_selected,current_selected,status_event.id if status_event else project.updated_at.isoformat())
+    if project.project_status=='client_interpreter_connected' and previous_status!=project.project_status:
+        from interpretation_lifecycle import recipients,notify
+        manager,_=recipients(db,project)
+        contract_notifications+=notify(db,project,[manager],str(status_event.id)+':handoff','请提供项目资料及译员联系方式，双方确认时间、地点；项目待执行、进行中和结束后均需持续跟进。')
     db.commit()
+    if contract_notifications:
+        from project_chat_crud import _push_notifications
+        _push_notifications(contract_notifications)
     result=get_interpretation_project(db, project.id)
     result.status_change_id=status_event.id if status_event else None
     return result
@@ -679,10 +713,16 @@ def update_interpretation_project_status(
     change_note: Optional[str] = None,
     changed_by: Optional[UUID] = None,
     progress_only: bool = False,
+    cancellation_details=None,
+    commit=True,
+    status_event_id=None,
 ) -> Optional[InterpretationProject]:
     project = get_interpretation_project(db, project_id)
     if not project:
         return None
+    original_note=change_note
+    if not progress_only and project_status in {'partially_cancelled','cancelled'} and project.project_status!=project_status:
+        change_note=prepare_cancellation(db,project,project_status,cancellation_details,change_note)
     if progress_only and project_status != project.project_status:
         reached_status = db.query(InterpretationProjectStatusHistory.id).filter(
             InterpretationProjectStatusHistory.project_id == project.id,
@@ -697,18 +737,33 @@ def update_interpretation_project_status(
         project.project_status = project_status
     project.updated_at = project_progress_datetime(business_now())
     status_event=InterpretationProjectStatusHistory(
+        **({'id':status_event_id} if status_event_id else {}),
         project_id=project.id,
         from_status=project_status if progress_only else previous_status,
         to_status=project_status,
         effective_on=project_progress_datetime(effective_on or business_now()),
+        changed_at=project_progress_datetime(business_now()),
         changed_by=changed_by,
         change_note=change_note,
     )
     db.add(status_event)
+    if not progress_only and project_status in {'partially_cancelled','cancelled'} and previous_status!=project_status:store_cancellation(db,project,status_event,cancellation_details,original_note)
     if not progress_only:
         from project_workbench_service import ensure_active_project_responsibilities
         ensure_active_project_responsibilities(db, 'interpretation', project.id, project_status)
+    db.flush()
+    handoff_notes=[]
+    if not progress_only and project_status=='client_interpreter_connected' and previous_status!=project_status:
+        from interpretation_lifecycle import recipients,notify
+        manager,_=recipients(db,project)
+        handoff_notes=notify(db,project,[manager],str(status_event.id)+':handoff','请提供项目资料及译员联系方式，双方确认时间、地点；项目待执行、进行中和结束后均需持续跟进。')
+    if not commit:
+        db.flush()
+        return project
     db.commit()
+    if handoff_notes:
+        from project_chat_crud import _push_notifications
+        _push_notifications(handoff_notes)
     result=get_interpretation_project(db, project.id)
     result.status_change_id=status_event.id if not progress_only and previous_status!=project_status else None
     return result

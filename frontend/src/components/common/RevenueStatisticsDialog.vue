@@ -73,34 +73,13 @@
             <el-tab-pane label="客户营收排名" name="ranking">
               <div class="revenue-ranking-toolbar"><el-input v-model="filters.keyword" clearable placeholder="客户全称或简称，多关键词搜索" style="width:290px;max-width:100%" @input="queueSearch" @keyup.enter="search" /><span>匹配 {{data.total}} / {{data.ranked_customers}} 个客户 · 筛选后合计 {{data.currency}} {{revenueAmount(data.filtered_amount)}}</span></div>
               <p class="revenue-help">排名按本期金额降序，同额按客户名称及编号排列；区间筛选后保留原排名。仅列出所选统计周期和所属日期范围内有项目的客户；全年或历史全部请切换统计周期。上方总营收和趋势不受排名、金额、客户关键词筛选影响。</p>
-              <el-table :data="data.items" border row-key="key" empty-text="暂无匹配客户" max-height="440">
-                <el-table-column prop="rank" label="排名" width="70" /><el-table-column prop="client_name" label="客户名称" min-width="170" show-overflow-tooltip /><el-table-column label="统计口径" width="170"><template #default="{row}"><el-select :model-value="row.basis" :disabled="!row.client_id" @change="value=>setBasis(row.client_id,value)"><el-option v-for="item in revenueBases" :key="item.value" :label="item.label" :value="item.value" /></el-select></template></el-table-column>
-                <el-table-column label="本期营收" min-width="145" align="right">
-                  <template #default="{row}">
-                    <RevenueOrderDetails :row="row" :query="orderDetailQuery" :period-label="data.period.label" />
-                    <el-popover v-if="row.missing" trigger="click" placement="left" :width="560"
-                      popper-class="revenue-missing-popover" :title="`${row.client_name} · 本期待补`">
-                      <template #reference>
-                        <el-button link type="warning" size="small" :aria-label="`查看 ${row.client_name} 本期待补明细`">
-                          待补 {{row.missing}}
-                        </el-button>
-                      </template>
-                      <el-table :data="row.missing_orders || []" border size="small" max-height="380" empty-text="暂无待补明细">
-                        <el-table-column prop="order_no" label="订单号" min-width="125" />
-                        <el-table-column prop="project_name" label="项目名称" min-width="135" />
-                        <el-table-column label="待补内容" min-width="150">
-                          <template #default="{row: order}">{{order.reasons.join('、')}}</template>
-                        </el-table-column>
-                      </el-table>
-                    </el-popover>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="projects" label="计费项目数" width="100" />
-                <el-table-column label="同比" min-width="125"><template #default="{row}"><el-tooltip :content="`去年同期：${revenueAmount(row.yoy.amount)}；增减：${revenueAmount(row.yoy.difference)}`"><span>{{revenueChange(row.yoy)}}</span></el-tooltip></template></el-table-column>
-                <el-table-column label="环比" min-width="125"><template #default="{row}"><el-tooltip :content="`上期：${revenueAmount(row.mom.amount)}；增减：${revenueAmount(row.mom.difference)}`"><span>{{revenueChange(row.mom)}}</span></el-tooltip></template></el-table-column>
-                <el-table-column label="操作" width="90" fixed="right"><template #default="{row}"><el-button link type="primary" @click="trackClient(row.key)">跟踪</el-button></template></el-table-column>
-              </el-table>
-              <el-pagination :current-page="page" :page-size="20" :total="data.total" :disabled="loading" layout="total,prev,pager,next" @update:current-page="changePage" />
+              <StatisticsTable :rows="data.distribution_rows||data.items" :columns="rankingColumns" @filtered="rankingFiltered=$event"><template #cell="{row,column,value}">
+                <el-select v-if="column.key==='basis'" :model-value="row.basis" :disabled="!row.client_id" @change="next=>setBasis(row.client_id,next)"><el-option v-for="item in revenueBases" :key="item.value" :value="item.value" :label="item.label"/></el-select>
+                <span v-else-if="column.key==='amount'"><RevenueOrderDetails :row="row" :query="orderDetailQuery" :period-label="data.period.label"/><el-popover v-if="row.missing" trigger="click" placement="left" :width="560"><template #reference><el-button link type="warning">待补 {{row.missing}}</el-button></template><el-table :data="row.missing_orders||[]" border max-height="360"><el-table-column prop="order_no" label="订单号"/><el-table-column prop="project_name" label="项目名称"/><el-table-column label="待补内容"><template #default="{row:order}">{{order.reasons.join('、')}}</template></el-table-column></el-table></el-popover></span>
+                <StatisticsOrderDetails v-else-if="column.key==='order_count'" :orders="row.orders||[]" :label="value" :show-money="false"/>
+                <el-button v-else-if="column.key==='operation'" link type="primary" @click="trackClient(row.key)">跟踪</el-button><span v-else>{{value}}</span>
+              </template></StatisticsTable>
+              <StatisticsCustomerCharts :rows="rankingFiltered"/>
             </el-tab-pane>
             <el-tab-pane label="周期趋势／客户跟踪" name="trend" lazy>
               <AppForm data-auto-draft="off" :model="filters" inline><el-form-item label="跟踪客户"><el-select v-model="focusClient" filterable clearable placeholder="全部客户汇总" style="width:320px;max-width:100%" @change="load"><el-option v-for="item in data.client_options" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item></AppForm>
@@ -126,6 +105,9 @@ import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import AdvancedFilterPopover from './AdvancedFilterPopover.vue'
+import StatisticsTable from './StatisticsTable.vue'
+import StatisticsOrderDetails from './StatisticsOrderDetails.vue'
+import StatisticsCustomerCharts from './StatisticsCustomerCharts.vue'
 import AppForm from './AppForm.vue'
 import CustomerDepartmentManagerSelect from './CustomerDepartmentManagerSelect.vue'
 import RevenueOrderDetails from './RevenueOrderDetails.vue'
@@ -137,6 +119,9 @@ const projectTypes = [{value:'all',label:'全部项目'},{value:'translation',la
 const initial=()=>({projectType:'all',period:'month',anchor:businessDateTimeInputValue().slice(0,10),currency:'CNY',managerIds:[],keyword:'',rankMin:null,rankMax:null,amountMin:null,amountMax:null})
 const filters=reactive(initial()),data=ref(null),error=ref(''),loading=ref(false),page=ref(1),activeTab=ref('ranking'),advancedVisible=ref(false),focusClient=ref('')
 const displayedPeriod = ref('month')
+const rankingFiltered=ref([])
+const rankingColumns=[{key:'rank',label:'排名',width:90},{key:'client_name',label:'客户名称',width:180},{key:'basis',label:'统计口径',width:170,format:row=>revenueBases.find(item=>item.value===row.basis)?.label||row.basis},{key:'amount',label:'本期营收',width:160,format:row=>revenueAmount(row.amount),sort:row=>Number(row.amount)},{key:'projects',label:'计费项目数',width:130},{key:'order_count',label:'订单数（全部项目）',width:160},{key:'cohort',label:'新老客户',format:row=>({new:'新客户',old:'老客户',unknown:'未关联客户'}[row.cohort]||'未关联客户')},{key:'yoy',label:'同比',format:row=>revenueChange(row.yoy),sort:row=>Number(row.yoy?.rate??-Infinity)},{key:'mom',label:'环比',format:row=>revenueChange(row.mom),sort:row=>Number(row.mom?.rate??-Infinity)},{key:'operation',label:'操作',filter:false,sortable:false}]
+
 const orderDetailQuery = ref({})
 const storageKey=`translation-revenue-client-basis:${localStorage.getItem('user_id')||localStorage.getItem('user_name')||'anonymous'}`
 const modes=ref((()=>{try{const value=JSON.parse(localStorage.getItem(storageKey)||'{}');return Object.fromEntries(Object.entries(value).filter(([key,value])=>/^[a-f\d-]{36}$/i.test(key)&&['billing','excl','incl'].includes(value)))}catch{return {}}})())
@@ -228,7 +213,7 @@ function restoreFilterDefaults(){Object.assign(filters,initial());focusClient.va
 function reset(){restoreFilterDefaults();if(props.modelValue)search()}
 function setBasis(id,value){if(!id)return;if(value==='billing')delete modes.value[id];else modes.value[id]=value;try{localStorage.setItem(storageKey,JSON.stringify(modes.value))}catch{}search()}
 function trackClient(key){focusClient.value=key;activeTab.value='trend';void load()}
-watch(()=>props.modelValue,visible=>{sequence++;controller?.abort();clearTimeout(timer);pendingKey=undefined;clearFieldSearch();advancedVisible.value=false;data.value=null;restoreFilterDefaults();if(visible)search();else loading.value=false})
+watch(()=>props.modelValue,visible=>{sequence++;controller?.abort();clearTimeout(timer);pendingKey=undefined;clearFieldSearch();advancedVisible.value=false;data.value=null;restoreFilterDefaults();if(visible)search();else loading.value=false},{immediate:true})
 onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(timer)})
 </script>
 

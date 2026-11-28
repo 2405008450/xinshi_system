@@ -14,6 +14,7 @@ class InvoiceWrite(BaseModel):
     version:str
     invoice_status:Literal['unissued','partial','issued']='unissued'
     proofs:str=Field(default='',max_length=20000)
+    receipt_proofs:str=Field(default='',max_length=20000)
 
 
 class InvoiceCustomerSentWrite(BaseModel):

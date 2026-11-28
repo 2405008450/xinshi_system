@@ -142,7 +142,7 @@ def decorate_mention_sessions(db, user, rows, stats=None):
         row.update(mention_history_count=count, latest_mention_at=api_time(stamp), customer_name=customers.get(key, ''))
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None, sender_name=None, include_senders=False):
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None, sender_name=None, sender_names=None, include_senders=False):
     import base64,json
     from datetime import datetime
     from uuid import UUID
@@ -164,7 +164,9 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
     senders=[dict(name=name or '未知发送人',count=count,unread=int(unread or 0)) for name,count,unread in query.with_entities(
         table.c.sender_name,func.count(),func.sum(case((table.c.unread,1),else_=0))).group_by(table.c.sender_name).order_by(
         func.sum(case((table.c.unread,1),else_=0)).desc(),func.count().desc(),table.c.sender_name).all()] if include_senders else []
-    if sender_name is not None:
+    if sender_names:
+        query=query.filter(table.c.sender_name.in_(sender_names))
+    elif sender_name is not None:
         query=query.filter(table.c.sender_name==sender_name)
     total=query.count()
     ascending = sort == 'time_asc'

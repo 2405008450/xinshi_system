@@ -180,6 +180,9 @@ def put(module:Module,uid:UUID,data:Write,db=Depends(get_db),user=Depends(source
         for key in ('payments','payment_status','payment_note'):
             payload['settlement'][key]=previous.payload['settlement'][key]
     if len({row.currency for row in data.settlement_adjustments})!=len(data.settlement_adjustments):raise HTTPException(422,'同币种不能重复调整')
+    if payload.get('payment_registration'):
+        from business_finance_payment import promote_payment_proofs
+        promote_payment_proofs(db,payload['payment_registration'])
     append(db,module,project,payload,user);db.commit()
     return context(db,module,project)
 

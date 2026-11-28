@@ -1,7 +1,7 @@
 <template>
   <div class="project-list-row-actions">
     <PrimaryEditButton v-if="editable && !editInMore" @click="$emit('edit', $event)" />
-    <el-dropdown v-if="hasMoreActions" :disabled="moreDisabled" trigger="click" placement="bottom-end" @command="handleCommand">
+    <el-dropdown v-if="hasMoreActions" :disabled="moreDisabled" trigger="click" placement="bottom-end" @command="handleCommand" @visible-change="menuOpen=$event">
       <el-button
         class="more-action-button"
         size="small"
@@ -14,7 +14,7 @@
         <el-icon><MoreFilled /></el-icon>
       </el-button>
       <template #dropdown>
-        <el-dropdown-menu>
+        <el-dropdown-menu><el-dropdown-item v-if="conversationProject" @click.stop><ProjectConversationEntry v-if="menuOpen" :module="conversationProject.module" :project-id="conversationProject.id" /></el-dropdown-item>
           <el-dropdown-item v-if="editable && editInMore" command="edit">{{ annotationProjectId ? '项目编辑' : '编辑' }}</el-dropdown-item>
           <el-dropdown-item v-if="showStartRequest" command="start-request">{{ startRequestLabel }}</el-dropdown-item>
           <el-dropdown-item
@@ -33,12 +33,15 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed,ref } from 'vue'
 import { MoreFilled } from '@element-plus/icons-vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import AnnotationConversationEntry from '@/components/chat/AnnotationConversationEntry.vue'
 
+import ProjectConversationEntry from '@/components/chat/ProjectConversationEntry.vue'
+const menuOpen=ref(false)
 const props = defineProps({
+  conversationProject: Object,
   annotationProjectId: {type:String,default:''},
   editable: { type: Boolean, default: true },
   showStartRequest: { type: Boolean, default: true },
@@ -52,6 +55,7 @@ const props = defineProps({
 const emit = defineEmits(['edit', 'start-request', 'extra-command'])
 const hasMoreActions = computed(() => (
   (props.editable && props.editInMore)
+  || props.conversationProject
   || props.showStartRequest
   || props.extraActions.length > 0
 ))

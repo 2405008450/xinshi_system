@@ -20,10 +20,11 @@
     @keydown.capture="handleKeydown"
   >
     <template #header="slotProps">
-      <slot name="header" v-bind="slotProps"><span :id="slotProps.titleId" class="el-dialog__title">{{ $attrs.title }}</span></slot>
+      <div class="app-window-header-main"><slot name="header" v-bind="slotProps"><span :id="slotProps.titleId" class="el-dialog__title">{{ $attrs.title }}</span></slot></div>
+      <div class="app-window-header-meta"><WindowUnsavedIndicator :root="contentElement" :active="modelValue && !minimized" /><span v-if="$slots['header-meta']" class="app-window-header-meta__actions" @mousedown.stop><slot name="header-meta" /></span></div>
       <WindowControls :maximized="geometry.state.maximized" @minimize="minimize" @maximize="geometry.maximize" @restore="geometry.restore" @close="handleClose" />
     </template>
-    <template v-for="slotName in Object.keys($slots).filter(name=>!['header','default'].includes(name))" #[slotName]="slotProps">
+    <template v-for="slotName in Object.keys($slots).filter(name=>!['header','header-meta','default'].includes(name))" #[slotName]="slotProps">
       <slot :name="slotName" v-bind="slotProps" />
     </template>
     <template #default><slot /><Teleport v-if="contentElement && !geometry.state.maximized" :to="contentElement"><i v-for="edge in ['n','s','w','e','nw','ne','sw','se']" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" :title="'拖动调整窗口大小'" @mousedown="geometry.start($event,edge)" /></Teleport></template>
@@ -35,6 +36,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue'
 import WindowControls from './WindowControls.vue'
 import WindowMinibar from './WindowMinibar.vue'
+import WindowUnsavedIndicator from './WindowUnsavedIndicator.vue'
+import {resetUnmanagedWindow} from '@/utils/windowUnsavedState'
 import { useWindowGeometry } from '@/composables/useWindowGeometry'
 import { flushAutoDrafts } from '@/utils/autoDrafts'
 
@@ -91,9 +94,9 @@ function headerDrag(event){
 function minimize(){const el=dialogRef.value?.dialogContentRef?.$el;minimizedTitle.value=attrs.title||el?.querySelector('.el-dialog__header')?.innerText?.split('\n')[0]||'窗口';minimized.value=true}
 function restoreMinimized(){restoring.value=true;minimized.value=false}
 function closeMinimized(){const done=()=>{minimized.value=false;emit('update:modelValue',false);emit('close');emit('closed')};const before=attrs.beforeClose??attrs['before-close'];if(before)before(done);else done()}
-function handleOpened(){contentElement.value=dialogRef.value?.dialogContentRef?.$el;if(restoring.value){restoring.value=false;return}emit('opened')}
-function handleClosed(){if(!minimized.value)emit('closed')}
-watch(()=>props.modelValue,value=>{if(!value){minimized.value=false;restoring.value=false;geometry.reset();contentElement.value=null}})
+function handleOpened(){contentElement.value=dialogRef.value?.dialogContentRef?.$el;if(restoring.value){restoring.value=false;return}resetUnmanagedWindow(contentElement.value,true);emit('opened')}
+function handleClosed(){if(!minimized.value){resetUnmanagedWindow(contentElement.value);emit('closed')}}
+watch(()=>props.modelValue,value=>{if(!value){resetUnmanagedWindow(contentElement.value);minimized.value=false;restoring.value=false;geometry.reset();contentElement.value=null}})
 onBeforeUnmount(()=>{flushAutoDrafts();minimized.value=false;targetObserver?.disconnect();window.removeEventListener('scroll',refreshTargetBounds,true)})
 watch(()=>props.modelValue,visible=>{if(!visible)flushAutoDrafts()},{flush:'sync'})
 
@@ -214,3 +217,5 @@ defineExpose({ resetPosition, handleClose, minimize, restore:restoreMinimized, m
   }
 }
 </style>
+
+<style>.app-window-header-main{min-width:0}.app-window-header-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;min-width:0}.app-window-header-meta:empty{display:none}.app-window-header-meta>.window-unsaved-indicator{margin:0}.app-window-header-meta__actions{margin-left:auto;display:flex;align-items:center;gap:12px}.app-window-header-meta .el-button{height:28px;padding-top:0;padding-bottom:0}@media(max-width:640px){.app-window-header-meta{flex-wrap:wrap}}</style>

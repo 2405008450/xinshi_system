@@ -5,7 +5,20 @@ import * as mergeTools from '../src/utils/savedDataMerge.js'
 import {savedConflictFieldLabel,savedConflictText} from '../src/utils/savedConflictPresentation.js'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
+import {sameSavedFieldValue} from '../src/utils/savedDataMerge.js'
 import {reactive,ref,markRaw,unref,isRef,isReadonly} from 'vue'
+
+test('空白组合行不会产生差异，已填写的零单价仍保留',()=>{
+ const blank={direction:'中英',currency:'CNY',unit:'天',quantity:1,hours:8,taxPrices:{}}
+ assert.equal(sameSavedFieldValue('rates',[blank],[]),true)
+ assert.equal(sameSavedFieldValue('rates',[{...blank,amount:0}],[]),false)
+ assert.equal(sameSavedFieldValue('overtime',{pricing_mode:'rates',amount:0,currency:'CNY',rates:[]},null),true)
+ const model={rates:[blank]},changes=[]
+ mergeSavedRecord(model,{rates:[{...blank,amount:100}]},{rates:[]},(...args)=>changes.push(args))
+ assert.deepEqual(changes,[])
+ assert.equal(savedConflictFieldLabel('rates'),'组合单价')
+ assert.equal(savedConflictText('rates',[blank]),'未填写单价')
+})
 test('未修改字段自动接收最新保存值，snake与camel字段共用规则',()=>{
  const target={id:'one',projectName:'旧名称',projectStatus:'confirmed',remark:'我的草稿'},changes=[]
  mergeSavedRecord(target,{id:'one',project_name:'旧名称',project_status:'confirmed',remark:'旧备注'},{id:'one',project_name:'新名称',project_status:'sent_to_client',remark:'他人保存的备注'},(...args)=>changes.push(args))
@@ -124,4 +137,20 @@ test('译员冲突展示业务中文，不再显示字段名、空数组或原�
  assert.match(text,/客户评价：满意/)
  assert.match(text,/评价\/备注：备注/)
  assert.equal(text.includes('translator_id'),false)
+})
+
+test('时间段只比较业务值，忽略命名、行ID、序号和显示说明',()=>{
+ const local=[{scheduledStart:'2026-11-26T09:00:00',scheduledEnd:'2026-11-26T18:00:00',actualStart:'',actualEnd:'',locations:['深圳 地址'],locationDetails:[{countryProvince:'',city:'深圳',address:'地址'}],languageDirections:[{languageIds:['zh','en'],requiredCount:1}]}]
+ const saved=[{id:'server-row',project_id:'project',sequence_no:1,scheduled_start:'2026-11-26T01:00:00Z',scheduled_end:'2026-11-26T10:00:00Z',actual_start:null,actual_end:null,locations:['深圳 地址'],location_details:[{country_province:'',city:'深圳',address:'地址'}],language_directions:[{id:'direction-row',source_language_id:'zh',target_language_id:'en',language_ids:['zh','en'],language_labels:['中文','英语'],display:'中文 ↔ 英语',required_count:'1'}]}]
+ assert.equal(mergeTools.sameSavedFieldValue('timeRanges',local,saved),true)
+ const target={timeRanges:structuredClone(local)},conflicts=[]
+ mergeSavedRecord(target,{time_ranges:structuredClone(saved)},{time_ranges:[{...saved[0],id:'regenerated-row'}]},(...args)=>conflicts.push(args))
+ assert.equal(conflicts.length,0)
+ for(const change of [{scheduled_end:'2026-11-26T11:00:00Z'},{location_details:[{city:'上海',address:'地址'}]},{language_directions:[{language_ids:['zh','ja'],required_count:1}]},{language_directions:[{language_ids:['zh','en'],required_count:2}]}]){
+  assert.equal(mergeTools.sameSavedFieldValue('timeRanges',local,[{...saved[0],...change}]),false)
+ }
+ assert.equal(savedConflictFieldLabel('timeRanges'),'时间段')
+ const text=savedConflictText('timeRanges',saved)
+ assert.ok(text.includes('预定开始：')&&text.includes('项目地点：深圳 地址')&&text.includes('中文 ↔ 英语'))
+ assert.ok(!text.includes('scheduled_start')&&!text.includes('server-row'))
 })

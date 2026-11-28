@@ -69,20 +69,27 @@ def project_rows(project, payload, basis):
         apply_settlement_adjustments()
         return rows
 
-    for rate in payload.get('rates', []):
+    overtime_rates = finance.overtime_lines(payload)
+    for rate in [*payload.get('rates', []), *overtime_rates]:
         tax = rate.get('tax_prices') or {}
         quantity = rate['quantity']
         unit = rate['amount'] if basis == 'legacy' else tax.get('unit_price_' + basis)
         total = None if basis == 'legacy' else tax.get('total_' + basis)
         if total is None and unit is not None:
             total = Decimal(str(unit)) * Decimal(str(quantity))
-        workload = rate['unit']
+        workload = ('加班费 · ' if rate in overtime_rates else '') + rate['unit']
         if rate.get('hours'):
             workload += f"（每{rate['unit']} {rate['hours']} 小时"
             workload += '，含午餐）' if rate.get('includes_lunch') else '）'
         add(rate['currency'], workload, total, quantity=str(quantity), unit=unit, direction=rate['direction'])
+    from interpretation_rate_groups import rate_totals
+    for rates in [payload.get('rates', []), overtime_rates]:
+        raw=rate_totals(rates,basis,adjust=False);final=rate_totals(rates,basis)
+        for currency,amount in final.items():
+            difference=amount-raw.get(currency,Decimal(0))
+            if difference:add(currency,'组合折扣／调整',difference)
     overtime = payload.get('overtime') if payload.get('has_overtime') else None
-    if overtime:
+    if overtime and overtime.get('pricing_mode', 'total') == 'total':
         value = overtime['amount'] if basis == 'legacy' else (overtime.get('tax_prices') or {}).get('total_' + basis)
         add(overtime['currency'], '加班费', value)
     for item in payload.get('adjusted_totals', []):

@@ -11,7 +11,7 @@
     @visible-change="searchVisible=$event"
     @update:model-value="selectTalent"
   >
-    <el-option v-for="person in options" :key="person.id" :label="talentLabel(person)" :value="person.id" />
+    <el-option v-for="person in displayOptions" :key="person.id" :label="talentLabel(person)" :value="person.id" />
     <template #label="{ label }">{{ selectedLabel || label }}</template>
     <template #empty><div class="el-select__empty">{{ loading ? '正在搜索人才总库…' : '无匹配的人才' }}<el-button v-if="!loading&&lastKeyword&&canCreate" link type="primary" @click="openRegistration(lastKeyword)">登记新译员</el-button></div></template>
   </el-select>
@@ -26,7 +26,7 @@ import {hasPermission} from '@/utils/permission'
 import { getTalentIdentityOptions } from '@/api/talents'
 import { createRemoteTalentSearch } from '@/utils/remoteTalentSearch'
 
-defineProps({
+const props=defineProps({
   modelValue: { type: String, default: '' },
   selectedLabel: { type: String, default: '' },
 })
@@ -37,6 +37,12 @@ const selectRef=ref(),registrationRef=ref(),registrationReady=ref(false),searchV
 const canCreate=computed(()=>hasPermission(['talents:write','translators:write']))
 let lastPopupKeyword=''
 let searchTimer
+// Element Plus 需要真实 option 才能可靠渲染远程下拉的已选姓名。
+const displayOptions=computed(()=>{
+ const rows=options.value
+ if(!props.modelValue||!props.selectedLabel||lastKeyword.value||rows.some(row=>String(row.id)===String(props.modelValue)))return rows
+ return [{id:props.modelValue,fullName:props.selectedLabel},...rows]
+})
 const talentLabel = person => person.resourceCode ? `${person.fullName}（${person.resourceCode}）` : person.fullName
 const search = createRemoteTalentSearch({
   fetchOptions: (keyword, signal) => getTalentIdentityOptions({ keyword }, { signal }),

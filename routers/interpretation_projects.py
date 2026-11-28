@@ -400,6 +400,7 @@ def update_project_status(
             payload.change_note,
             current_user.id,
             payload.progress_only,
+            cancellation_details=payload.cancellation_details,
         )
     except ValueError as exc:
         db.rollback()
@@ -407,6 +408,38 @@ def update_project_status(
     if not project:
         raise HTTPException(status_code=404, detail="口译项目不存在")
     return project
+
+
+from interpretation_progress import ProgressWrite
+
+@router.get('/{project_id}/progress-context',dependencies=[Depends(require_any_permission('projects:read','projects:write'))])
+def interpretation_progress_context(project_id:UUID,db:Session=Depends(get_db),current_user:AppUser=Depends(get_current_user)):
+    from interpretation_progress import context
+    return context(db,project_id,current_user)
+
+@router.get('/{project_id}/progress-records',dependencies=[Depends(require_any_permission('projects:read','projects:write'))])
+def interpretation_progress_records(project_id:UUID,track:str=Query('project',pattern='^(project|customer|interpreter)$'),db:Session=Depends(get_db),current_user:AppUser=Depends(get_current_user)):
+    from interpretation_progress import history
+    return history(db,project_id,track)
+
+@router.post('/{project_id}/progress-records',dependencies=[Depends(require_any_permission('projects:write'))])
+def interpretation_progress_save(project_id:UUID,payload:ProgressWrite,db:Session=Depends(get_db),current_user:AppUser=Depends(get_current_user)):
+    from interpretation_progress import save
+    try:return save(db,project_id,payload,current_user)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400,str(exc)) from exc
+
+@router.put('/{project_id}/cancellation-classification', dependencies=[Depends(require_any_permission('projects:write'))])
+def review_cancellation_classification(project_id: UUID, payload: dict, db: Session=Depends(get_db), current_user: AppUser=Depends(get_current_user)):
+    from interpretation_partial_cancellation import review_classification
+    try:
+        result=review_classification(db,project_id,payload,current_user.id)
+        db.commit()
+        return result
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400,str(exc)) from exc
 
 
 @router.delete(

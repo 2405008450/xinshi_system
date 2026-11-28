@@ -1,0 +1,17 @@
+<template><section class="statistics-customer-charts"><div class="charts-currency"><span>客户分布（当前筛选结果，跨周期去重；未关联客户订单单列）</span><el-select v-if="currencies.length" v-model="currency" aria-label="分布图金额币种" style="width:130px"><el-option v-for="code in currencies" :key="code" :value="code"/></el-select></div><div class="customer-pie-grid"><section v-for="chart in charts" :key="chart.title"><h4>{{chart.title}}</h4><ProjectStatusPie :columns="chart.columns" :counts="chart.counts" :title="chart.title" unit="个客户" @select="slice=>customerDetails.open(chart.title+' · '+slice.label,chart.members[slice.key]||[])"/></section></div><StatisticsCustomersDialog ref="customerDetails"/></section></template>
+<script setup>
+import {computed,ref,watch} from 'vue'
+import ProjectStatusPie from './ProjectStatusPie.vue'
+import StatisticsCustomersDialog from './StatisticsCustomersDialog.vue'
+const customerDetails=ref()
+const props=defineProps({rows:{type:Array,default:()=>[]}}),currency=ref('CNY')
+const customers=computed(()=>{const map=new Map();for(const row of props.rows){if(!row.client_id)continue;const key=row.client_id||row.key||'unknown';if(!map.has(key))map.set(key,{...row,sourceRows:[],cohort:row.cohort||row.customer_cohort||'unknown',orders:0,money:{}});const item=map.get(key);item.sourceRows.push(row);item.orders+=Number(row.order_count||0);for(const amount of row.amounts||[])item.money[amount.currency]=(item.money[amount.currency]||0)+Number(amount.total_amount);if(row.amount!=null&&row.currency)item.money[row.currency]=(item.money[row.currency]||0)+Number(row.amount)}return [...map.values()]})
+const currencies=computed(()=>[...new Set(customers.value.flatMap(row=>Object.keys(row.money)))].sort())
+watch(currencies,values=>{if(values.length&&!values.includes(currency.value))currency.value=values[0]})
+function chart(title,labels,index){const columns=labels.map((label,n)=>({key:String(n),label})),counts=Object.fromEntries(columns.map(col=>[col.key,{count:0}])),members={};for(const row of customers.value){const key=String(index(row));if(counts[key]){counts[key].count++;(members[key]??=[]).push(...row.sourceRows)}}return {title,columns,counts,members}}
+const charts=computed(()=>[
+ chart('新老客户比例',['新客户','老客户','未关联客户'],row=>row.cohort==='new'?0:row.cohort==='old'?1:2),
+ chart('订单数量分布',['1单','2—5单','6—10单','11—20单','21—50单','51—100单','101—200单','201单及以上','暂无订单'],row=>row.orders===0?8:row.orders<=1?0:row.orders<=5?1:row.orders<=10?2:row.orders<=20?3:row.orders<=50?4:row.orders<=100?5:row.orders<=200?6:7),
+ chart('项目金额分布（'+currency.value+'）',['50,000及以上','10,000～不足50,000','5,000～不足10,000','1,000～不足5,000','500～不足1,000','100～不足500','1～不足100','不足1','金额未登记'],row=>{const value=row.money[currency.value];return value==null?8:value>=50000?0:value>=10000?1:value>=5000?2:value>=1000?3:value>=500?4:value>=100?5:value>=1?6:7})])
+</script>
+<style scoped>.statistics-customer-charts{margin-top:18px}.charts-currency{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--el-text-color-secondary)}.customer-pie-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.customer-pie-grid section{min-width:0}.customer-pie-grid :deep(.statistics-pie){flex-direction:column;align-items:stretch}.customer-pie-grid :deep(svg){align-self:center;width:210px}.customer-pie-grid h4{margin-bottom:8px}@media(max-width:1000px){.customer-pie-grid{grid-template-columns:1fr}}</style>

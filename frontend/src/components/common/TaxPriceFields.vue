@@ -9,12 +9,12 @@
 <script setup>
 import { computed } from 'vue'
 import ReadonlyField from './ReadonlyField.vue'
-const props = defineProps({ modelValue: Object, prefix: { type: String, default: '' }, showTotals: { type: Boolean, default: true }, readonly: Boolean, showUnitPrices: { type: Boolean, default: true } })
+const props = defineProps({ modelValue: Object, prefix: { type: String, default: '' }, showTotals: { type: Boolean, default: true }, readonly: Boolean, showUnitPrices: { type: Boolean, default: true },totalLabel:{type:String,default:'总价'} })
 const emit = defineEmits(['update:modelValue', 'change'])
 const fields = computed(() => [
   ...(props.showUnitPrices ? [{ key: 'unitPriceExclTax', label: '不含税单价', precision: 6 },
   { key: 'unitPriceInclTax', label: '含税单价', precision: 6 }] : []),
-  ...(props.showTotals ? [{ key: 'totalExclTax', label: '不含税总价', precision: 2 }, { key: 'totalInclTax', label: '含税总价', precision: 2 }] : []),
+  ...(props.showTotals ? [{ key: 'totalExclTax', label: '不含税'+props.totalLabel, precision: 2 }, { key: 'totalInclTax', label: '含税'+props.totalLabel, precision: 2 }] : []),
 ])
 function update(key, value) { const result = { ...props.modelValue, [key]: value }; emit('update:modelValue', result); emit('change', result) }
 </script>

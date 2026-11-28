@@ -14,7 +14,7 @@ import annotation_chat_service as annotation
 import discussion_chat_service as discussion
 
 
-def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
+def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False, groups_only=False):
     if not user.is_active:
         return dict(items=[], total=0)
     queries = []
@@ -47,7 +47,7 @@ def list_sessions(db, user, keyword='', offset=0, limit=30, mine=False):
         preference(ChatDirectMember, ChatDirectMember.conversation_id, direct.id, 'pinned'),
         preference(ChatDirectMember, ChatDirectMember.conversation_id, direct.id, 'starred'))
         .select_from(direct).join(peer, peer.id == peer_id).where(
-            ((direct.user_low_id == user.id) | (direct.user_high_id == user.id)) & ~literal(mine)))
+            ((direct.user_low_id == user.id) | (direct.user_high_id == user.id)) & ~literal(mine or groups_only)))
     if discussion.schema_ready(db):
         from discussion_chat_models import DiscussionMember
         rooms = [room for room in discussion.room_specs(db) if discussion.can_view_room(db, user, room)]

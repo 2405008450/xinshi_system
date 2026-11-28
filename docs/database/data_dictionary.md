@@ -3105,3 +3105,53 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 口译人选状态复用 interpretation_project.project_status 字符串：candidates_provided（已提供人选）、client_selected（客户已定人选）、client_changed（客户改变人选）。译员安排与状态、既有状态历史在同一事务保存；assigned_interpreter_count 为接口计算属性，不新增列。项目会话续发按已有项目关联选择最早有效会话，日期只用于首次归档；复用既有发送记录与会话关联表，不新增表或修改历史数据。
 
 口译保存响应 status_change_id 为本次事务生成的既有状态历史ID，只在状态变化的响应中返回，普通读取不返回历史通知标记。状态会话与邮件预览引用该项目历史记录生成“项目状态+变更原因”，不包含原项目详情；status_change_reason 为写入态临时参数，存入既有历史 change_note，不新增字段或数据表。
+
+### 开发笔记（development_note_*）
+
+仅指定账号赵震锋（williamzhao）与黄运坚（yunjian）可读，使用账号ID和用户名双重匹配；各自只能编辑本人的区域。管理员角色不扩大此权限。所有保存时间使用带时区的UTC+8，API携带+08:00。
+
+- `development_note_block`：`id` UUID主键；`owner_id` 外键app_user并建索引；`title` varchar(200)；`document` 富文本JSON；`attachment_ids` 附件UUID字符串数组；`revision` 整数版本；`created_at`、`saved_at` 带时区时间。新增编辑框版本为0，保存正文后递增。
+- `development_note_revision`：`request_id` UUID主键及保存幂等标识；`block_id` 外键及索引；`revision` 与block_id唯一；`snapshot` 保存当次标题、正文、附件引用；`saved_by` 外键app_user；`saved_at` 带时区时间。每次成功保存追加历史，不覆盖旧版本。
+- `development_note_file`：`id` UUID主键；`block_id` 外键及索引；`filename` varchar(255)；`content_type` varchar(80)；`size` 字节数；`data` BYTEA文件内容（查询默认延迟读取）；`uploaded_at` 带时区时间。单文件20MB，图片经内容识别后可内嵌；其他文件强制下载。所有下载均校验两人访问范围，不使用公开静态目录。
+- 初始化脚本：`tools/apply_development_notes_migration.py`。只幂等创建以上三张新表及索引、约束；不变更已有表、账号或记录，服务启动不自动迁移。
+
+### 消息收藏共享标签（2026-11-27）
+- `chat_favorite_tag`：`id` UUID 主键；`name` 显示名称（60 字）；`name_key` NFKC、空白归一化及 casefold 后的唯一键；`color` 预设色板中的十六进制色；`created_by` 创建账号；`created_at` UTC+8 带时区时间。
+- `chat_favorite_message_tag`：联合主键 `user_id, conversation_kind, conversation_id, message_id, tag_id`；`created_at` UTC+8；`user_id,tag_id` 组合索引。目录共享，消息标签归属当前账号，写入前核对参与权限及消息收藏状态。标签筛选、分页和总数使用相同条件；撤回和不可访问消息不返回。
+
+
+### interpretation_project_lifecycle（口译合同、译员方向/单价与日期自动化）
+
+- `project_id`：主键，外键 interpretation_project.id，项目删除时级联删除。
+- `assignment_data`：JSON，按既有 translator UUID 保存 contract_path、language_ids、rates；与项目安排在同一事务保存，方向限于当前项目方向，rates 复用口译组合单价契约。
+- `date_automation_enabled`：布尔索引；新功能启用后保存且结束时间尚未过去的项目启用。历史订单不批量回填或重算。
+- `activated_at`：带时区的 UTC+8 启用时间。
+- `notice_keys`：JSON，按业务日期、上午/下午/傍晚和项目时段去重提醒。
+- `pending_status_ids`：JSON，保存待发送会话的既有状态历史 UUID；会话使用稳定幂等标识，发送失败后重试，沿用原订单会话。
+- 新表初始化脚本：`tools/apply_interpretation_lifecycle_migration.py`，可重复执行，仅创建新表、主键、外键和必要索引，常驻服务不自动迁移。
+- 既有客户合同路径仍使用 interpretation_project.contract_path。新增合同/客户人选状态复用 project_status 字符串，不修改既有表结构。
+- 付款 confirmation 的 receipt_proofs 和 payment_details_receipts 复用既有 payment_option JSON 文本；付款明细和口译/其他项目财务载荷使用现有 JSON 保存，不新增付款列。
+- 口译加班费载荷增加 pricing_mode（total/multiplier/rates）、base_rate_index、multiplier、quantity 和 rates；前后端与报价计算使用同一规则，不新增价格列。
+
+
+### interpretation_cancellation_classification（口译取消原因分类）
+- id：分类记录 UUID；project_id：口译母订单；status_event_id：对应状态历史，可空（无历史的旧项目）。
+- project_status：已取消/已部分取消；original_note：原始说明全文，历史分类不修改原状态记录。
+- details：分级 reason_paths、explanations、translator_issues、截图说明 note；自动分类额外记录 needs_review 与 classifier_version。
+- source：manual/auto；created_at：UTC+8 分类时间。
+
+### client_cohort_override（客户新老手动设置）
+- client_id：客户 UUID 主键；cohort：new/old/空（自动）；reason：调整原因。
+- updated_by、updated_at：操作人及 UTC+8 时间；history：每次调整前后值及原因、操作人和时间。
+- 日常按全部项目母订单至少2单或首单满3个月判断老客户；日期筛选忽略手动设置，临时按范围首单及跨业务订单数判断。
+
+
+### chat_personal_folders（个人会话文件夹）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| user_id | UUID 主键、外键 app_user.id | 所属账号；接口只读取当前账号 |
+| revision | INTEGER | 乐观并发版本，防止跨窗口覆盖 |
+| nodes | JSON | 文件夹及会话引用；文件夹最多5级，引用须校验本人参与权限 |
+
+删除个人目录只移除归档引用，不删除会话或消息。

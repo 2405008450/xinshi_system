@@ -108,7 +108,7 @@
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><ProjectListRowActions v-if="canWrite" :start-request-label="resourceRequestActionLabel(row.id)" @edit="openEdit(row)" @start-request="startResourceRequest(row)" /></template></el-table-column>
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><ProjectListRowActions :editable="canWrite" :show-start-request="canWrite" :conversation-project="{module:'recruitment',id:row.id}" :start-request-label="resourceRequestActionLabel(row.id)" @edit="openEdit(row)" @start-request="startResourceRequest(row)" /></template></el-table-column>
     </OrderedTableColumns>
 </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
@@ -354,6 +354,8 @@
 </template>
 
 <script setup>
+const props=defineProps({embedded:Boolean,myProjects:Boolean})
+import {managedProjectFilters} from '@/utils/managedProjectFilters'
 import ExistingClientAutocomplete from '@/components/common/ExistingClientAutocomplete.vue'
 import ProjectProgressEntryForm from '@/components/common/ProjectProgressEntryForm.vue'
 import {businessDateTimeInputValue} from '@/utils/dateTime'
@@ -542,7 +544,7 @@ let searchTimer = null; let controller = null; let sequence = 0
 const buildFilters = () => {
   return {
     keyword: searchForm.keyword.trim() || undefined,
-    field_filters:serializeFieldFilters(searchForm,recruitmentFilterFields),
+    field_filters:managedProjectFilters(serializeFieldFilters(searchForm,recruitmentFilterFields),props.myProjects,localStorage.getItem('user_id')),
   }
 }
 const fetchData = async () => { controller?.abort(); controller=new AbortController(); const current=++sequence; loading.value=true; try { const filters=buildFilters(); const page=await getRecruitmentProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:controller.signal}); if(current!==sequence)return; rows.value=page?.items||[]; pagination.total=page?.total||0 } catch(error){ if(error?.code!=='ERR_CANCELED'&&current===sequence) ElMessage.error(error?.detail||'网络异常，招聘项目列表未刷新，请检查网络后重试') } finally { if(current===sequence)loading.value=false } }
@@ -660,11 +662,12 @@ const generateEmailSubject = () => {
   form.emailSubjectPreview = buildEmailSubject({...form,managerContact:''}).subject; ElMessage.success('会话标题已生成')
 }
 const {pendingReportId,requireReport,completeReport}=useProjectCreationReport('recruitment')
-const saveProject = async (sendAfterSave=false,emergency=false,sendChat=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; return } saving.value=true; try { const payload=buildPayload(); const wasNew=!form.id; const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); if(wasNew)requireReport(saved); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); clearDraft(); editorVisible.value=false; if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);  fetchData() } catch(error){
+const requestCancellationReason=async()=>{try{const result=await ElMessageBox.prompt('请填写项目取消原因','项目取消',{inputType:'textarea',inputValidator:value=>!!String(value||'').trim()||'请填写取消原因',closeOnClickModal:false});return result.value.trim()}catch{return null}}
+const saveProject = async (sendAfterSave=false,emergency=false,sendChat=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; return } saving.value=true; try { const payload=buildPayload(); if(form.projectStatus==='cancelled'&&(!form.id||activeProject.value?.projectStatus!=='cancelled')){const note=await requestCancellationReason();if(note==null)return;payload.cancellationReason=note} const wasNew=!form.id; const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); if(wasNew)requireReport(saved); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); clearDraft(); editorVisible.value=false; if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);  fetchData() } catch(error){
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(error?.detail||'保存失败')} finally{saving.value=false;submitLocked=false} }
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
-const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus?.length&&!searchForm.projectStatus.includes(updated.projectStatus))await fetchData()}catch(error){ElMessage.error(error?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
+const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const note=value==='cancelled'?await requestCancellationReason():undefined;if(note===null)return;const updated=await patchRecruitmentProjectStatus(row.id,{projectStatus:value,note,expectedUpdatedAt:row.updatedAt});Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus?.length&&!searchForm.projectStatus.includes(updated.projectStatus))await fetchData()}catch(error){ElMessage.error(error?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
 
 watch(
   () => [form.employmentRange, form.workLocation, form.positionTitle, form.languageDirections],

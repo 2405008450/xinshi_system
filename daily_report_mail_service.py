@@ -204,7 +204,7 @@ def _report_rows(report: DailyReport) -> list[dict]:
         rows.append({
             "order_no": str(metadata.get("order_no") or ""),
             "task_name": item.task_name or "",
-            "client_name": str(metadata.get("client_short_name") or ""),
+            "client_name": str(metadata.get("client_name") or metadata.get("client_short_name") or ""),
             "task_type": (f"【中午加班 {metadata.get('lunch_start','')}–{metadata.get('lunch_end','')}】" if metadata.get("lunch_overtime") else "")+(item.task_type or ""),
             "progress_content": (item.progress_content or "")+("\n声明：中午确实加班，且未顺延下午上班时间。" if metadata.get("lunch_overtime") else ""),
             "result_content": item.result_content or "",

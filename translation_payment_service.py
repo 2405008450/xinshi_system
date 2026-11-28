@@ -23,6 +23,7 @@ class ProjectPayment(BaseModel):
     payment_time: datetime | None = None
     payment_method: str | None = Field(default=None, max_length=50)
     proofs: str = Field(default='',max_length=20000)
+    receipt_proofs: str = Field(default='',max_length=20000)
     matched_order_ids: list[UUID] | None = Field(default=None,max_length=500)
 
 
@@ -112,6 +113,7 @@ def read(db, project):
         planned_amount=Decimal(row.planned_amount).quantize(Decimal('.01')) if row.planned_amount is not None else None,
         actual_amount=Decimal(row.actual_amount).quantize(Decimal('.01')) if row.actual_amount is not None else None,
         payment_time=business_datetime(row.payment_time) if row.payment_time else None,payment_method=row.payment_method,
+        receipt_proofs=confirmation.get('payment_details_receipts',{}).get(str(row.id),''),
         proofs=proof_map.get(str(row.id),confirmation.get('proofs','') if index==0 else ''),
         matched_order_ids=match_map.get(str(row.id),[]),
         **confirmation_fields(row)).model_dump(mode='json') for index,row in enumerate(rows)]
@@ -132,7 +134,7 @@ def _sync_confirmation(db,project,payments,actor_id,confirmation=None,cleared_pa
             desired=desired.model_copy(update={'is_paid':False,'payment_option':None})
     if payments and desired.is_paid and desired.payment_option!='full':desired=desired.model_copy(update={'proofs':payments[0].proofs})
     return confirmations.save(db,project.id,desired,actor_id,cleared_payments=cleared_payments,detail_proofs=detail_proofs,
-        detail_matches=detail_matches,
+        detail_matches=detail_matches,detail_receipts={str(row['id']):row.get('receipt_proofs','') for row in payment_details_after or []},
         payment_details_before=payment_details_before,payment_details_after=payment_details_after,
         detail_order=[row['id'] for row in payment_details_after] if payment_details_after is not None else None)
 
@@ -188,6 +190,7 @@ def save(db, project, payments, version, actor_id, confirmation=None):
     stage_numbers=Counter()
     for index,item in enumerate(payments):
         # 未携带新字段的旧客户端保留原凭证；新版显式空字符串表示清除。
+        if 'receipt_proofs' not in item.model_fields_set:item=item.model_copy(update={'receipt_proofs':previous_details.get(str(item.id),{}).get('receipt_proofs','')})
         if 'proofs' not in item.model_fields_set:
             proof=(confirmation.proofs if index==0 and confirmation is not None and 'proofs' in confirmation.model_fields_set else previous_details.get(str(item.id),{}).get('proofs',''))
             item=item.model_copy(update={'proofs':proof})
@@ -199,14 +202,14 @@ def save(db, project, payments, version, actor_id, confirmation=None):
             confirmations.matched_order_total(match_roots,matches)
         normalized.append(item)
         previous = existing.get(item.id)
-        data = item.model_dump(exclude={'id','proofs','matched_order_ids'})
+        data = item.model_dump(exclude={'id','proofs','receipt_proofs','matched_order_ids'})
         # 数据库按阶段编号，窗口期次按全部付款的顺序显示。
         stage_numbers[item.stage_type] += 1
         data['stage_no'] = stage_numbers[item.stage_type]
         data['payment_time'] = _date(item.payment_time)
         changed = previous is None or any(
             getattr(previous,key,None)!=value for key,value in data.items() if key != 'stage_no'
-        ) or item.proofs!=previous_details.get(str(item.id),{}).get('proofs','') or matches!=old_matches
+        ) or item.receipt_proofs!=previous_details.get(str(item.id),{}).get('receipt_proofs','') or item.proofs!=previous_details.get(str(item.id),{}).get('proofs','') or matches!=old_matches
         confirmed_by = previous.confirmed_by if previous else None
         confirmed_at = previous.confirmed_at if previous else None
         if item.actual_amount is None or changed:
@@ -218,7 +221,7 @@ def save(db, project, payments, version, actor_id, confirmation=None):
         db.add(row)
         proof_map[str(row.id)]=item.proofs
         if matches:match_map[str(row.id)]=matches
-        snapshot={**data,'matched_order_ids':matches,'stage_no':index+1,'payment_time':business_datetime(row.payment_time) if row.payment_time else None}
+        snapshot={**data,'receipt_proofs':item.receipt_proofs,'matched_order_ids':matches,'stage_no':index+1,'payment_time':business_datetime(row.payment_time) if row.payment_time else None}
         for key in ('planned_amount','actual_amount'):
             if snapshot[key] is not None:snapshot[key]=Decimal(snapshot[key]).quantize(Decimal('.01'))
         saved_details.append((row, snapshot, item.proofs))

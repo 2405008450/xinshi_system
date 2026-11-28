@@ -246,6 +246,8 @@ def read_client_page(
     items = get_clients(
         db, skip=skip, limit=limit, frequent_first=frequent_first, **filters,
     )
+    from client_cohort import attach
+    attach(db,items,start=cooperation_start_date_from or date.min if cooperation_start_date_from or cooperation_start_date_to else None,end=cooperation_start_date_to or date.max)
     if include_project_managers and items:
         _add_project_managers(db, items, current_user.id)
     return {
@@ -292,6 +294,8 @@ def read_client(
     db_client = get_client(db, client_id=client_id)
     if not db_client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
+    from client_cohort import attach
+    attach(db,[db_client])
     if include_project_managers:
         _add_project_managers(db, [db_client], current_user.id)
     return db_client
@@ -374,3 +378,30 @@ def delete_sub_client_endpoint(sub_id: UUID, db: Session = Depends(get_db), curr
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="子客户不存在")
     return None
+
+
+@router.get('/{client_id}/cohort')
+def client_cohort_read(client_id:UUID,db:Session=Depends(get_db),current_user=Depends(get_current_user)):
+    from client_cohort import snapshots
+    if not db.get(Client,client_id):raise HTTPException(404,'客户不存在')
+    return snapshots(db,[client_id])[str(client_id)]
+
+@router.put('/{client_id}/cohort')
+def client_cohort_write(client_id:UUID,data:dict,db:Session=Depends(get_db),current_user=Depends(get_current_user)):
+    from client_cohort import ClientCohortOverride,snapshots
+    from sqlalchemy import inspect
+    from annotation_progress_time import business_now
+    if not user_has_permission(db,current_user.id,'clients:write'):raise HTTPException(403,'没有客户编辑权限')
+    if not db.get(Client,client_id):raise HTTPException(404,'客户不存在')
+    cohort=data.get('cohort');reason=str(data.get('reason') or '').strip()
+    if cohort not in {None,'new','old'} or not reason or len(reason)>2000:raise HTTPException(422,'请选择新客户、老客户或自动判断，并填写调整原因（最多2000字）')
+    if not inspect(db.connection()).has_table(ClientCohortOverride.__tablename__):raise HTTPException(503,'客户新老设置尚未初始化')
+    row=db.query(ClientCohortOverride).filter_by(client_id=client_id).with_for_update().first()
+    if not row:row=ClientCohortOverride(client_id=client_id,history=[]);db.add(row)
+    if data.get('expected_updated_at')!=(row.updated_at.isoformat() if row.updated_at else None):
+        # API时间统一为UTC+8；历史无时区值也按业务时区比较。
+        from annotation_progress_time import business_datetime
+        if data.get('expected_updated_at')!=(business_datetime(row.updated_at).isoformat() if row.updated_at else None):raise HTTPException(409,'新老客户设置已更新，请重新读取后调整')
+    row.history=[*(row.history or []),dict(before=row.cohort,after=cohort,reason=reason,actor=str(current_user.id),at=business_now().isoformat())]
+    row.cohort=cohort;row.reason=reason;row.updated_by=current_user.id;row.updated_at=business_now();db.commit()
+    return snapshots(db,[client_id])[str(client_id)]

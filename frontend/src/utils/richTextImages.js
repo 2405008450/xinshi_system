@@ -6,7 +6,7 @@ export const MAX_PASTE_IMAGE_BYTES = 20 * 1024 * 1024
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 export const richTextHasImages = node => node?.type === 'image' || Boolean(node?.content?.some(richTextHasImages))
 export const isContentImagePath = src => typeof src === 'string'
-  && (/^\/api\/company-management\/sections\/[0-9a-f-]{36}\/images\/[0-9a-f-]{36}$/.test(src)||/^screenshot:\/\/[0-9a-f-]{36}(?:#[0-9a-f]{64})?$/.test(src))
+  && (/^\/api\/company-management\/sections\/[0-9a-f-]{36}\/images\/[0-9a-f-]{36}$/.test(src)||/^\/api\/development-notes\/files\/[0-9a-f-]{36}$/.test(src)||/^screenshot:\/\/[0-9a-f-]{36}(?:#[0-9a-f]{64})?$/.test(src))
 
 // 鉴权加载只改变显示 DOM，正文 JSON 始终保留稳定的站内地址。
 export function createAuthenticatedImage(readImage) {

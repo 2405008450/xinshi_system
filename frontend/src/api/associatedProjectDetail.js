@@ -4,12 +4,23 @@ import { getInterpretationProject } from './interpretationProjects'
 import { getRecruitmentProject } from './recruitmentProjects'
 import { getStatusHistory, getCustomFields } from './annotationOps'
 import { listMaterials } from './annotationMaterials'
+import { getProjectFilesByProject } from './projectFiles'
 
 const loaders = { annotation: getAnnotationProject, translation: getProject, interpretation: getInterpretationProject, recruitment: getRecruitmentProject }
 
 export async function fetchAssociatedProject({ sourceType, projectId }, signal) {
   const detail = await loaders[sourceType](projectId, { signal })
   if (signal.aborted) throw new DOMException('请求已取消', 'AbortError')
+  if (sourceType === 'translation') {
+    try {
+      const groups = await getProjectFilesByProject(detail.parentProjectId || projectId, {skip:0,limit:1}, {signal})
+      if (signal.aborted) throw new DOMException('请求已取消', 'AbortError')
+      return { detail, pathGroup: groups?.[0] || {} }
+    } catch (error) {
+      if (signal.aborted) throw error
+      return { detail, pathGroup: {}, warnings:['项目路径组加载失败或无查看权限，可重试或进入项目查看'] }
+    }
+  }
   if (sourceType !== 'annotation') return { detail }
   const results = await Promise.allSettled([
     getStatusHistory(projectId, { signal }), getCustomFields('project', null, false, { signal }), listMaterials(projectId, { signal }),

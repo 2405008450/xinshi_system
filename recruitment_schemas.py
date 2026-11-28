@@ -58,6 +58,7 @@ class RecruitmentLanguageDirectionResponse(RecruitmentLanguageDirectionInput):
 
 
 class RecruitmentProjectBase(BaseModel):
+    cancellation_reason: Optional[str] = Field(default=None, max_length=10000)
     client_source: Optional[str] = Field(default=None, max_length=500)
     tax_prices: TaxPrices | None = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)

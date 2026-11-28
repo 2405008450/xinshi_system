@@ -1,35 +1,11 @@
 <template>
   <div>
     <template v-if="referenceOnly||!fixed"><p v-if="referenceOnly">同一口译方向可添加多行，分别登记月、周、天、半天、小时的客户参考单价。</p><p v-else>同一口译方向可添加多行，组合月、周、天、半天、小时；金额按单价 × 数量累计，币种分别统计。</p>
-    <section v-for="(rate,index) in model.rates" :key="index" class="rate-row" data-dialog-field-search-group :data-dialog-field-search-group-title="`口译单价 ${index+1}`">
-      <el-form-item label="口译方向" :prop="`rates.${index}.direction`" :rules="[{validator:(_rule,value,done)=>done(!value||(!referenceOnly&&!directions.some(item=>item.label===value))?new Error('请选择项目中的口译方向'):undefined),trigger:'change'}]">
-        <LanguagePairSelect v-if="referenceOnly" :model-value="rate.direction.replace(/\s*↔\s*/g,'→')" single :allow-create="false" :show-hint="false" placeholder="请选择系统语言对" @update:model-value="rate.direction=$event.replace(/→/g,' ↔ ')" />
-        <el-select v-else v-model="rate.direction" filterable default-first-option><el-option v-for="item in directionOptions" :key="item" :label="item" :value="item" /></el-select>
-      </el-form-item>
-      <TaxPriceFields v-model="rate.taxPrices" :prefix="`rates.${index}.taxPrices`" :show-totals="false" @change="value=>{rate.amount=taxUnitAmount(value,rate.amount);clearLineOverride(rate)}" />
-      <el-form-item v-if="rate.taxPrices?.unitPriceExclTax==null&&rate.taxPrices?.unitPriceInclTax==null" label="税口径未确认的单价" :prop="`rates.${index}.amount`" :rules="[{required:true,message:'请填写单价',trigger:'change'}]">
-        <el-input-number v-model="rate.amount" :min="0" :precision="6" :controls="false" />
-      </el-form-item>
-      <el-form-item label="货币" :prop="`rates.${index}.currency`" :rules="[{required:true,pattern:/^[A-Z]{3}$/,message:'填写三位大写货币代码',trigger:'change'}]"><el-select v-model="rate.currency" filterable allow-create><el-option v-for="code in currencies" :key="code" :value="code" /></el-select></el-form-item>
-      <el-form-item label="单位"><el-select v-model="rate.unit" @change="unitChanged(rate)"><el-option v-for="unit in interpretationUnits" :key="unit" :value="unit" /></el-select></el-form-item>
-      <el-form-item v-if="!referenceOnly" label="工作量" :prop="`rates.${index}.quantity`" :rules="[{required:true,message:'请填写工作量',trigger:'change'}]"><el-input-number v-model="rate.quantity" @update:model-value="clearLineOverride(rate)" placeholder="填写工作量" :min="0" :max="999999" :precision="4" :controls="false" /></el-form-item>
-      <el-form-item v-if="['天','半天'].includes(rate.unit)" label="每单位小时数" :prop="`rates.${index}.hours`" :rules="[{required:true,message:'请填写小时数',trigger:'change'}]"><el-input-number v-model="rate.hours" :min="0.0001" :max="744" :precision="4" :controls="false" /><el-checkbox v-if="rate.unit==='天'" v-model="rate.includes_lunch">含中午/午餐时间</el-checkbox></el-form-item>
-      <div v-if="!referenceOnly" class="line-totals">
-        <el-form-item v-for="basis in taxBases" :key="basis.value" :label="basis.label+'小计'">
-          <ReadonlyField :model-value="lineTotal(rate,basis.value)" source="auto" placeholder="填写单价和数量后计算" />
-        </el-form-item>
-        <el-form-item v-if="hasLineOverride(rate)" label="历史小计调整">
-          <el-button link @click="clearLineOverride(rate)">改为按当前单价与工作量计算</el-button>
-        </el-form-item>
-      </div>
-      <el-button type="danger" link @click="model.rates.splice(index,1)">移除此项</el-button>
-    </section>
-    <el-button :disabled="!referenceOnly&&!directions.length" @click="addRate">添加组合单价</el-button>
+    <InterpretationCombinationRates v-model="model.rates" :directions="directions" :reference-only="referenceOnly" />
     <p v-if="!referenceOnly&&!directions.length">请先在项目表单选择完整的口译方向。</p>
     </template>
     <template v-if="!referenceOnly&&!fixed">
-      <el-form-item label="加班费"><el-checkbox v-model="model.has_overtime">有加班费</el-checkbox></el-form-item>
-      <div v-if="model.has_overtime" class="money-row"><TaxPriceFields v-model="model.overtime.taxPrices" prefix="overtime.taxPrices" :show-unit-prices="false" @change="value=>model.overtime.amount=value.totalExclTax??value.totalInclTax??model.overtime.amount" /><el-form-item label="原加班费（税口径未确认）" prop="overtime.amount" :rules="[{required:true,message:'请填写总加班费'}]"><el-input-number v-model="model.overtime.amount" :min="0" :precision="2" :controls="false" /></el-form-item><el-form-item label="加班费货币"><el-select v-model="model.overtime.currency"><el-option v-for="code in currencies" :key="code" :value="code" /></el-select></el-form-item></div>
+      <section class="overtime-region"><h3>加班费</h3><el-checkbox v-model="model.has_overtime">有加班费</el-checkbox><InterpretationOvertimeFields v-if="model.has_overtime" v-model="model.overtime" :rates="model.rates" :directions="directions"/></section>
     </template>
     <template v-if="!referenceOnly&&!hideTotals">
       <section class="settlement-totals" :class="{'settlement-totals--compact':compact}" data-dialog-field-search-group :data-dialog-field-search-group-title="fixed?'固定收费':'总价与说明'">
@@ -65,6 +41,8 @@
   </div>
 </template>
 <script setup>
+import InterpretationOvertimeFields from './InterpretationOvertimeFields.vue'
+import InterpretationCombinationRates from './InterpretationCombinationRates.vue'
 import {computed} from 'vue'
 import ReadonlyField from './ReadonlyField.vue'
 import {interpretationCurrencies as currencies,interpretationUnits,interpretationLineTotal,
@@ -108,3 +86,5 @@ function unitChanged(row){row.hours=row.unit==='天'?8:row.unit==='半天'?3:nul
 .settlement-compact-notes :deep(.el-form-item){min-width:0;margin-bottom:0}
 @media(max-width:700px){.settlement-compact-notes{grid-template-columns:minmax(0,1fr)}}
 </style>
+
+<style scoped>.overtime-region{border:1px solid var(--el-border-color);border-radius:8px;margin:16px 0;padding:14px}.overtime-region h3{margin:0 0 12px}</style>

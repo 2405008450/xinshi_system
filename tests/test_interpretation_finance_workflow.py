@@ -70,6 +70,9 @@ def test_fixed_and_timed_projects_follow_saved_settlement_scope(environment, mon
     assert updated['revision'] == 2 and updated['billing_totals'] == {'CNY': '300.00'}
     issued = finance.put_invoice(projects[0].id, InterpretationInvoiceWrite(revision=1, invoice_status='issued', proofs='测试备注'), db=db, user=actor)
     assert issued['invoice_status'] == 'issued'
+    assert issued['history'][0]['after']['proofs'] == '测试备注'
+    assert issued['history'][0]['at'].endswith('+08:00')
+    assert 'pricing' in issued and 'note' in issued
     with pytest.raises(HTTPException) as conflict:
         finance.put_invoice(projects[0].id, InterpretationInvoiceWrite(revision=1), db=db, user=actor)
     assert conflict.value.status_code == 409

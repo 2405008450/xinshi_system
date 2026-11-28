@@ -7,7 +7,7 @@
       <el-form-item :label="referenceFieldLabel"><div class="full-payment-reference"><ReadonlyField :model-value="reference?`${reference.currency} ${reference.amount}`:'暂无可匹配总价'" source="auto" :aria-label="referenceFieldLabel" /><span v-if="reference&&!fixedCharge&&!summaryLabel" class="full-payment-tax-mode">{{referenceTaxLabel}}</span><div v-if="$slots.match" class="payment-match-actions"><slot name="match" /></div></div><p v-if="fixedCharge" class="full-payment-hint full-payment-reference-hint">请在上面计费口径调整含税/不含税固定收费。</p></el-form-item>
     </div>
     <div class="full-payment-result-row">
-    <p class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{fixedCharge?referenceFieldLabel:reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
+    <p v-if="!hideResult" class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{fixedCharge?referenceFieldLabel:reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
     <el-form-item v-if="status==='mismatch'" ref="reasonField" class="full-payment-reason" label-position="left" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
     </div>
     <p v-if="legacy" class="full-payment-hint">历史全款确认未登记金额，补充金额后可核对项目总价。</p>
@@ -22,8 +22,8 @@ import ReadonlyField from './ReadonlyField.vue'
 import {paymentConfirmationForm,paymentChangeEvent} from '@/utils/paymentConfirmation'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {focusFormTarget,scrollFormTarget} from '@/utils/formNavigation'
-const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean,pricingMode:String,billingTaxMode:String,draftTotals:{type:Array,default:null},summaryLabel:String})
-const emit=defineEmits(['update:modelValue','reference-change'])
+const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean,pricingMode:String,billingTaxMode:String,draftTotals:{type:Array,default:null},summaryLabel:String,hideResult:Boolean})
+const emit=defineEmits(['update:modelValue','reference-change','match-state'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 const savedTotals=ref([]),loading=ref(false),error=ref('')
 const reasonField=ref(null),editingAmount=ref(false)
@@ -37,6 +37,7 @@ const referenceTaxLabel=computed(()=>({incl_tax:'含税',excl_tax:'不含税',mi
 const fixedCharge=computed(()=>!value.value.matchedOrderIds.length&&!props.summaryLabel&&props.pricingMode==='fixed')
 const referenceFieldLabel=computed(()=>value.value.matchedOrderIds.length&&!props.fromDetails?'所选订单计费合计':props.summaryLabel?`对应${props.summaryLabel}总价`:fixedCharge.value?`${({incl_tax:'（含税）',excl_tax:'（不含税）'})[reference.value?.taxMode||props.billingTaxMode]||'（含税/不含税）'}固定收费`:'对应项目总价')
 const status=computed(()=>loading.value||value.value.fullPaymentAmount==null||(props.summaryLabel&&!totals.value.length)?'pending':reference.value&&reference.value.currency===value.value.fullPaymentCurrency&&sameAmount(reference.value.amount,value.value.fullPaymentAmount)?'matched':'mismatch')
+watch([status,reference],()=>emit('match-state',{status:status.value,reference:reference.value}),{immediate:true,deep:true})
 const legacy=computed(()=>value.value.fullMatchStatus==='unverified'&&value.value.fullPaymentAmount==null)
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
 function validateAmount(_rule,_amount,callback){callback(legacy.value?undefined:error.value?new Error('请先重新加载项目总价'):loading.value?new Error('项目总价正在加载'):value.value.fullPaymentAmount==null?new Error('请填写已付全款金额'):undefined)}

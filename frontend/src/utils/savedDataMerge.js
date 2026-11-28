@@ -1,4 +1,6 @@
+import {meaningfulRates,hasOvertimeContent} from './interpretationRateGroups.js'
 import {taxPriceForm} from './taxPrices.js'
+import {parseBusinessDateTime} from './deadlineDisplay.js'
 
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype
 export const savedFieldKey=key=>key.replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase()
@@ -19,13 +21,36 @@ function interpreterValues(rows){
   return rows.map(row=>({
     translatorId:rateValue(row,'translator_id')||'',
     clientSelected:!!rateValue(row,'client_selected'),
+    contractPath:String(rateValue(row,'contract_path')||'').trim(),languageIds:rateValue(row,'language_ids')||[],
+    rates:canonicalRates(rateValue(row,'rates')||[]),
     customerRating:rateValue(row,'customer_rating')||'',
     evaluationNote:String(rateValue(row,'evaluation_note')||'').trim(),
   })).filter(row=>row.translatorId||row.clientSelected||row.customerRating||row.evaluationNote)
 }
+function scheduleValues(rows){
+  if(!Array.isArray(rows))return rows
+  const text=value=>String(value??'').trim()
+  const time=value=>value?parseBusinessDateTime(value)?.getTime()??text(value):null
+  return rows.map(row=>({
+    scheduledStart:time(rateValue(row,'scheduled_start')),scheduledEnd:time(rateValue(row,'scheduled_end')),
+    actualStart:time(rateValue(row,'actual_start')),actualEnd:time(rateValue(row,'actual_end')),
+    locations:(rateValue(row,'location_details')?.length?rateValue(row,'location_details'):(row.locations||[]).map(address=>({address})))
+      .map(location=>({countryProvince:text(rateValue(location,'country_province')),city:text(location.city),address:text(location.address)}))
+      .filter(location=>Object.values(location).some(Boolean)),
+    directions:(rateValue(row,'language_directions')||[]).map(direction=>({
+      languageIds:(rateValue(direction,'language_ids')?.length?rateValue(direction,'language_ids'):[rateValue(direction,'source_language_id'),rateValue(direction,'target_language_id')]).filter(Boolean),
+      requiredCount:rateNumber(rateValue(direction,'required_count')),
+    })).filter(direction=>direction.languageIds.length),
+  }))
+}
 // 编辑表单的空白占位行、服务端新增的行ID/显示姓名，都不是译员安排的业务变更。
+function canonicalRates(rows){return meaningfulRates(rows).map(row=>({direction:row.direction,currency:row.currency||'CNY',unit:row.unit||'天',amount:rateNumber(row.amount),quantity:rateNumber(row.quantity),hours:rateNumber(row.hours),includesLunch:!!rateValue(row,'includes_lunch'),taxPrices:taxPriceForm(rateValue(row,'tax_prices')),groupAdjustments:row.group_adjustments||[],combinedAdjustments:row.combined_adjustments||[]}))}
 export function sameSavedFieldValue(path,a,b){
+  const field=savedFieldKey(String(path).split('.').at(-1))
+  if(field==='rates')return sameSavedValue(canonicalRates(a),canonicalRates(b))
+  if(field==='overtime')return sameSavedValue(hasOvertimeContent(a)?a:null,hasOvertimeContent(b)?b:null)
   if(savedFieldKey(String(path).split('.').at(-1))==='interpreter_assignments')return sameSavedValue(interpreterValues(a),interpreterValues(b))
+  if(savedFieldKey(String(path).split('.').at(-1))==='time_ranges')return sameSavedValue(scheduleValues(a),scheduleValues(b))
   return sameSavedValue(a,b)
 }
 function orderRateValues(rows){
@@ -70,7 +95,7 @@ export function mergeSavedRecord(target,before,after,conflict=()=>{},path=''){
     if(key==null||oldKey==null||sameSavedValue(before[oldKey],next))continue
     const old=before[oldKey],current=target[key],field=path?`${path}.${key}`:key
     if(sameSavedFieldValue(field,current,next)||sameSavedFieldValue(field,old,next))continue
-    if(savedFieldKey(serverKey)==='interpreter_assignments'&&sameSavedFieldValue(field,current,old)){
+    if(['interpreter_assignments','time_ranges'].includes(savedFieldKey(serverKey))&&sameSavedFieldValue(field,current,old)){
       target[key]=convertLike(next,current);continue
     }
     // A draft rate can lack a database ID, and the API adds calculated quantities.

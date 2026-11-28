@@ -532,7 +532,7 @@
     />
     <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
     <ChatMessageReferences ref="references" :project-id="projectId" :project-type="projectType" @locate="locateMessage" />
-    <ChatMessageContextMenu ref="messageMenuRef" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
+    <ChatMessageContextMenu ref="messageMenuRef" :project-type="projectType" :project-id="projectId" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
   </div>
 </template>
 
@@ -2585,4 +2585,4 @@ onBeforeUnmount(() => {
 
 <style scoped src="./chat/chatQuotes.css" />
 
-<style scoped>.chat-composer__tools{display:flex;align-items:center;gap:6px;margin-bottom:6px}</style>
+<style scoped>.chat-composer__tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px}</style>

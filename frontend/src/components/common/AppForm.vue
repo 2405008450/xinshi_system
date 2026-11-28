@@ -3,6 +3,10 @@
     ref="innerFormRef"
     v-bind="$attrs"
     @submit.prevent
+    @input.capture="touchUnsaved"
+    @change.capture="touchUnsaved"
+    @click.capture="touchUnsaved"
+    @pointerdown.capture="touchUnsaved"
     :scroll-to-error="false"
     :scroll-into-view-options="scrollOptions"
   >
@@ -10,7 +14,7 @@
     <el-alert v-if="clientIdentityError" :title="clientIdentityError" type="error" show-icon :closable="false"><el-button link @click="refreshClientIdentity">重新读取客户信息</el-button></el-alert>
     <el-alert v-if="numbering.error.value" :title="numbering.error.value" type="error" show-icon :closable="false" />
     <el-alert v-if="clientNumbering.error.value" :title="clientNumbering.error.value" type="error" show-icon :closable="false" />
-    <div v-if="numberScope" style="display:flex;justify-content:flex-end;gap:16px;margin-bottom:8px"><slot name="number-actions" /><el-button link type="primary" @click="numberHistoryVisible=true">{{ numberScope.startsWith('translation')?'订单删除记录':'编号删除记录' }}</el-button></div>
+    <div v-if="numberScope && showNumberActions" style="display:flex;justify-content:flex-end;gap:16px;margin-bottom:8px"><slot name="number-actions" /><el-button link type="primary" @click="numberHistoryVisible=true">{{ numberScope.startsWith('translation')?'订单删除记录':'编号删除记录' }}</el-button></div>
     <BusinessNumberDeletionHistory v-if="numberHistoryVisible" v-model="numberHistoryVisible" :kind="numberScope" :number="$attrs.model?.[numberField]" />
     <SavedDataConflict ref="savedConflictRef" :model="$attrs.model" :fields="innerFormRef?.fields||[]" />
     <slot />
@@ -21,6 +25,7 @@
 import { nextTick, ref, getCurrentInstance, onMounted, onUpdated, onBeforeUnmount, useAttrs, watch,defineAsyncComponent } from 'vue'
 import SavedDataConflict from './SavedDataConflict.vue'
 import {bindSavedForm,unbindSavedForm} from '@/utils/savedDataRegistry'
+import {bindUnsavedForm,unbindUnsavedForm,touchUnsavedForm} from '@/utils/windowUnsavedState'
 import { ElForm as ElementForm } from 'element-plus'
 // 包装组件使用别名，按需插件无法识别 ElementForm，必须显式引入表单布局样式。
 import 'element-plus/theme-chalk/el-form.css'
@@ -35,7 +40,7 @@ defineOptions({
   name: 'AppForm',
   inheritAttrs: false,
 })
-const props=defineProps({savedSyncEnabled:{type:Boolean,default:true},numberScope:String,numberField:{type:String,default:'orderNo'},numberActive:Boolean,numberParent:String,numberDate:String})
+const props=defineProps({savedSyncEnabled:{type:Boolean,default:true},numberScope:String,showNumberActions:{type:Boolean,default:true},numberField:{type:String,default:'orderNo'},numberActive:Boolean,numberParent:String,numberDate:String})
 
 const innerFormRef = ref(null)
 const numberHistoryVisible=ref(false)
@@ -44,6 +49,14 @@ const serverError = ref('')
 const savedConflictRef=ref(null)
 const scrollOptions = { behavior: 'smooth', block: 'center', inline: 'nearest' }
 const liveInstance=getCurrentInstance(),liveAttrs=useAttrs()
+function unsavedExcluded(){
+  if(liveAttrs.inline===true||liveAttrs.inline===''||/search|filter/.test(String(liveAttrs.class||'')))return true
+  for(let current=liveInstance;current;current=current.parent)if(/Filter/.test(current.type?.name||current.type?.__name||''))return true
+  return false
+}
+const touchUnsaved=event=>touchUnsavedForm(liveInstance,event)
+const bindUnsaved=()=>bindUnsavedForm(liveInstance,liveAttrs.model,{root:()=>innerFormRef.value?.$el,fields:()=>innerFormRef.value?.fields||[],excluded:unsavedExcluded})
+onMounted(bindUnsaved);onUpdated(bindUnsaved);onBeforeUnmount(()=>unbindUnsavedForm(liveInstance))
 const clientIdentityError=ref('')
 let clientIdentityGeneration=0,clientIdentityRequest=Promise.resolve()
 function refreshClientIdentity(){
@@ -120,6 +133,7 @@ const applyServerErrors = async (error, aliases = {}) => {
 }
 
 defineExpose({
+  openNumberHistory:()=>{numberHistoryVisible.value=true},
   numberLeaseHeaders: numbering.headers,
   validate,
   validateField: callInnerForm('validateField'),

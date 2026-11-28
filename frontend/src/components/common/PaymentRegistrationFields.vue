@@ -48,7 +48,7 @@
             </el-col>
           </el-row>
           <el-row :gutter="12"><el-col :xs="24" :md="12"><el-form-item label="付款时间"><el-date-picker v-model="item.payment_time" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm" style="width:100%" clearable /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="付款方式"><PaymentAccountSelect v-model="item.payment_method" @update:model-value="syncFromDetails" /></el-form-item></el-col></el-row>
-          <el-form-item label="支付截图及备注"><ScreenshotInput v-model="item.proofs" type="textarea" :rows="2" :maxlength="20000" placeholder="可粘贴、拖入或上传本次付款截图，填写付款备注" upload-help="每条明细的截图及备注独立保存，修改或移除后可在付款修改记录中查看。" /></el-form-item>
+          <PaymentProofFields v-model:proofs="item.proofs" v-model:receipt-proofs="item.receipt_proofs"/>
           <el-row :gutter="12">
             <el-col :xs="24" :md="12"><el-form-item label="确认人"><ReadonlyField :model-value="item.confirmed_by_name || ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="确认时间"><ReadonlyField :model-value="item.confirmed_at ? formatBusinessDateTime(item.confirmed_at) : ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
@@ -65,6 +65,7 @@
 </template>
 
 <script setup>
+import PaymentProofFields from './PaymentProofFields.vue'
 import {computed,ref,watch} from 'vue'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import {effectiveBillingTaxMode} from '@/utils/billingTaxMode'

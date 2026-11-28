@@ -1,7 +1,7 @@
 <template>
   <span class="screenshot-text" :class="{ 'screenshot-text--with-images': ids.length }">
     <template v-for="(part, position) in parts" :key="position">
-      <span v-if="!part.id && showText && (!ids.length || part.text.trim())" class="screenshot-plain">{{ ids.length ? part.text.replace(/^\n|\n$/g, '') : part.text }}</span>
+      <span v-if="!part.id && showText && (!ids.length || part.text.trim())" class="screenshot-plain"><ChatTalentText :text="ids.length ? part.text.replace(/^\n|\n$/g, '') : part.text" /></span>
       <span v-else-if="part.id" class="screenshot-preview">
         <template v-for="id in [part.id]" :key="id">
         <a v-if="files[id]?.extension" class="screenshot-document" :class="{'invoice-drag-handle':invoiceDrag}" :href="files[id].url"
@@ -24,6 +24,7 @@
 </template>
 <script setup>
 import { computed,onBeforeUnmount,ref,watch } from 'vue'
+import ChatTalentText from '@/components/chat/ChatTalentText.vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import { invoiceDragType,screenshotIds,screenshotParts } from '@/utils/screenshotReferences'

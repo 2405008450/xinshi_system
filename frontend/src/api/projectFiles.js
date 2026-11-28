@@ -2,8 +2,8 @@ import api from './index'
 
 export const getProjectFiles = (params) => api.get('/project-files/', { params })
 export const getProjectFileCount = (params = {}) => api.get('/project-files/count', { params })
-export const getProjectFilesByProject = (projectId, params) =>
-  api.get(`/project-files/project/${projectId}`, { params })
+export const getProjectFilesByProject = (projectId, params, config = {}) =>
+  api.get(`/project-files/project/${projectId}`, { ...config, params })
 export const getProjectFileCountByProject = (projectId) =>
   api.get(`/project-files/project/${projectId}/count`)
 export const getProjectFile = (id) => api.get(`/project-files/${id}`)

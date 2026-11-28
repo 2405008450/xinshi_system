@@ -29,7 +29,7 @@
       <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button class="chat-send-button" type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
     </div>
-    <ChatMessageContextMenu ref="messageMenu" :messages="messages" :current-user-id="currentUserId" :handlers="menuHandlers" project-type="discussion" :project-id="projectId" :active="active" />
+    <ChatMessageContextMenu ref="messageMenu" :messages="messages" :current-user-id="currentUserId" :handlers="menuHandlers" project-type="discussion" :project-id="projectId" :progress-project-type="progressProject?.type" :progress-project-id="progressProject?.id" :active="active" />
     <ChatMessageReferences ref="references" :project-id="projectId" project-type="discussion" @locate="locate" />
     <TechnicalTaskDialog v-if="taskDraft" dialog-only :initial-content="taskDraft.content" @close="taskDraft = null" />
   </section>
@@ -74,6 +74,9 @@ function createDevelopmentTask(message, excerpt) {
   if (content.length > 100000) { ElMessage.warning('聊天记录超过具体任务的10万字上限，请选取部分内容后添加'); return }
   taskDraft.value = { content }
 }
+const progressProject=ref(null)
+let progressContextVersion=0
+watch(()=>[props.projectId,props.active],async()=>{const current=++progressContextVersion;progressProject.value=null;if(!props.active)return;try{const result=await chatRequest(`conversations/discussion/${props.projectId}/progress-context`);if(current===progressContextVersion)progressProject.value=result.project}catch{}},{immediate:true})
 const currentUserId = localStorage.getItem('user_id') || ''
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
 const messages = ref([]), list = ref(), input = ref(), content = ref(''),contentJson=ref(null), replyTo = ref(null)
@@ -191,7 +194,7 @@ async function reeditMessage(message) {
   } catch (e) { ElMessage.warning(e.message) }
 }
 async function action(message, name, enabled) {
-  try { const row=await chatRequest(`${base}/message-actions/${message.id}/${name}`,{method:enabled?'put':'delete'});if(!disposed)merge([row]) }
+  try { const row=await chatRequest(`${base}/message-actions/${message.id}/${name}`,{method:enabled?'put':'delete'});if(!disposed)merge([row]);return row }
   catch(e){ElMessage.error(e.message||'操作失败')}
 }
 const acknowledge = message=>action(message,'acknowledgement',!message.isAcknowledged)

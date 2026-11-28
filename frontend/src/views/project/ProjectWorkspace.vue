@@ -7,7 +7,7 @@
         <el-tab-pane v-if="module === 'translation' && canViewManuscript" label="稿件安排" name="manuscript" />
         <el-tab-pane v-if="module === 'interpretation'" label="财务管理（客户）" name="customer-finance" />
         <el-tab-pane :label="`${moduleLabel}须知`" name="notices" />
-        <el-tab-pane v-if="['translation','interpretation'].includes(module)" label="帮助" name="help" />
+        <el-tab-pane label="帮助" name="help" />
       </el-tabs>
     </el-card>
     <component :is="activeComponent" ref="activeView" :key="`${module}:${activeSection}`" v-bind="activeProps" />
@@ -30,7 +30,7 @@ const canViewManuscript = computed(() => canViewManuscriptArrangements())
 const activeSection = computed(() => {
   const section = route.query.section
   if(section==='notices')return section
-  if(section==='help'&&['translation','interpretation'].includes(props.module))return section
+  if(section==='help'&&['translation','interpretation','recruitment'].includes(props.module))return section
   if(props.module==='interpretation'&&section==='customer-finance')return section
   if(props.module==='translation'&&(['help','arrangements'].includes(section)||(section==='manuscript'&&canViewManuscript.value)))return section
   return 'projects'
@@ -44,11 +44,12 @@ const notices = defineAsyncComponent(() => import('./ProjectNotices.vue'))
 const arrangements = defineAsyncComponent(() => import('./translation/ProjectArrangements.vue'))
 const manuscript = defineAsyncComponent(() => import('../manuscript/ManuscriptArrangements.vue'))
 const help = defineAsyncComponent(() => import('./translation/TranslationHelp.vue'))
+const basicHelp=defineAsyncComponent(()=>import('@/components/common/ProjectBasicsHelp.vue'))
 const interpretationHelp=defineAsyncComponent(()=>import('./interpretation/InterpretationHelp.vue'))
 const interpretationFinance = defineAsyncComponent(() => import('./interpretation/CustomerFinance.vue'))
 const sectionViews = {help,manuscript,notices,arrangements,'customer-finance':interpretationFinance}
-const activeComponent = computed(() => activeSection.value==='help'&&props.module==='interpretation'?interpretationHelp:sectionViews[activeSection.value] || projects[props.module])
-const activeProps = computed(() => activeSection.value === 'notices' ? { module: props.module, moduleLabel: moduleLabel.value } : {})
+const activeComponent = computed(() => activeSection.value==='help'&&props.module==='recruitment'?basicHelp:activeSection.value==='help'&&props.module==='interpretation'?interpretationHelp:sectionViews[activeSection.value] || projects[props.module])
+const activeProps = computed(() => activeSection.value==='help'&&props.module==='recruitment'?{module:'recruitment'}:activeSection.value === 'notices' ? { module: props.module, moduleLabel: moduleLabel.value } : {})
 
 async function handleSectionChange(section) {
   if (section === activeSection.value) return true

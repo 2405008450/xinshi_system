@@ -292,6 +292,9 @@ class ClientProjectManagerResponse(BaseModel):
 
 
 class ClientResponse(ClientBase):
+    customer_cohort: str = "new"
+    order_count: int = 0
+    cohort_info: dict = Field(default_factory=dict)
     registration_source: str = "历史数据（未记录）"
     project_managers: list[ClientProjectManagerResponse] = Field(default_factory=list)
     detailed_address: Optional[str] = Field(default=None, max_length=5000)

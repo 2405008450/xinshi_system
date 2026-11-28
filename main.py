@@ -370,6 +370,8 @@ from routers import technical_development
 app.include_router(technical_development.router)
 from routers import development_feedback
 app.include_router(development_feedback.router)
+import development_notes
+app.include_router(development_notes.router)
 from routers import technical_task_incentives
 app.include_router(technical_task_incentives.router)
 import technical_task_allocations
@@ -408,6 +410,12 @@ app.include_router(project_chat.router)
 from routers import direct_chat, chat_sessions
 app.include_router(direct_chat.router)
 app.include_router(chat_sessions.router)
+from routers.chat_favorite_tags import router as chat_favorite_tags_router
+app.include_router(chat_favorite_tags_router)
+from routers.chat_project_entry import router as chat_project_entry_router
+app.include_router(chat_project_entry_router)
+from chat_personal_folders import router as chat_personal_folders_router
+app.include_router(chat_personal_folders_router)
 app.include_router(permissions.router)
 app.include_router(tasks.work_items_router)
 app.include_router(tasks.tasks_router)

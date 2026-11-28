@@ -15,7 +15,7 @@
     </el-table>
     <p>筛选后项目金额小计：{{money(sum(filteredRows,'billing_totals'))}}；已付小计：{{money(sum(filteredRows,'received_totals'))}}；实付－应付差异：{{money(sum(filteredRows,'payment_difference'))}}</p>
     <el-pagination v-model:current-page="page" :page-size="20" :total="filteredRows.length" layout="total, prev, pager, next" />
-    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :module="module" :projects="documentProjects" :query="query" :initial-mode="special?'special':undefined" />
+    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :module="module" :project-id="actionRow?.id" :projects="documentProjects" :query="query" :initial-mode="special?'special':undefined" />
     <BusinessFinanceLedgerDialog v-if="ledgerVisible" v-model="ledgerVisible" :module="module" :query="query" />
     <DraggableFormDialog v-model="invoicePicker" title="选择开票项目／客户" width="min(760px, calc(100vw - 32px))" append-to-body><el-select v-model="invoiceId" filterable style="width:100%"><el-option v-for="row in filteredRows" :key="row.id" :value="row.id" :label="row.client_name+' · '+row.order_no+' · '+row.project_name" /></el-select><template #footer><el-button @click="invoicePicker=false">取消</el-button><el-button type="primary" :disabled="!invoiceId" @click="invoicePicker=false;invoiceVisible=true">打开发票窗口</el-button></template></DraggableFormDialog>
     <InterpretationInvoiceDialog v-if="invoiceVisible" v-model="invoiceVisible" :module="module" :project-id="invoiceId" :can-write="canWrite" @saved="load" />

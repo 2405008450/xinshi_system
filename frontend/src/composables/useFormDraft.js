@@ -1,4 +1,5 @@
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { getCurrentInstance, onBeforeUnmount, ref, watch } from 'vue'
+import { beginUnsavedModel, pauseUnsavedModel, acknowledgeUnsavedModel, forgetUnsavedModel, unsavedDraftState, restoreUnsavedDraftState } from '@/utils/windowUnsavedState'
 import { ElMessage } from 'element-plus'
 import {chooseDraft} from '@/utils/draftRecovery'
 import {readCloudDraft,queueCloudDraft,clearCloudDraft} from '@/utils/cloudDrafts'
@@ -40,6 +41,8 @@ export const useFormDraft = ({
   validateDraft,
 }) => {
   markManagedDraft(form)
+  const unsavedInstance=getCurrentInstance()
+  const unsavedRoot=()=>unsavedInstance?.proxy?.$el
   const userKey = () => requireUserId ? localStorage.getItem('user_id') || '' : currentUserKey()
   let draftOwner = ''
   const storageKey = () => `form-drafts:${namespace}:${draftOwner || userKey()}`
@@ -96,6 +99,7 @@ export const useFormDraft = ({
       form: activeDraftKey.value === 'create' ? withoutBusinessNumbers(form,sanitizeDraft(form)) : sanitizeDraft(form),
       savedAt: draftBusinessNow(),
       ownerId: draftOwner,
+      unsaved: unsavedDraftState(form),
       ...(captureContext ? { context: sanitizeDraft(captureContext()) } : {}),
       ...((activeDraftKey.value === 'create' && createDraftVersion) || draftVersion ? { version: activeDraftKey.value === 'create' && createDraftVersion || draftVersion } : {}),
     }
@@ -143,7 +147,8 @@ export const useFormDraft = ({
       draft.version === createDraftVersion && draft.ownerId === draftOwner && !draft.form.id
     ))
     const initial=clone(form),stored=readDrafts()[key],local=usable(stored)?stored:undefined
-    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key);else Object.assign(form,createDefault(),restored);if(draft.context&&restoreContext)restoreContext(clone(draft.context),key)}}
+    beginUnsavedModel(form,initial,{creating:key==='create',root:unsavedRoot})
+    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key,{initial:clone(initial),record:clone(draft)});else Object.assign(form,createDefault(),restored);restoreUnsavedDraftState(form,draft.unsaved);if(draft.context&&restoreContext)restoreContext(clone(draft.context),key)}}
     try{restore(local)}catch{ElMessage.warning('草稿自动恢复失败，原内容仍保留，请勿覆盖')}
     const baseline=comparison()
     void readCloudDraft(cloudNamespace,key).then(cloud=>{
@@ -161,6 +166,7 @@ export const useFormDraft = ({
   }
 
   const stopDraft = (preserveOriginalOwner = false) => {
+    pauseUnsavedModel(form)
     generation++
     const pending = saveTimer !== null
     cancelScheduledSave()
@@ -173,6 +179,7 @@ export const useFormDraft = ({
   const pauseForAuthSession = () => stopDraft(true)
 
   const clearDraft = () => {
+    acknowledgeUnsavedModel(form)
     generation++
     cancelScheduledSave()
     savingEnabled.value = false
@@ -181,6 +188,7 @@ export const useFormDraft = ({
   }
   // 正式保存后继续编辑同一窗口：换成编辑草稿，不读取已清除的旧草稿。
   const startFreshDraft = (key) => {
+    beginUnsavedModel(form,form,{creating:key==='create',root:unsavedRoot})
     generation++
     cancelScheduledSave()
     draftOwner=userKey()
@@ -194,7 +202,7 @@ export const useFormDraft = ({
   window.addEventListener('pagehide',persist)
   window.addEventListener('auth-session-clearing',pauseForAuthSession)
   document.addEventListener('visibilitychange',hidden)
-  onBeforeUnmount(()=>{persist();generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseForAuthSession);document.removeEventListener('visibilitychange',hidden)})
+  onBeforeUnmount(()=>{persist();forgetUnsavedModel(form);generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseForAuthSession);document.removeEventListener('visibilitychange',hidden)})
 
   return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft, startFreshDraft }
 }

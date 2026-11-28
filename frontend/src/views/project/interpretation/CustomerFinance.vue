@@ -15,8 +15,8 @@
     </template>
     <CustomerQuotationDialog v-if="quotationVisible" v-model="quotationVisible" module="interpretation" :projects="documentProjects" :query="queryParams()" @saved="saved" />
     <BusinessFinanceLedgerDialog @price="row=>openDocument('price',row)" @statement="row=>openDocument('statement',row)" @invoice="row=>openDocument('invoice',row)" v-if="ledgerVisible" v-model="ledgerVisible" module="interpretation" :query="queryParams()" />
-    <DraggableFormDialog v-model="invoicePicker" title="选择开票项目" width="min(760px, calc(100vw - 32px))" append-to-body><el-select v-model="invoiceTarget" filterable remote :remote-method="searchInvoiceProjects" :loading="invoiceSearching" style="width:100%"><el-option v-for="row in invoiceOptions" :key="row.id" :value="row.id" :label="row.order_no+' · '+row.project_name" /></el-select><template #footer><el-button @click="invoicePicker=false">取消</el-button><el-button :disabled="!invoiceTarget" type="primary" @click="chooseInvoice">打开发票窗口</el-button></template></DraggableFormDialog>
-    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :projects="documentProjects" :query="queryParams()" :initial-mode="specialEntry?'special':undefined" />
+    <DraggableFormDialog v-model="invoicePicker" title="发票 · 客户与结算项目" width="min(1000px, calc(100vw - 32px))" append-to-body destroy-on-close><BusinessFinanceScopePicker v-if="invoicePicker" v-model="invoiceTarget" :query="queryParams()" @select="row=>{invoiceOptions=row?[row]:[]}"/><template #footer><el-button @click="invoicePicker=false">取消</el-button><el-button :disabled="!invoiceTarget" type="primary" @click="chooseInvoice">打开发票窗口</el-button></template></DraggableFormDialog>
+    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :project-id="actionRow?.id" :projects="documentProjects" :query="queryParams()" :initial-mode="specialEntry?'special':undefined" />
     <InterpretationInvoiceDialog v-if="invoiceVisible" v-model="invoiceVisible" :project-id="actionRow?.id"
       :can-write="canWrite" @saved="saved" @statement="openDocument('statement',actionRow)" @price="openPrice(actionRow)" />
     <InterpretationFinanceEditor ref="financeEditor" :target-id="editorTarget" :can-write="canWrite" hide-trigger @saved="saved" />
@@ -55,6 +55,7 @@
             </div>
           </template>
           <template v-else-if="column.key==='payment_status'"><span>{{cell(row,column.key)}}</span><el-button v-if="canWrite" link type="primary" @click="openPrice(row)">登记／修改付款</el-button></template>
+          <template v-else-if="column.key==='rates'&&row.pricing_mode!=='fixed'"><span class="finance-text">{{financeSummary({rates:row.payload?.rates||[],has_overtime:row.payload?.has_overtime,overtime:row.payload?.overtime})}}</span><InlineInterpretationRates v-if="canWrite&&row.ready" :row="row" @saved="saved"/></template>
           <template v-else-if="['rates','workload'].includes(column.key)&&row.pricing_mode!=='fixed'&&row.payload?.rates?.length">
             <div v-for="(rate,index) in row.payload.rates" :key="index" class="finance-rate">
               <strong>{{rate.direction}}</strong>
@@ -85,11 +86,13 @@
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import {computed,nextTick,ref,reactive,onMounted,onBeforeUnmount,watch} from 'vue'
 import {saveInterpretationFinance,getInterpretationFinancePage,saveInterpretationSettlementMode} from '@/api/interpretationCustomerFinance'
+import BusinessFinanceScopePicker from '@/components/common/BusinessFinanceScopePicker.vue'
+import InlineInterpretationRates from '@/components/common/InlineInterpretationRates.vue'
 import InterpretationFinanceEditor from '@/components/common/InterpretationFinanceEditor.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import {useTableColumns} from '@/composables/useTableColumns'
 import {translationSettlementModeLabels as settlementModeLabels} from '@/utils/settlementModes'
-import {financeDraft,interpretationFinancePayload,interpretationFinanceTotals,formatFinanceAmounts,interpretationUnitPrice,interpretationWorkload} from '@/utils/interpretationCustomerFinance'
+import {financeSummary,financeDraft,interpretationFinancePayload,interpretationFinanceTotals,formatFinanceAmounts,interpretationUnitPrice,interpretationWorkload} from '@/utils/interpretationCustomerFinance'
 import {ElMessage} from 'element-plus'
 import {getProjectStatusLabel,PROJECT_STATUS_OPTIONS} from '@/utils/projectStatus'
 import {hasPermission} from '@/utils/permission'
@@ -139,7 +142,7 @@ const canWrite=hasPermission('projects:write'),selfName=localStorage.getItem('us
 const canReadProjects=hasPermission('projects:read')||canWrite
 const ledgerVisible=ref(false),invoicePicker=ref(false),invoiceTarget=ref(''),invoiceOptions=ref([]),invoiceSearching=ref(false),specialEntry=ref(false)
 async function searchInvoiceProjects(keyword=''){invoiceSearching.value=true;try{invoiceOptions.value=(await getInterpretationFinancePage({...queryParams(),keyword,skip:0,limit:100})).items}catch(e){ElMessage.error(getLocalizedErrorMessage(e,'项目加载失败'))}finally{invoiceSearching.value=false}}
-function openInvoicePicker(){invoiceOptions.value=[...rows.value];invoiceTarget.value='';invoicePicker.value=true;void searchInvoiceProjects()}
+function openInvoicePicker(){invoiceOptions.value=[...rows.value];invoiceTarget.value='';invoicePicker.value=true}
 function chooseInvoice(){actionRow.value=invoiceOptions.value.find(row=>row.id===invoiceTarget.value);invoicePicker.value=false;invoiceVisible.value=true}
 function openSpecial(){actionRow.value=null;specialEntry.value=true;statementVisible.value=true}
 const quotationVisible=ref(false),statementVisible=ref(false),invoiceVisible=ref(false)
@@ -243,7 +246,7 @@ function cell(row,key){
   if(key==='rates'||key==='workload'){
     if(row.pricing_mode==='fixed')return '固定收费'
     const format=key==='rates'?interpretationUnitPrice:interpretationWorkload
-    return (row.payload?.rates||[]).map(rate=>`${rate.direction}\n${format(rate)}`).join('\n')||'待填写'
+    return key==='rates'?financeSummary({rates:row.payload?.rates||[],has_overtime:row.payload?.has_overtime,overtime:row.payload?.overtime}):(row.payload?.rates||[]).map(rate=>`${rate.direction}\n${format(rate)}`).join('\n')||'待填写'
   }
   if(['totals','adjusted_totals','totals_excl_tax','totals_incl_tax','billing_totals','received_totals','payment_difference'].includes(key))return formatFinanceAmounts(row[key])
   if(key==='explanation')return row.payload.explanation||'-'

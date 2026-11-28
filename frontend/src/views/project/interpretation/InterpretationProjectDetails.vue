@@ -162,7 +162,7 @@
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <ProjectListRowActions
-            v-if="canWrite"
+            :editable="canWrite" :show-start-request="canWrite" :conversation-project="{module:'interpretation',id:row.id}"
             :start-request-label="resourceRequestActionLabel(row.id)"
             @edit="handleEdit(row)"
             @start-request="startResourceRequest(row)"
@@ -183,6 +183,7 @@
       @current-change="fetchData"
     />
 
+    <PartialCancellationReasonDialog ref="partialCancellationRef"/>
     <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="interpretation-progress-dialog" @closed="resetProgressDialog">
       <template #header>
         <div class="progress-dialog-heading">
@@ -204,7 +205,7 @@
         <div class="progress-entry-panel__header">
           <div class="progress-entry-panel__title">
             项目进度
-            <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
+            <span v-if="statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
           </div>
 
         </div>
@@ -254,7 +255,7 @@
             <div v-for="child in group.children" :key="child.key" class="progress-child-item">
               <span class="progress-child-dot" />
               <div class="progress-child-content">
-                <div class="progress-child-note">{{ child.changeNote }}</div>
+                <div class="progress-child-note"><ScreenshotText :text="child.changeNote||''"/></div>
                 <div class="progress-child-meta">
                   <span>{{ formatDateTime(child.effectiveOn) }}</span>
                   <span>{{ child.changedByName || '系统' }}</span>
@@ -287,8 +288,9 @@
           @clear="clearFieldSearch"
         />
       </template>
+      <template #header-meta><el-button link @click="formRef?.openNumberHistory()">编号删除记录</el-button></template>
       <div ref="dialogBodyRef" class="editor-body">
-        <AppForm number-scope="interpretation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <AppForm :show-number-actions="false" number-scope="interpretation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
           <el-tabs v-model="editorTab">
             <el-tab-pane label="项目信息" name="project">
           <section class="form-section interpretation-key-fields">
@@ -419,7 +421,7 @@
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12">
                 <el-form-item label="项目状态" prop="projectStatus">
-                  <el-select v-model="form.projectStatus" style="width: 100%"><el-option v-for="item in editorStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
+                  <el-select v-model="form.projectStatus" style="width: 100%" @change="handleEditorStatusSelect"><template #label>{{ statusLabel(form.projectStatus) }}</template><el-option v-for="item in editorStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -449,7 +451,7 @@
           <section class="form-section">
             <h3>扩展信息</h3>
             <el-form-item label="报价单路径"><PathInput v-model="form.quotationPath" @open="openPathValue(form.quotationPath)" @copy="copyPathValue(form.quotationPath)" /></el-form-item>
-            <el-form-item label="合同路径"><PathInput v-model="form.contractPath" @open="openPathValue(form.contractPath)" @copy="copyPathValue(form.contractPath)" /></el-form-item>
+            <el-form-item label="客户合同路径"><PathInput v-model="form.contractPath" @open="openPathValue(form.contractPath)" @copy="copyPathValue(form.contractPath)" /></el-form-item>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户对信实评价"><el-select v-model="form.clientRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="评价备注"><el-input v-model="form.clientRatingNote" /></el-form-item></el-col>
@@ -479,13 +481,13 @@
                   <el-form-item v-for="field in interpreterRequirementFields" :key="field.key" :label="field.label" :prop="`interpreterRequirements.${field.key}`"><el-input v-model="form.interpreterRequirements[field.key]" type="textarea" :autosize="{minRows:1,maxRows:4}" maxlength="5000" :placeholder="field.placeholder" /></el-form-item>
                   </details>
                             </section>
-                <section class="form-section interpreter-workspace__region" data-dialog-field-search-group data-dialog-field-search-group-title="译员安排">
+                <section class="form-section interpreter-workspace__region" data-unsaved-field="interpreterAssignments" data-unsaved-label="译员安排" data-dialog-field-search-group data-dialog-field-search-group-title="译员安排">
                   <h3>译员安排</h3>
 <div v-for="(item, index) in form.interpreterAssignments" :key="interpreterRowKey(item)" class="repeat-card">
-              <div class="repeat-title"><span class="interpreter-assignment-heading">译员 {{ index + 1 }}<el-checkbox v-model="item.clientSelected">客户选定</el-checkbox></span><el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
+              <div class="repeat-title"><span class="interpreter-assignment-heading">译员 {{ index + 1 }}<el-form-item class="interpreter-selection-field" :prop="`interpreterAssignments.${index}.clientSelected`" label-width="0" :data-dialog-field-search-label="`译员 ${index+1} 客户选定`"><el-checkbox v-model="item.clientSelected">客户选定</el-checkbox></el-form-item></span><el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
                 <el-col :span="24">
-                  <el-form-item label="译员">
+                  <el-form-item label="译员" :prop="`interpreterAssignments.${index}.translatorId`">
                     <InterpreterTalentSelect
                       v-model="item.translatorId"
                       :selected-label="item.translatorLabel || translatorLabels.get(item.translatorId)"
@@ -493,8 +495,8 @@
                     />
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="客户评价"><el-select v-model="item.customerRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
-                <el-col :xs="24"><details class="interpreter-evaluation-note"><summary>评价/备注</summary><el-form-item :prop="`interpreterAssignments.${index}.evaluationNote`" label-width="0" :data-dialog-field-search-label="`译员 ${index+1} 评价/备注`" data-dialog-field-search-aliases="评价备注 评价 备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" :aria-label="`译员 ${index+1} 评价/备注`" /></el-form-item></details></el-col>
+                <el-col v-if="item.translatorId" :span="24"><ChatTalentText :text="`[查看译员情况](talent://${item.translatorId})`"/></el-col>
+                <el-col :span="24"><InterpreterArrangementFields v-model="form.interpreterAssignments[index]" :directions="arrangementDirections" :prefix="`interpreterAssignments.${index}`" @open-path="openPathValue" @copy-path="copyPathValue"/></el-col>
               </el-row>
             </div>
             <el-button class="interpreter-add-button" :icon="Plus" @click="addInterpreter">增加译员</el-button>
@@ -508,11 +510,11 @@
         <el-button v-if="!form.id && canWrite" :disabled="submitLoading" type="warning" plain @click="clearNewProject">清空</el-button>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
-        <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
-        <el-tooltip content="紧急预告仍需完成本页必填信息；邮件将标记为紧急项目预告知。" placement="top"><el-button type="warning" plain :loading="submitLoading" @click="handleSubmit(true,true)">（紧急）项目预告知</el-button></el-tooltip>
+        <el-button v-if="!form.id" :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
+        <el-tooltip v-if="!form.id" content="紧急预告仍需完成本页必填信息；邮件将标记为紧急项目预告知。" placement="top"><el-button type="warning" plain :loading="submitLoading" @click="handleSubmit(true,true)">（紧急）项目预告知</el-button></el-tooltip>
         <ConversationAudiencePicker v-model="chatAudience" :disabled="submitLoading" />
-        <el-button :loading="submitLoading" @click="handleSubmit(false,false,true)">保存并发送会话</el-button>
-        <el-button :loading="submitLoading" @click="handleSubmit(true,false,true)">保存并发送会话和邮件</el-button>
+        <el-button v-if="!form.id" :loading="submitLoading" @click="handleSubmit(false,false,true)">保存并发送会话</el-button>
+        <el-button v-if="!form.id" :loading="submitLoading" @click="handleSubmit(true,false,true)">保存并发送会话和邮件</el-button>
       </template>
     </DraggableFormDialog>
 
@@ -567,10 +569,12 @@
   </el-card>
   <ResourceRequestEditor v-if="resourceRequestSource" editor-only :source-request="resourceRequestSource" @requests-changed="loadResourceRequestStatuses" @editor-closed="resourceRequestSource=null;loadResourceRequestStatuses()" />
   <InterpretationSettingsDialog v-model="interpretationSettingsVisible" :can-write="canWrite" />
-  <ProjectStatisticsDialog v-model="statisticsVisible" module="interpretation" />
+  <ProjectStatisticsDialog v-model="statisticsVisible" module="interpretation" /><InterpretationProgressDialog ref="interpretationProgressRef" @saved="fetchData"/>
 </template>
 
 <script setup>
+import InterpretationProgressDialog from '@/components/interpretation/InterpretationProgressDialog.vue'
+const interpretationProgressRef=ref()
 import ExistingClientAutocomplete from '@/components/common/ExistingClientAutocomplete.vue'
 import InterpretationSettingsDialog from './InterpretationSettingsDialog.vue'
 const interpretationSettingsVisible=ref(false)
@@ -619,6 +623,14 @@ import * as clientApi from '@/api/clients'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { getTalentIdentityOptions } from '@/api/talents'
 import InterpreterTalentSelect from './InterpreterTalentSelect.vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import PartialCancellationReasonDialog from '@/components/common/PartialCancellationReasonDialog.vue'
+import ChatTalentText from '@/components/chat/ChatTalentText.vue'
+import {meaningfulRates} from '@/utils/interpretationRateGroups'
+import {taxPricePayload,taxPriceForm} from '@/utils/taxPrices'
+import InterpreterArrangementFields from './InterpreterArrangementFields.vue'
+import {restoreInterpreterAssignments} from '@/utils/interpretationDraft'
+import {parseBusinessDateTime} from '@/utils/deadlineDisplay'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
@@ -670,12 +682,13 @@ const progressLoading = ref(false)
 const statusSubmitting = ref(false)
 const activeProgressProject = ref(null)
 const progressRows = ref([])
+const partialCancellationRef=ref(null),editorStatusPrevious=ref('initial_follow_up'),progressStatusPrevious=ref('')
 const statusFormRef = ref(null)
 const progressEntryPanelRef = ref(null)
 const progressNoteInputRef = ref(null)
 const statusEntryMode = ref('progress')
 const selectedProgressStageKey = ref('')
-const statusForm = reactive({ projectStatus: '', effectiveOn: '', changeNote: '' })
+const statusForm = reactive({ projectStatus: '', effectiveOn: '', changeNote: '',cancellationDetails:null })
 const nameLoading = ref(false)
 const nameManuallyEdited = ref(false)
 const demandReleaseManuallyEdited=ref(false), demandReleaseLoading=ref(false)
@@ -740,9 +753,19 @@ let namePreviewRequestId = 0
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value, item.label]))
 const statusOptions = [
   { value: 'initial_follow_up', label: '初步跟进中' },
+  { value: 'client_contract_signed', label: '客户合同签署' },
+  { value: 'interpreter_contract_signed', label: '译员合同签署' },
+  { value: 'both_contracts_signed', label: '客户+译员合同签署' },
+  { value: 'client_interpreter_connected', label: '客户与译员对接' },
   { value: 'candidates_provided', label: '已提供人选' },
+    { value: 'candidates_added', label: '人选增加' },
+    { value: 'candidates_adjusted', label: '人选调整' },
   { value: 'client_selected', label: '客户已定人选' },
   { value: 'client_changed', label: '客户改变人选' },
+  { value: 'client_cancelled', label: '客户取消人选' },
+  { value: 'client_added', label: '客户增加人选' },
+  { value: 'client_reduced', label: '客户减少人数' },
+  { value: 'client_mixed', label: '客户增减人选' },
   { value: 'deal_pending_execution', label: '已成交待执行' },
   { value: 'in_progress', label: '进行中' },
   { value: 'cancelled', label: '已取消' },
@@ -751,7 +774,7 @@ const statusOptions = [
   { value: 'settled', label: '已结款' },
 ]
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value, item.label]))
-const candidateStatuses=new Set(['candidates_provided','client_selected','client_changed'])
+const candidateStatuses=new Set(['client_contract_signed','interpreter_contract_signed','both_contracts_signed','candidates_provided','candidates_added','candidates_adjusted','client_selected','client_changed','client_cancelled','client_added','client_reduced','client_mixed'])
 const editorStatusOptions=computed(()=>statusOptions.filter(item=>!candidateStatuses.has(item.value)||item.value===form.projectStatus))
 const progressGroups = computed(() => groupProjectProgressRows(progressRows.value, activeProgressProject.value?.projectStatus))
 const progressStatusOptions = computed(() => {
@@ -807,7 +830,7 @@ const tableColumns = [
   { key: 'translatorCodes', label: '译员编号', minWidth: 110 },
   { key: 'filePath', label: '项目路径', minWidth: 180 },
   { key: 'quotationPath', label: '报价单路径', minWidth: 180 },
-  { key: 'contractPath', label: '合同路径', minWidth: 180 },
+  { key: 'contractPath', label: '客户合同路径', minWidth: 180 },
   { key: 'clientRating', label: '客户对信实评价', minWidth: 130 },
   { key: 'clientRatingNote', label: '评价备注', minWidth: 160 },
   { key: 'interpreterAssignments', label: '客户对译员评价', minWidth: 180 },
@@ -902,7 +925,7 @@ const defaultForm = () => ({
   id: '', orderNo: '', projectName: '', socialPostRequest:'', demandReleaseKey:createRequestUuid(), projectTypes: [], taskDescription: '',
   financeDraft: null,
   clientId: '', subClientId: '', parentClientShortName: '', subClientName: '', clientShortName: '', clientFullName: '', clientCode: '',
-  statusChangeReason:'',clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
+  cancellationDetails:null,statusChangeReason:'',clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
   requiredInterpreterGender: '', requiredInterpretationLevel: '', interpreterRequirements:emptyInterpreterRequirements(),
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
@@ -918,6 +941,7 @@ const normalizeScheduleRanges = (ranges, locations=[], directions=[]) => (ranges
 }))
 const form = reactive(defaultForm())
 const additionalRequirementsRef=ref(null)
+const arrangementDirections=computed(()=>form.languageDirections.map(direction=>({languageIds:direction.languageIds,label:direction.languageIds.map(id=>languages.value.find(language=>language.id===id)?.label||'').filter(Boolean).join(' ↔ ')})))
 const requirementDirectionsText=computed(()=>interpreterRequirementDirections(form.languageDirections,languages.value))
 const groupDirectionTotal = item => item.languageDirections.reduce((total,direction)=>total+(Number(direction.requiredCount)||0),0)
 const syncScheduleSummary = () => {
@@ -942,12 +966,17 @@ const financeProject = computed(() => {
     projectName: form.projectName, projectStatus: form.projectStatus, directions,
   }
 })
+let interpreterDraftBaseline=[]
 const { beginDraft, pauseDraft, clearDraft, startFreshDraft } = useFormDraft({
   namespace: 'interpretation-project',
   form,
   createDefault: defaultForm,
   formRef,
-  applyDraft: (draft) => {
+  captureContext:()=>({interpreterAssignmentsBaseline:interpreterDraftBaseline}),
+  applyDraft: (draft,key,{initial,record}) => {
+    if(key.startsWith('edit:'))draft.interpreterAssignments=restoreInterpreterAssignments(
+      draft.interpreterAssignments,initial.interpreterAssignments,record.context?.interpreterAssignmentsBaseline,
+      Boolean(draft.updatedAt&&initial.updatedAt&&parseBusinessDateTime(draft.updatedAt)?.getTime()<parseBusinessDateTime(initial.updatedAt)?.getTime()))
     Object.assign(form, defaultForm(), draft, {interpreterRequirements:{...emptyInterpreterRequirements(),...(draft.interpreterRequirements||{})},timeRanges:normalizeScheduleRanges(draft.timeRanges,draft.locations,draft.languageDirections)})
     nameManuallyEdited.value = Boolean(draft.projectName)
     demandReleaseManuallyEdited.value=Boolean(draft.socialPostRequest)
@@ -1156,7 +1185,7 @@ const clearSelectedClient = () => {
   form.managerContact = ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
-const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', clientSelected:false, customerRating: '', evaluationNote: '' })
+const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', clientSelected:false, languageIds:[],rates:[],contractPath:'', customerRating: '', evaluationNote: '' })
 const sortLanguages = () => languages.value.sort((a, b) => (
   Number(a.isActive === false) - Number(b.isActive === false)
   || Number(a.isCustom) - Number(b.isCustom)
@@ -1243,6 +1272,7 @@ const normalizedNestedPayload = () => {
   interpreterAssignments: form.interpreterAssignments.filter((item) => item.translatorId).map((item) => ({
     translatorId: item.translatorId,
     clientSelected:Boolean(item.clientSelected),
+    languageIds:item.languageIds||[],rates:meaningfulRates(item.rates).map(({taxPrices,tax_prices,...rate})=>({...rate,tax_prices:taxPricePayload(taxPriceForm(taxPrices||tax_prices))})),contractPath:item.contractPath||null,
     customerRating: item.customerRating || null,
     evaluationNote: item.evaluationNote?.trim() || null,
   })),
@@ -1329,6 +1359,7 @@ const buildPayload = () => {
   const nested = normalizedNestedPayload()
   validateNested(nested)
   return {
+    cancellationDetails:form.cancellationDetails,
     statusChangeReason:form.projectStatus!==projectStatusBaseline.value?form.statusChangeReason?.trim()||null:null,
     ...projectContactPayload(form),
     ...(form.financeDraft ? { financeDraft: form.financeDraft } : {}),
@@ -1413,6 +1444,8 @@ const assignForm = (detail) => {
       translatorId: item.translatorId,
       clientSelected:Boolean(item.clientSelected),
       translatorLabel: translatorOptionLabel(item),
+      cancellationIssues:item.cancellationIssues||[],
+      languageIds:item.languageIds||[],rates:item.rates||[],contractPath:item.contractPath||'',
       customerRating: item.customerRating || '',
       evaluationNote: item.evaluationNote || '',
     })),
@@ -1443,16 +1476,20 @@ const handleEdit = async (row, useProvidedDetail = false, initialTab = 'project'
   if (!detail) return
   dialogTitle.value = `编辑口译项目 · ${detail.orderNo}`
   assignForm(detail)
+  editorStatusPrevious.value=form.projectStatus
+  interpreterDraftBaseline=JSON.parse(JSON.stringify(form.interpreterAssignments))
   clientManagerBaseline.value = detail.clientManagerId || ''
   dialogVisible.value = true
   await nextTick()
   editorTab.value = initialTab
   await resetEditorScroll()
   await beginDraft(`edit:${detail.id}`)
+  editorStatusPrevious.value=form.projectStatus
 }
 const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat = false) => {
   if (submitLocked) return
   submitLocked = true
+  if(cancellationStatuses.has(form.projectStatus)&&projectStatusBaseline.value!==form.projectStatus&&!form.cancellationDetails){const note=await requestCancellationReason(form,form.interpreterAssignments);if(note==null){submitLocked=false;return}form.statusChangeReason=note}
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) {
     submitLocked = false
@@ -1507,25 +1544,29 @@ const resetProgressDialog = () => {
   progressRows.value = []
   selectedProgressStageKey.value = ''
   statusEntryMode.value = 'progress'
-  Object.assign(statusForm, { projectStatus: '', effectiveOn: '', changeNote: '' })
+  Object.assign(statusForm, { projectStatus: '', effectiveOn: '', changeNote: '',cancellationDetails:null })
   statusFormRef.value?.clearValidate()
 }
-const handleStatusEntryModeChange = (mode) => {
+const cancellationStatuses=new Set(['cancelled','partially_cancelled'])
+const requestCancellationReason=async(target,interpreters)=>{const note=await partialCancellationRef.value.open(target.changeNote??target.statusChangeReason??'',{status:target.projectStatus,interpreters,details:target.cancellationDetails});if(note==null)return null;target.cancellationDetails=partialCancellationRef.value.getDetails();return note}
+const handleEditorStatusSelect = async (status) => {
+  const previous=editorStatusPrevious.value
+  if(cancellationStatuses.has(status)&&projectStatusBaseline.value!==status){const note=await requestCancellationReason(form,form.interpreterAssignments);if(note==null){form.projectStatus=previous;return}form.statusChangeReason=note}
+  else form.cancellationDetails=null
+  editorStatusPrevious.value=form.projectStatus
+}
+const handleProgressStatusSelect = async (status) => {
+  const previous=progressStatusPrevious.value
+  if(cancellationStatuses.has(status)&&activeProgressProject.value?.projectStatus!==status){const note=await requestCancellationReason(statusForm,activeProgressProject.value?.interpreterAssignments||[]);if(note==null){statusForm.projectStatus=previous;return}statusForm.changeNote=note}
+  else statusForm.cancellationDetails=null
   selectedProgressStageKey.value = ''
-  Object.assign(statusForm, {
-    projectStatus: mode === 'progress' ? (activeProgressProject.value?.projectStatus || '') : '',
-    effectiveOn: localDateTimeValue(),
-    changeNote: '',
-  })
-  statusFormRef.value?.clearValidate()
-}
-const handleProgressStatusSelect = () => {
-  if (statusEntryMode.value === 'progress') selectedProgressStageKey.value = ''
+  progressStatusPrevious.value=statusForm.projectStatus
 }
 const selectProgressStage = async (group) => {
   statusEntryMode.value = 'progress'
   selectedProgressStageKey.value = group.key
-  Object.assign(statusForm, { projectStatus: group.status, effectiveOn: localDateTimeValue(), changeNote: '' })
+  progressStatusPrevious.value=group.status
+  Object.assign(statusForm, { projectStatus: group.status, effectiveOn: localDateTimeValue(), changeNote: '',cancellationDetails:null })
   statusFormRef.value?.clearValidate()
   await nextTick()
   progressEntryPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -1535,31 +1576,11 @@ const loadProgressHistory = async (projectId) => {
   const history = await projectApi.getInterpretationProjectStatusHistory(projectId)
   progressRows.value = Array.isArray(history) ? history : []
 }
-const openProgress = async (row) => {
-  activeProgressProject.value = row
-  progressRows.value = []
-  statusEntryMode.value = 'progress'
-  selectedProgressStageKey.value = ''
-  Object.assign(statusForm, { projectStatus: row.projectStatus || '', effectiveOn: localDateTimeValue(), changeNote: '' })
-  progressVisible.value = true
-  progressLoading.value = true
-  await nextTick()
-  statusFormRef.value?.clearValidate()
-  try {
-    const [detail] = await Promise.all([loadDetail(row.id), loadProgressHistory(row.id)])
-    if (detail) {
-      activeProgressProject.value = detail
-      statusForm.projectStatus = detail.projectStatus || statusForm.projectStatus
-    }
-  } catch (error) {
-    ElMessage.error(error?.detail || '进度记录加载失败')
-  } finally {
-    progressLoading.value = false
-  }
-}
+const openProgress = async (row) => interpretationProgressRef.value.open(row.id)
 const confirmStatusChange = async () => {
   const project = activeProgressProject.value
   if (!project) return
+  if(cancellationStatuses.has(statusForm.projectStatus)&&project.projectStatus!==statusForm.projectStatus&&!selectedProgressStageKey.value&&!statusForm.cancellationDetails){const note=await requestCancellationReason(statusForm,project.interpreterAssignments||[]);if(note==null)return;statusForm.changeNote=note}
   const valid = await statusFormRef.value?.validate().catch(() => false)
   if (!valid) return
   const progressOnly = Boolean(selectedProgressStageKey.value) || statusForm.projectStatus === project.projectStatus
@@ -1580,7 +1601,8 @@ const confirmStatusChange = async () => {
     detailCache[project.id] = updated
     await loadProgressHistory(project.id)
     statusForm.projectStatus = progressOnly ? selectedStatus : updated.projectStatus
-    statusForm.changeNote = ''
+    progressStatusPrevious.value=statusForm.projectStatus
+    statusForm.changeNote = '';statusForm.cancellationDetails=null
     await nextTick()
     statusFormRef.value?.clearValidate()
     ElMessage.success(progressOnly ? '具体进度已添加' : '项目状态已更新')
@@ -1594,7 +1616,7 @@ const confirmStatusChange = async () => {
     setProjectStatusSaving(project.id, false)
   }
 }
-const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; demandReleaseManuallyEdited.value=false; demandReleaseSequence++;demandReleaseController?.abort();demandReleaseLoading.value=false;clearTimeout(demandReleaseTimer); formRef.value?.clearValidate(); clearFieldSearch() }
+const resetForm = () => { Object.assign(form, defaultForm());editorStatusPrevious.value=form.projectStatus; nameManuallyEdited.value = false; demandReleaseManuallyEdited.value=false; demandReleaseSequence++;demandReleaseController?.abort();demandReleaseLoading.value=false;clearTimeout(demandReleaseTimer); formRef.value?.clearValidate(); clearFieldSearch() }
 const onEditorClosed = () => { pauseDraft(); resetForm() }
 
 watch(
@@ -1821,3 +1843,4 @@ watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value=
 <style scoped>.interpreter-evaluation-note{width:100%;margin:10px 0}.interpreter-evaluation-note summary{cursor:pointer;color:var(--el-color-primary);margin-bottom:10px}</style>
 
 <style scoped>.additional-interpreter-requirements{margin:12px 0}.additional-interpreter-requirements>summary{cursor:pointer;color:var(--el-color-primary);margin-bottom:14px;line-height:1.6}</style>
+<style scoped>.interpreter-selection-field{display:inline-flex;margin-bottom:0}</style>

@@ -7,6 +7,7 @@ import {draftSubmitSnapshot,completeDraftSubmit} from '@/utils/autoDrafts'
 import {rememberSavedRead,savedReadPromise} from '@/utils/savedDataRegistry'
 import {numberLeaseHeaders} from '@/utils/businessNumberLeases'
 import { createLocalRequestQueue } from '@/utils/localRequestQueue'
+import { captureUnsavedSave, completeUnsavedSave } from '@/utils/windowUnsavedState'
 
 const api = axios.create({
   baseURL: '/api',
@@ -27,6 +28,7 @@ api.defaults.adapter = config => localRequestQueue(config, sendRequest)
 // 请求拦截器
 api.interceptors.request.use(
   async config => {
+    config.windowUnsavedSubmission=captureUnsavedSave(config)
     numberLeaseHeaders(config)
     if(!config.skipDraftSubmit&&['post','put','patch','delete'].includes(String(config.method).toLowerCase()))config.autoDraftSubmission=draftSubmitSnapshot(config.url)
     const token = localStorage.getItem('token')
@@ -45,6 +47,7 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
   response => {
+    completeUnsavedSave(response.config?.windowUnsavedSubmission,response.data)
     completeDraftSubmit(response.config?.autoDraftSubmission)
     rememberScreenshotGrant(response)
     const scope = chatConversationScope(response.config?.url)

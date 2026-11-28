@@ -9,6 +9,7 @@
             :span="item.span || 1"
             :client-row="row"
           >
+            <slot :name="`field-${item.key}`" :row="row" :item="item" :value="formatValue(item)">
             <el-tag v-if="item.type === 'status'" :type="statusType(row[item.key])" size="small">
               {{ statusLabel(row[item.key]) }}
             </el-tag>
@@ -30,6 +31,7 @@
               @conflict="emit('conflict')"
             />
             <span v-else class="business-detail-popover__value">{{ formatValue(item) }}</span>
+            </slot>
           </el-descriptions-item>
         </el-descriptions>
       </slot>

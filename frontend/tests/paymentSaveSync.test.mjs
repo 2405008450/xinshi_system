@@ -18,7 +18,7 @@ test('全款总价异步加载及保存通知刷新不清空核对键，不制�
   const ctx={ref,computed,paymentConfirmationForm,
     watch:(...args)=>{const stop=watch(...args);stops.push(stop);return stop},
     props:reactive({modelValue:paymentConfirmationForm({isPaid:true,paymentOption:'full',fullPaymentAmount:500,fullPaymentTotalKey:'billing:CNY'}),projectId:'p1',draftTotals:null}),
-    emit:(_event,value)=>changes.push(value),api:{get:()=>new Promise(done=>{resolve=done})},
+    emit:(event,value)=>{if(event==='update:modelValue')changes.push(value)},api:{get:()=>new Promise(done=>{resolve=done})},
     window:{addEventListener(){}},paymentChangeEvent:'payment',AbortController,
     getLocalizedErrorMessage:e=>e.message,onBeforeUnmount(){}}
   vm.createContext(ctx)

@@ -5,13 +5,13 @@
       <el-alert title="未保存内容会自动暂存，仅当前账号可恢复。点击保存后自动加入人才总库，并回填当前译员。" type="info" :closable="false" class="registration-notice" />
       <el-alert v-if="!canCreate" title="当前账号没有人才总库登记权限，请联系有权限的同事登记。" type="warning" :closable="false" />
       <AppForm ref="formRef" :model="form" :disabled="saving||!canCreate" label-position="top" @submit.prevent="save(false)">
-        <h3>姓名</h3>
+        <h3>姓名</h3><p class="required-guidance">以下姓名至少填写一项。</p>
         <el-row :gutter="16"><el-col v-for="field in inlineTalentNameFields" :key="field.key" :xs="24" :md="8"><el-form-item :label="field.label" :prop="field.key==='chineseName'?'nameGroup':field.key" :rules="field.key==='chineseName'?nameRules:[]"><el-input v-model="form[field.key]" maxlength="255" /></el-form-item></el-col></el-row>
         <el-form-item label="其他名字" prop="otherNamesText"><el-input v-model="form.otherNamesText" type="textarea" :rows="2" placeholder="多个名字可换行填写" /></el-form-item>
-        <h3>联系方式</h3>
-        <el-row v-if="contactsAllowed" :gutter="16"><el-col v-for="field in inlineTalentContactFields" :key="field.key" :xs="24" :md="12"><el-form-item :label="field.label" :prop="field.key" :rules="['primaryEmail','secondaryEmail'].includes(field.key)?[{type:'email',message:'请输入有效邮箱',trigger:'blur'}]:[]"><el-input v-model="form[field.key]" maxlength="255" /></el-form-item></el-col></el-row>
+        <h3>联系方式</h3><p class="required-guidance">以下联系方式至少填写一项。</p>
+        <el-row v-if="contactsAllowed" :gutter="16"><el-col v-for="field in inlineTalentContactFields" :key="field.key" :xs="24" :md="12"><el-form-item :label="field.label" :prop="field.key" :rules="contactRules(field.key)"><el-input v-model="form[field.key]" maxlength="255" /></el-form-item></el-col></el-row>
         <el-alert v-else title="联系方式沿用人才总库权限，仅超级管理员可填写。" type="info" :closable="false" />
-        <el-form-item label="简历路径" prop="resumePath"><el-input v-model="form.resumePath" maxlength="4000" placeholder="填写后保存至人才总库的简历路径" /></el-form-item>
+        <el-form-item label="简历路径" prop="resumePath" class="resume-required" :rules="[{required:true,whitespace:true,message:'请填写简历路径',trigger:'blur'}]"><el-input v-model="form.resumePath" maxlength="4000" placeholder="填写后保存至人才总库的简历路径" /></el-form-item>
       </AppForm>
     </div>
     <template #footer><el-button :disabled="saving" @click="visible=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!canCreate" @click="save(false)">保存并选用</el-button></template>
@@ -29,15 +29,20 @@ import {hasPermission,isSuperAdmin} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {resolveIdempotencyKey} from '@/utils/idempotency'
 import {createTalent} from '@/api/talents'
-import {inlineTalentNameFields,inlineTalentContactFields,newInlineTalentForm,inlineTalentPayload} from '@/utils/talentInlineRegistration'
+import {inlineTalentNameFields,inlineTalentContactFields,newInlineTalentForm,inlineTalentPayload,inlineTalentMissingFields} from '@/utils/talentInlineRegistration'
 const emit=defineEmits(['saved'])
 const visible=ref(false),saving=ref(false),formRef=ref(),bodyRef=ref()
 const form=reactive(newInlineTalentForm()),createState={key:'',signature:''}
 const canCreate=computed(()=>hasPermission(['talents:write','translators:write']))
 const contactsAllowed=computed(()=>isSuperAdmin())
-const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(bodyRef)
+const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,locateDialogFieldByLabel,clearFieldSearch}=useDialogFieldSearch(bodyRef)
 const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'interpretation-inline-talent',form,createDefault:newInlineTalentForm,formRef})
-const nameRules=[{validator:(_rule,_value,done)=>{try{inlineTalentPayload(form,false);done()}catch(error){done(error)}},trigger:['blur','change']}]
+const nameRules=[{validator:(_rule,_value,done)=>{const issue=inlineTalentMissingFields(form).find(item=>item.prop==='nameGroup');done(issue?new Error(issue.message):undefined)},trigger:['blur','change']}]
+function contactRules(key){
+ const rules=key==='primaryPhone'?[{validator:(_rule,_value,done)=>{const issue=inlineTalentMissingFields(form).find(item=>item.prop==='primaryPhone');done(issue?new Error(issue.message):undefined)},trigger:['blur','change']}]:[]
+ if(['primaryEmail','secondaryEmail'].includes(key))rules.push({type:'email',message:'请输入有效邮箱',trigger:'blur'})
+ return rules
+}
 async function open(name){
  if(saving.value)return
  Object.assign(form,newInlineTalentForm(name));createState.key='';createState.signature='';clearFieldSearch();visible.value=true
@@ -47,6 +52,13 @@ function beforeClose(done){if(!saving.value)done()}
 function completed(person){clearDraft();visible.value=false;emit('saved',person);ElMessage.success('已加入人才总库并选用该译员')}
 async function save(allowDuplicate=false){
  if(saving.value||!canCreate.value)return
+ const missing=inlineTalentMissingFields(form)
+ if(missing.length){
+  await formRef.value.validate().catch(()=>false)
+  await ElMessageBox.alert(missing.map(item=>item.message).join('；'),'请补充必填信息',{confirmButtonText:'继续填写',type:'warning'})
+  await locateDialogFieldByLabel(missing[0].prop==='nameGroup'?'中文姓名':missing[0].prop==='primaryPhone'?'手机/电话':'简历路径')
+  return
+ }
  if(!await formRef.value.validate().catch(()=>false))return
  saving.value=true
  try{
@@ -72,3 +84,5 @@ defineExpose({open})
 .inline-talent-registration>.el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
 </style>
 <style scoped>.registration-notice{margin-bottom:16px}h3{font-size:15px;margin:16px 0 12px}</style>
+
+<style scoped>.required-guidance{margin:0 0 12px;color:var(--el-text-color-secondary);font-size:13px}.resume-required :deep(.el-form-item__label){font-weight:700}</style>

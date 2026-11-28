@@ -239,7 +239,7 @@
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <ProjectListRowActions
-            v-if="canWriteProjects"
+            :editable="canWriteProjects" :show-start-request="canWriteProjects" :conversation-project="{module:'translation',id:row.id}"
             :start-request-label="resourceRequestActionLabel(row.id)"
             @edit="handleEdit(row)"
             @start-request="startResourceRequest(row)"

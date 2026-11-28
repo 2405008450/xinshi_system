@@ -4,6 +4,22 @@ import {durationOptions,durationLabel,normalizeReportRow,rowTypes,updateRowTypes
 import {layoutTaskContent,layoutTaskExtra} from '../src/utils/layoutReportTasks.js'
 import {mergeAnnotationOperationRows} from '../src/utils/workReportForm.js'
 import {isEmptyReportRow,newReportRow} from '../src/utils/workReportForm.js'
+import {applyReportProject,reportClientName} from '../src/utils/workReportForm.js'
+import {appendChildRows,syncReportChildren} from '../src/utils/workReportHierarchy.js'
+
+test('选择项目同步客户名，子行继承，换项目清除旧客户，旧记录兼容简称',()=>{
+ const row=newReportRow(),rows=[row]
+ applyReportProject(row,{id:'p1',order_no:'TP-001',project_name:'项目一',project_type:'笔译项目',client_name:'客户全称',client_short_name:'简称'})
+ assert.equal(reportClientName(row),'客户全称')
+ const [child]=appendChildRows(rows,row)
+ assert.equal(reportClientName(child),'客户全称')
+ assert.equal(JSON.parse(JSON.stringify(row)).display_metadata.client_name,'客户全称')
+ applyReportProject(row,{id:'p2',order_no:'AP-002',project_name:'无客户项目',project_type:'标注项目'})
+ syncReportChildren(rows)
+ assert.equal(reportClientName(row),'')
+ assert.equal(reportClientName(child),'')
+ assert.equal(reportClientName({display_metadata:{client_short_name:'旧客户简称'}}),'旧客户简称')
+})
 test('只忽略新增的未填写空白行，不丢弃已填写、已保存、下级或中午工作行',()=>{
  const empty=newReportRow()
  empty.display_metadata._feedback_key='new'

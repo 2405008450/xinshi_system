@@ -403,13 +403,13 @@ def read_received_report(report_id: UUID, db: Session = Depends(get_db), user: A
 
 
 @reports_router.get('/client-options', dependencies=[Depends(require_permission('reports:read'))])
-def report_client_options(keyword: str = '', limit: int = Query(50, ge=1, le=50), db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+def report_client_options(keyword: str = '', limit: int = Query(50, ge=1, le=50), db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user), full_name: bool = False):
     from models import Client
-    from search_matching import keyword_contains
-    # 工作报告只需要客户简称，不开放客户管理资料。
+    from search_matching import keyword_any
+    # 工作报告仅开放客户编号和显示名称，不开放联系方式等客户管理资料。
     from sqlalchemy import func
-    label = func.coalesce(func.nullif(Client.client_short_name, ''), Client.client_name)
-    rows = db.query(Client.id, label.label('name')).filter(keyword_contains(label, keyword)).order_by(label, Client.id).limit(limit).all()
+    label = func.coalesce(func.nullif(Client.client_name if full_name else Client.client_short_name, ''), Client.client_short_name if full_name else Client.client_name)
+    rows = db.query(Client.id, label.label('name')).filter(keyword_any([Client.client_name,Client.client_short_name], keyword)).order_by(label, Client.id).limit(limit).all()
     return [{'id': row.id, 'name': row.name or '未命名客户'} for row in rows]
 
 

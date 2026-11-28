@@ -1,0 +1,17 @@
+<template><div v-if="row" class="overtime-fields"><el-radio-group v-model="row.pricing_mode"><el-radio value="rates">独立组合单价</el-radio><el-radio value="multiplier">基准单价的倍数</el-radio><el-radio value="total">直接填写加班费</el-radio></el-radio-group><template v-if="row.pricing_mode==='total'"><TaxPriceFields v-model="row.taxPrices" :show-unit-prices="false" total-label="加班费" @change="row.amount=row.taxPrices.totalExclTax??row.taxPrices.totalInclTax??0"/><el-form-item label="货币"><el-select v-model="row.currency"><el-option v-for="code in currencies" :key="code" :value="code"/></el-select></el-form-item></template><div v-else-if="row.pricing_mode==='multiplier'" class="overtime-multiplier"><el-form-item label="基准单价"><el-select v-model="row.base_rate_index"><el-option v-for="(rate,index) in rates" :key="index" :value="index" :label="`${rate.direction} · ${rate.currency} ${rate.taxPrices?.unitPriceExclTax??rate.taxPrices?.unitPriceInclTax??rate.amount}/${rate.unit}`"/></el-select></el-form-item><el-form-item label="倍数"><el-input-number v-model="row.multiplier" :min="0.0001" :max="100" :precision="4" :controls="false"/></el-form-item><el-form-item :label="`加班工作量（${rates[row.base_rate_index]?.unit||'基准单位'}）`"><el-input-number v-model="row.quantity" :min="0" :precision="4" :controls="false"/></el-form-item></div><InterpretationCombinationRates v-else v-model="row.rates" :directions="directions" prefix="overtime.rates" default-unit="小时"/><div v-if="row.pricing_mode!=='total'" class="overtime-subtotals"><el-form-item v-for="basis in bases" :key="basis.key" :label="basis.label+'加班费'"><ReadonlyField :model-value="total(basis.key)" source="auto" placeholder="填写单价和数量后计算"/></el-form-item></div></div></template>
+<script setup>
+import {computed} from 'vue'
+import TaxPriceFields from './TaxPriceFields.vue'
+import InterpretationCombinationRates from './InterpretationCombinationRates.vue'
+import ReadonlyField from './ReadonlyField.vue'
+import {taxPriceForm} from '@/utils/taxPrices'
+import {interpretationCurrencies as currencies,interpretationOvertimeRates,interpretationLineTotal} from '@/utils/interpretationCustomerFinance'
+import {quotationMoney} from '@/utils/quotation'
+const row=defineModel({type:Object,required:true})
+const props=defineProps({rates:{type:Array,default:()=>[]},directions:{type:Array,default:()=>[]}})
+if(!row.value)row.value={amount:0,currency:'CNY',taxPrices:taxPriceForm()}
+row.value.pricing_mode??=(row.value.amount!=null||Object.values(row.value.taxPrices||{}).some(value=>value!=null)?'total':'rates');row.value.multiplier??=1;row.value.quantity??=1;row.value.base_rate_index??=0;row.value.rates??=[]
+const bases=[{key:'excl_tax',label:'不含税'},{key:'incl_tax',label:'含税'}]
+function total(basis){const amounts={};for(const rate of interpretationOvertimeRates({has_overtime:true,overtime:row.value,rates:props.rates})){const cents=interpretationLineTotal(rate,basis);if(cents!=null)amounts[rate.currency]=(amounts[rate.currency]??0n)+cents}return Object.entries(amounts).map(([code,cents])=>`${code} ${quotationMoney(cents)}`).join('；')}
+</script>
+<style scoped>.overtime-fields{margin-top:12px}.overtime-multiplier{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-top:16px}.overtime-subtotals{display:grid;grid-template-columns:1fr 1fr;gap:12px}.overtime-fields :deep(.el-select),.overtime-fields :deep(.el-input-number){width:100%}@media(max-width:700px){.overtime-multiplier,.overtime-subtotals{grid-template-columns:1fr}}</style>

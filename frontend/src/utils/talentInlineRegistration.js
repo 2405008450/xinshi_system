@@ -6,7 +6,17 @@ export function newInlineTalentForm(name=''){
  form[/[\u3400-\u9fff]/.test(name)?'chineseName':/[a-z]/i.test(name)?'englishName':'chineseName']=String(name||'').trim()
  return form
 }
+export function inlineTalentMissingFields(form){
+ const names=[...inlineTalentNameFields.map(field=>form[field.key]),...String(form.otherNamesText||'').split(/\r?\n/)]
+ const missing=[]
+ if(!names.some(value=>String(value||'').trim()))missing.push({prop:'nameGroup',message:'姓名至少填写一项（中文姓名、外文姓名、昵称或其他名字）'})
+ if(!inlineTalentContactFields.some(field=>String(form[field.key]||'').trim()))missing.push({prop:'primaryPhone',message:'联系方式至少填写一项（手机/电话、微信、邮箱等）'})
+ if(!String(form.resumePath||'').trim())missing.push({prop:'resumePath',message:'请填写简历路径'})
+ return missing
+}
 export function inlineTalentPayload(form,contactsAllowed=false,allowDuplicate=false){
+ const missing=inlineTalentMissingFields(form)
+ if(missing.length)throw new Error(missing.map(item=>item.message).join('；'))
  const otherNames=String(form.otherNamesText||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean)
  const names=inlineTalentNameFields.map(field=>String(form[field.key]||'').trim())
  const fullName=[...names,...otherNames].find(Boolean)

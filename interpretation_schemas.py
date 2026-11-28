@@ -30,7 +30,8 @@ PROJECT_TYPE_LABELS = {
 PROJECT_STATUSES = {
     "initial_follow_up", "deal_pending_execution", "in_progress", "cancelled",
     "partially_cancelled", "ended", "settled",
-    "candidates_provided", "client_selected", "client_changed",
+    "client_contract_signed","interpreter_contract_signed","both_contracts_signed","client_interpreter_connected",
+    "candidates_provided", "candidates_added", "candidates_adjusted", "client_selected", "client_changed", "client_cancelled","client_added","client_reduced","client_mixed",
 }
 RATING_VALUES = {
     "very_satisfied", "satisfied", "basically_satisfied",
@@ -155,6 +156,9 @@ class InterpretationLanguageDirectionResponse(InterpretationLanguageDirectionInp
 
 class InterpretationInterpreterInput(BaseModel):
     client_selected: Optional[bool] = None
+    contract_path: Optional[str] = Field(default=None,max_length=4000)
+    language_ids: Optional[list[UUID]] = None
+    rates: Optional[list] = None
     translator_id: UUID
     customer_rating: Optional[str] = None
     evaluation_note: Optional[str] = None
@@ -167,11 +171,23 @@ class InterpretationInterpreterInput(BaseModel):
             raise ValueError("不支持的客户评价")
         return value
 
+    @field_validator('rates')
+    @classmethod
+    def validate_rates(cls,value):
+        if value is None:return None
+        from interpretation_finance_schemas import Rate
+        if len(value)>100:raise ValueError('组合单价最多100行')
+        return [Rate.model_validate(row) for row in value]
+
     _normalize_note = field_validator("evaluation_note", mode="before")(_nullable_text)
 
 
 class InterpretationInterpreterResponse(InterpretationInterpreterInput):
+    cancellation_issues: list[dict] = Field(default_factory=list)
     client_selected: bool = False
+    contract_path: str = ''
+    language_ids: list[UUID] = Field(default_factory=list)
+    rates: list = Field(default_factory=list)
     id: UUID
     sequence_no: int
     translator_name: str
@@ -209,6 +225,7 @@ class InterpreterRequirementsInput(BaseModel):
 
 
 class InterpretationProjectWrite(BaseModel):
+    cancellation_details: Optional['CancellationDetails'] = None
     interpreter_requirements: Optional[InterpreterRequirementsInput] = None
     client_source: Optional[str] = Field(default=None, max_length=500)
     finance_draft: InterpretationProjectFinanceDraft | None = None
@@ -359,6 +376,7 @@ class InterpretationProjectUpdate(InterpretationProjectWrite):
 
 
 class InterpretationProjectStatusUpdate(BaseModel):
+    cancellation_details: Optional['CancellationDetails'] = None
     project_status: str
     effective_on: datetime = Field(default_factory=lambda:project_progress_datetime(business_now()))
     change_note: Optional[str] = Field(default=None, max_length=10000)
@@ -543,3 +561,9 @@ class InterpretationNamePreviewRequest(BaseModel):
 
 class InterpretationNamePreviewResponse(BaseModel):
     project_name: str
+
+from interpretation_partial_cancellation import CancellationDetails
+InterpretationProjectWrite.model_rebuild()
+InterpretationProjectCreate.model_rebuild()
+InterpretationProjectUpdate.model_rebuild()
+InterpretationProjectStatusUpdate.model_rebuild()

@@ -1,6 +1,6 @@
 <template>
- <el-popover v-model:visible="visible" trigger="click" placement="top-start" :width="360" :z-index="popoverZ" popper-class="chat-text-format-popover">
-  <template #reference><el-button text size="small" aria-label="文字格式" title="文字格式" :disabled="disabled" @mousedown.prevent @click="popoverZ=chatOverlayZIndex($event.currentTarget)"><span class="chat-format-trigger">A</span><span>文字格式</span></el-button></template>
+ <el-popover title="文字格式" v-model:visible="visible" trigger="click" placement="top-start" :width="360" :z-index="popoverZ" popper-class="chat-text-format-popover">
+  <template #reference><el-button class="chat-format-button" text size="small" aria-label="文字格式" title="文字格式" :disabled="disabled" @mousedown.prevent @click="popoverZ=chatOverlayZIndex($event.currentTarget)"><span class="chat-format-trigger" aria-hidden="true">A</span><span>文字格式</span></el-button></template>
   <div class="chat-format-tools" role="toolbar" aria-label="文字格式选项" @mousedown.prevent>
    <button v-for="tool in tools" :key="tool.label" type="button" :disabled="disabled" :title="tool.label+'（先选中文字）'" :aria-label="tool.label" :style="tool.style" @click="apply(tool)">{{tool.label}}</button>
   </div>
@@ -32,6 +32,7 @@ async function apply(tool){const field=props.input?.textarea||props.input?.$el?.
 </script>
 <style scoped>
 .chat-format-trigger{font-weight:700;text-decoration:underline;text-underline-offset:3px;margin-right:5px}
+.chat-format-button.el-button{flex:0 0 auto;width:auto!important;min-width:max-content;max-width:none;white-space:nowrap;margin-left:6px!important;padding-left:10px!important;padding-right:10px!important}
 .chat-format-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .chat-format-tools button{border:1px solid #dbe3ee;border-radius:5px;background:white;padding:7px 5px;font-size:12px;cursor:pointer;color:#334155;white-space:nowrap}
 .chat-format-tools button:disabled{opacity:.45;cursor:not-allowed}

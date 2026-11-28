@@ -34,8 +34,8 @@ def test_monthly_customer_cohorts_full_history_prices_zero_and_currency(environm
  result=report(db,start=date(2026,11,1),end=date(2026,11,30))
  summary=result['periods'][0]
  assert summary['order_count']==5 and summary['customer_count']==2
- assert summary['new_customer_count']==summary['old_customer_count']==1
- assert summary['new_customer_share']==50 and summary['new_order_share']==40 and summary['old_order_share']==40 and summary['unknown_order_share']==20
+ assert summary['new_customer_count']==0 and summary['old_customer_count']==2
+ assert summary['new_customer_share']==0 and summary['new_order_share']==0 and summary['old_order_share']==80 and summary['unknown_order_share']==20
  old_row=next(row for row in result['customers'] if row['client_id']==str(old.id))
  assert old_row['first_order_date']=='2026-09-30' and old_row['cohort']=='old'
  assert old_row['amounts'][0]['total_amount']=='100.00' and old_row['amounts'][0]['average_amount']=='50.00' and old_row['amounts'][0]['complete_order_count']==2
@@ -72,11 +72,11 @@ def test_week_cross_month_and_daily_new_customer_status(environment):
  db.commit()
  weekly=report(db,start=date(2026,11,1),end=date(2026,11,2),granularity='week')
  assert weekly['periods'][0]['period_start']=='2026-10-26'
- assert weekly['periods'][0]['new_customer_count']==1
+ assert weekly['periods'][0]['new_customer_count']==0 and weekly['periods'][0]['old_customer_count']==1
  monthly=report(db,start=date(2026,11,1),end=date(2026,11,2))
  assert monthly['periods'][0]['old_customer_count']==1
  daily=report(db,start=date(2026,10,31),end=date(2026,11,1),granularity='day')
- assert daily['periods'][0]['new_customer_count']==1 and daily['periods'][1]['old_customer_count']==1
+ assert daily['periods'][0]['old_customer_count']==1 and daily['periods'][1]['old_customer_count']==1
 
 
 def test_dates_timezone_invalid_numbers_and_empty_ranges(environment):

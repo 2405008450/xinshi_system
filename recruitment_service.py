@@ -49,7 +49,7 @@ from field_filtering import apply_scalar_specs
 RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
 DEFAULT_CLIENT_MANAGER_NAME = "欧阳靖琳"
 DEFAULT_RESUME_SOURCES = ("BOSS", "智联", "小红书", "微信", "广外校友推荐")
-NESTED_FIELDS = {"client_manager_change_reason", "language_directions", "role_assignments"}
+NESTED_FIELDS = {"client_manager_change_reason", "language_directions", "role_assignments", "cancellation_reason"}
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
 
 
@@ -380,6 +380,8 @@ def create_recruitment_project(
     idempotency_key: Optional[str] = None,
     operation_source: str = "project_form",
 ) -> RecruitmentProject:
+    if payload.project_status == 'cancelled' and not (payload.cancellation_reason or '').strip():
+        raise ValueError('项目取消时请填写原因')
     data = payload.model_dump(exclude=NESTED_FIELDS)
     _resolve_client(db, data)
     from project_client_contact_details import save_project_contact_details
@@ -405,7 +407,7 @@ def create_recruitment_project(
     validate_assignment_map(db, assignments)
     ensure_project_responsibilities(db, 'recruitment', project.id, assignments)
     _sync_languages(db, project, payload)
-    _add_progress(db, project, operator_id=created_by, to_status=project.project_status, note="创建招聘项目")
+    _add_progress(db, project, operator_id=created_by, to_status=project.project_status, note=payload.cancellation_reason.strip() if project.project_status=='cancelled' else "创建招聘项目",is_system=project.project_status!='cancelled')
     record_project_operation(
         db, project_type="recruitment", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
@@ -427,6 +429,8 @@ def update_recruitment_project(
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'recruitment', project, payload.client_manager_id, payload.client_manager_change_reason, operator_id)
     old_status = project.project_status
+    if old_status != payload.project_status and payload.project_status == 'cancelled' and not (payload.cancellation_reason or '').strip():
+        raise ValueError('项目取消时请填写原因')
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     # 来源咨询一经建项即不可通过普通编辑解绑或换绑。
     data.pop("consultation_id", None)
@@ -448,7 +452,7 @@ def update_recruitment_project(
     if old_status != project.project_status:
         _add_progress(
             db, project, operator_id=operator_id, from_status=old_status,
-            to_status=project.project_status, note="项目状态变更",
+            to_status=project.project_status, note=payload.cancellation_reason.strip() if project.project_status=='cancelled' else "项目状态变更",is_system=project.project_status!='cancelled',
         )
     project.updated_at = datetime.now()
     db.commit()
@@ -467,6 +471,8 @@ def update_recruitment_project_status(
         db.query(RecruitmentProject).filter_by(id=project_id).with_for_update().populate_existing().one()
         assert_fresh(project, expected_updated_at)
     old_status = project.project_status
+    if old_status != project_status and project_status=='cancelled' and not (note or '').strip():
+        raise ValueError('项目取消时请填写原因')
     if old_status == project_status and not note:
         return project
     project.project_status = project_status

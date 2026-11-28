@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-images">
+  <div class="chat-images" :class="{'chat-images--tools':toolsOnly}">
     <el-upload v-if="showTools" :show-file-list="false" :auto-upload="false" :on-change="selectImage"
       accept="image/jpeg,image/png,image/gif,image/webp" multiple :disabled="disabled || items.length >= 9">
       <el-button text size="small" :icon="Picture" aria-label="发送图片" title="发送图片" :disabled="disabled || items.length >= 9" />
@@ -32,6 +32,7 @@ const selectImage = (file, files) => {
 
 <style scoped>
 .chat-images{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-height:180px;overflow-y:auto;padding-top:8px}
+.chat-images--tools{flex:0 0 auto;flex-wrap:nowrap;max-height:none;overflow:visible;padding-top:0}
 .chat-images__hint{font-size:12px;color:var(--el-text-color-secondary)}
 .chat-images__item{display:flex;align-items:center;gap:6px;border:1px solid var(--el-border-color);border-radius:6px;padding:4px;font-size:12px}
 .chat-images__item img{width:64px;height:48px;object-fit:contain}

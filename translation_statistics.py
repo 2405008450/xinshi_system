@@ -42,7 +42,7 @@ def summarize(records,first_dates,start,end,granularity,tax_basis,*,period_bound
         if not start<=day<=end:continue
         left,right=bounds(day);period=periods[left]
         key=record['client_key'];first=first_dates.get(key) if key else None
-        cohort='unknown' if not first else 'new' if left<=first<=right else 'old'
+        cohort=record.get('cohort') or ('unknown' if not first else 'new' if left<=first<=right else 'old')
         period['order_count']+=1;period[cohort+'_order_count']+=1
         if key:
             period['_clients'].add(key)
@@ -50,7 +50,7 @@ def summarize(records,first_dates,start,end,granularity,tax_basis,*,period_bound
         customer=customers.setdefault((left,key),dict(period_start=left.isoformat(),period_end=right.isoformat(),client_id=key,client_name=record['client_name'],client_short_name=record['client_short_name'],first_order_date=first.isoformat() if first else None,cohort=cohort,order_count=0,missing_amount_orders=0,partial_amount_orders=0,_money={}))
         customer['order_count']+=1
         node=record['finance'];amounts=node.get('totals_'+tax_basis,{})
-        incomplete=not amounts or any(not item.get('totals_'+tax_basis) for item in leaves(node))
+        incomplete=record.get('incomplete',not amounts or any(not item.get('totals_'+tax_basis) for item in leaves(node)))
         if not amounts:customer['missing_amount_orders']+=1
         elif incomplete:customer['partial_amount_orders']+=1
         for currency,amount in amounts.items():
@@ -79,36 +79,5 @@ def leaves(node):
 
 
 def report(db,*,start,end,granularity='month',date_basis='order',tax_basis='excl_tax',client_keyword=''):
-    if start>end:raise HTTPException(422,'开始日期不能晚于结束日期')
-    if (end-start).days>1095:raise HTTPException(422,'单次统计范围请控制在三年以内')
-    # 全历史轻量元数据用于首次下单判断，不能只在当前筛选内寻找“新客户”。
-    clients={row.id:row for row in db.query(Client.id,Client.client_name,Client.client_short_name,Client.client_code).all()}
-    metadata=db.query(Project.id,Project.order_no,Project.client_id,SubClient.parent_client_id,Project.created_at,Project.customer_reception_time).outerjoin(SubClient,Project.sub_client_id==SubClient.id).filter(Project.annotation_migrated_at.is_(None)).all()
-    first_dates={};selected=[];missing_date=0;fallback_date=0
-    for row in metadata:
-        day=order_date(row.order_no) if date_basis=='order' else business_datetime(row.customer_reception_time).date() if row.customer_reception_time else None
-        fallback=day is None
-        if fallback and row.created_at:day=business_datetime(row.created_at).date()
-        if day is None:missing_date+=1;continue
-        client_id=row.client_id or row.parent_client_id;key=str(client_id) if client_id else None;client=clients.get(client_id)
-        if key:first_dates[key]=min(first_dates.get(key,day),day)
-        if not start<=day<=end:continue
-        name=(client.client_name or client.client_short_name or '未命名客户') if client else '未关联客户'
-        short=(client.client_short_name or name) if client else name
-        if not matches_keywords(' '.join([name,short,client.client_code or '' if client else '']),client_keyword):continue
-        if fallback:fallback_date+=1
-        selected.append(dict(id=row.id,day=day,client_key=key,client_name=name,client_short_name=short))
-    # 批量加载本期订单树、计价及统计；不逐项目查询人员或客户。
-    projects={}
-    for offset in range(0,len(selected),400):
-        rows=db.query(Project).options(joinedload(Project.client),joinedload(Project.sub_client),selectinload(Project.customer_charge_items),selectinload(Project.sub_orders).selectinload(Child.customer_charge_items)).filter(Project.id.in_([row['id'] for row in selected[offset:offset+400]])).all()
-        projects.update({row.id:row for row in rows})
-    import crud
-    from translation_customer_finance import tree
-    crud._attach_word_count_matrices(db,projects=list(projects.values()))
-    for record in selected:
-        project=projects[record['id']];project.client_name=record['client_name'];project.client_short_name=record['client_short_name']
-        # 报表按所选含税或不含税金额汇总，无需逐单读取默认计费口径。
-        record['finance']=tree(project,summary_only=True,include_billing_tax_mode=False)['item']
-    result=summarize(selected,first_dates,start,end,granularity,tax_basis)
-    return dict(**result,generated_at=business_now().isoformat(),start=start.isoformat(),end=end.isoformat(),granularity=granularity,date_basis=date_basis,tax_basis=tax_basis,fallback_date_orders=fallback_date,undated_orders=missing_date,order_count=len(selected))
+    from project_statistics import report as unified_report
+    return unified_report(db,'translation',start=start,end=end,granularity=granularity,date_basis=date_basis,tax_basis=tax_basis,client_keyword=client_keyword)

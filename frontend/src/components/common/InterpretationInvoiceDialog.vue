@@ -16,6 +16,7 @@
           <el-button :disabled="!scope.month||busy" @click="navigate('statement')">特殊结算对账单</el-button>
           <el-button :disabled="busy" @click="navigate('price')">价格与付款</el-button>
         </div>
+        <details v-if="grouped" class="invoice-disclosure"><summary>合并开票项目与计价明细（{{scope.items.length}} 项）</summary><div v-for="item in scope.items" :key="item.id"><strong>{{item.order_no}} · {{item.project_name}}</strong><p>{{formatFinanceAmounts(item.totals)}} · {{invoiceStatusOptions.find(option=>option.value===item.invoice_status)?.label||'未开票'}}</p><pre>{{financeSummary(item.pricing||{})}}</pre><el-button link @click="choose(item.id)">编辑该项目发票</el-button></div></details>
         <template v-if="grouped">
           <p>本期需开票项目的含税合计：{{formatFinanceAmounts(scope.totals)}}</p>
           <AppForm :model="selection" label-position="top" data-auto-draft="off">
@@ -34,17 +35,24 @@
             <el-form-item label="是否需发票"><ReadonlyField :model-value="current.required?'需发票':'未勾选需发票'" source="auto" /></el-form-item>
             <el-form-item label="项目含税金额"><ReadonlyField :model-value="formatFinanceAmounts(current.totals)" source="auto" /></el-form-item>
             <el-form-item label="开票主体"><el-select v-model="draft.subject_key" clearable><el-option v-for="row in subjects" :key="row.key" :value="row.key" :label="row.name" /></el-select></el-form-item>
+            <el-form-item label="发票类型"><el-select v-model="draft.invoice_type"><el-option v-for="(label,key) in invoiceTypeLabels" :key="key" :value="key" :label="label"/></el-select></el-form-item>
+            <el-form-item label="客户开票抬头"><el-select v-model="draft.buyer_index" :disabled="!buyerParties.length"><el-option v-for="(buyer,index) in buyerParties" :key="index" :value="index" :label="buyer.title||'未填写抬头'"/></el-select></el-form-item>
             <el-form-item label="发票状态"><el-select v-model="draft.invoice_status">
               <el-option v-for="option in invoiceStatusOptions" :key="option.value" v-bind="option" />
             </el-select></el-form-item>
           </div>
-          <el-form-item label="发票附件及备注">
+          <el-form-item label="发票说明"><ReadonlyField :model-value="current.note||'未填写'" source="auto"/><small>在价格与付款中填写。</small></el-form-item>
+          <details class="invoice-disclosure"><summary>项目计价明细</summary><pre>{{financeSummary(current.pricing||{})}}</pre></details>
+          <el-form-item label="发票截图及备注">
             <ScreenshotInput :key="current.id" v-model="draft.proofs" type="textarea" allow-invoice-files
               :invoice-order-no="current.order_no" :rows="3" :maxlength="20000"
               :disabled="!canWrite||saving" placeholder="拖入 PDF、OFD 发票或截图，也可填写开票备注"
               @uploading-change="uploading=$event" />
+            <el-button v-if="draft.proofs&&canWrite" link type="danger" @click="removeInvoices">删除发票附件及备注</el-button>
           </el-form-item>
         </AppForm>
+        <details v-if="current?.history?.length" class="invoice-disclosure"><summary>发票修改记录（{{current.history.length}}）</summary><div v-for="event in current.history" :key="event.id"><strong>{{event.actor_name}} · {{formatBusinessDateTime(event.at)}}</strong><div v-for="(value,label) in {修改前:event.before,修改后:event.after}" :key="label"><p>{{label}} · {{invoiceStatusOptions.find(option=>option.value===value.invoice_status)?.label||'未开票'}}</p><ScreenshotText :text="value.proofs||''"/></div></div></details>
+        <details v-if="module==='interpretation'&&relatedProjects.length" class="invoice-disclosure"><summary>客户项目开票记录</summary><el-table :data="relatedProjects" border max-height="300"><el-table-column prop="order_no" label="订单号"/><el-table-column prop="project_name" label="项目名称"/><el-table-column label="发票状态"><template #default="{row}">{{invoiceStatusOptions.find(option=>option.value===row.payload?.invoice?.invoice_status)?.label||'未开票'}}</template></el-table-column><el-table-column label="操作"><template #default="{row}"><el-button link :disabled="row.id===current?.id" @click="relatedProjectId=row.id">打开发票</el-button></template></el-table-column></el-table></details>
       </div>
     </div>
     <template #footer>
@@ -52,6 +60,7 @@
       <el-button v-if="canWrite" type="primary" :loading="saving" :disabled="!current||loading||uploading||!dirty" @click="save">保存发票</el-button>
     </template>
   </DraggableFormDialog>
+  <InterpretationInvoiceDialog v-if="relatedProjectId" :model-value="!!relatedProjectId" :project-id="relatedProjectId" :can-write="canWrite" @update:model-value="value=>{if(!value)relatedProjectId=''}" @saved="emit('saved')"/>
   <BusinessInvoiceRequestDialog v-if="requestVisible" v-model="requestVisible" :project-id="selection.id" :module="module" @saved="emit('saved')" />
 </template>
 
@@ -66,15 +75,19 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'
 import {settlementModeLabels} from '@/utils/settlementModes'
 import {invoiceStatusOptions} from '@/utils/documentRequirements'
-import {formatFinanceAmounts} from '@/utils/interpretationCustomerFinance'
+import {financeSummary,formatFinanceAmounts} from '@/utils/interpretationCustomerFinance'
 import CustomerInvoiceProfile from './CustomerInvoiceProfile.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import ReadonlyField from './ReadonlyField.vue'
+import {formatBusinessDateTime} from '@/utils/dateTime'
+import {getClientInvoiceProfile,invoiceTypeLabels} from '@/api/invoiceParties'
+import {getInterpretationFinancePage} from '@/api/interpretationCustomerFinance'
+import ScreenshotText from './ScreenshotText.vue'
 import ScreenshotInput from './ScreenshotInput.vue'
 
 const props=defineProps({modelValue:Boolean,projectId:String,canWrite:Boolean,module:{type:String,default:'interpretation'}})
 const emit=defineEmits(['update:modelValue','saved','statement','price'])
-const requestVisible=ref(false),subjects=ref([])
+const requestVisible=ref(false),subjects=ref([]),buyerParties=ref([]),relatedProjects=ref([]),relatedProjectId=ref('')
 const subject=computed(()=>subjects.value.find(row=>row.key===draft.subject_key))
 const canWriteClients=hasPermission('clients:write')
 const canReadClients=canWriteClients||hasPermission('clients:read')
@@ -87,13 +100,15 @@ const title=computed(()=>{
   const heading={special:'特殊结算',monthly:'合并结算发票',sub_client:'子客户结算发票'}[scope.value?.mode]||'发票'
   return current.value ? `${heading} · ${current.value.order_no}` : heading
 })
-const dirty=computed(()=>!!current.value&&(draft.invoice_status!==current.value.invoice_status||draft.proofs!==current.value.proofs||draft.subject_key!==(current.value.subject_key||null)))
+const dirty=computed(()=>!!current.value&&(draft.invoice_status!==current.value.invoice_status||draft.proofs!==current.value.proofs||draft.subject_key!==(current.value.subject_key||null)||draft.invoice_type!==(current.value.invoice_type||'electronic_normal')||draft.buyer_index!==(current.value.buyer_index||0)))
 const busy=computed(()=>saving.value||uploading.value)
 let controller
 function assign(id){
   selection.id=id
   Object.assign(draft,{invoice_status:current.value?.invoice_status||'unissued',proofs:current.value?.proofs||'',subject_key:current.value?.subject_key||null,invoice_type:current.value?.invoice_type||'electronic_normal',buyer_index:current.value?.buyer_index||0})
 }
+async function removeInvoices(){try{await ElMessageBox.confirm('清除发票附件及备注？保存后仍可在修改记录中查看。','删除发票');draft.proofs=''}catch{}}
+watch(()=>[current.value?.client_id,current.value?.sub_client_id],async([clientId,subClientId],_,onCleanup)=>{const request=new AbortController();onCleanup(()=>request.abort());buyerParties.value=[];relatedProjects.value=[];if(!clientId)return;try{const info=await getClientInvoiceProfile(clientId,subClientId);if(!request.signal.aborted)buyerParties.value=info.parties?.length?info.parties:[info.party].filter(Boolean);if(props.module==='interpretation'){const data=await getInterpretationFinancePage({client_id:clientId,only_mine:false,skip:0,limit:100},request.signal);if(!request.signal.aborted)relatedProjects.value=data.items}}catch{/* 开票主体仍可通过客户开票信息管理。 */}})
 async function canLeave(){
   if(busy.value)return false
   if(!dirty.value)return true
@@ -141,7 +156,7 @@ onBeforeUnmount(()=>controller?.abort())
 :global(.interpretation-invoice-dialog>.el-dialog__body){flex:1;min-height:0;overflow-y:auto}
 :global(.interpretation-invoice-dialog>.el-dialog__header),:global(.interpretation-invoice-dialog>.el-dialog__footer){flex:none}
 :global(.interpretation-invoice-dialog>.el-dialog__footer){border-top:1px solid var(--el-border-color-light)}
-.invoice-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:0 12px}
+.invoice-disclosure{margin:12px 0;padding:10px;border:1px solid var(--el-border-color);border-radius:6px}.invoice-disclosure summary{cursor:pointer;font-weight:600}.invoice-disclosure pre{white-space:pre-wrap;overflow-wrap:anywhere}.invoice-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:0 12px}
 .invoice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 .invoice-actions>.el-button{margin:0}
 </style>

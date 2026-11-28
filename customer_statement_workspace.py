@@ -108,6 +108,7 @@ class SpecialStatementInvoiceWrite(BaseModel):
     revision:int=Field(ge=1)
     status:Literal['unissued','partial','issued']='unissued'
     proofs:str=Field(default='',max_length=20000)
+    receipt_proofs:str=Field(default='',max_length=20000)
     subject_key:Literal['guangzhou','shenzhen','shanghai']|None=None
 
 

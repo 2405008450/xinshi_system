@@ -71,9 +71,9 @@ def desktop_presence(payload: PresenceRequest, db=Depends(get_db), user=Depends(
 
 @router.get('/messages/search')
 def global_message_search(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
-                          limit: int = Query(30, ge=1, le=100), favorites_only: bool = False, db=Depends(get_db), user=Depends(get_current_user)):
+                          limit: int = Query(30, ge=1, le=100), favorites_only: bool = False, tag_id: UUID | None = None, db=Depends(get_db), user=Depends(get_current_user)):
     from chat_global_search import search_messages
-    return search_messages(db, user, keyword, offset=offset, limit=limit, favorites_only=favorites_only)
+    return search_messages(db, user, keyword, offset=offset, limit=limit, favorites_only=favorites_only, tag_id=tag_id)
 
 DIRECTORY_LIMIT = 1000
 RECENT_LIMIT = 8
@@ -112,6 +112,15 @@ def conversation_work_report_context(kind: Literal['annotation','translation','d
                                      db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if not any(user_has_permission(db,user.id,permission) for permission in ('reports:read','reports:write')):
         raise HTTPException(403,'没有工作报告权限')
+    from chat_project_views import work_report_context
+    return work_report_context(db,user,kind,conversation_id)
+
+
+@router.get('/conversations/{kind}/{conversation_id}/progress-context')
+def conversation_progress_context(kind: Literal['annotation','translation','discussion','direct'], conversation_id: UUID,
+                                  db: Session=Depends(get_db),user: AppUser=Depends(get_current_user)):
+    if not user_has_permission(db,user.id,'projects:write'):
+        raise HTTPException(403,'没有项目进度编辑权限')
     from chat_project_views import work_report_context
     return work_report_context(db,user,kind,conversation_id)
 
@@ -307,10 +316,10 @@ def decorate_member_counts(db, rows):
 
 @router.get('/sessions/history')
 def session_history(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
-                    limit: int = Query(30, ge=1, le=100), mine: bool = False, db: Session = Depends(get_db),
+                    limit: int = Query(30, ge=1, le=100), mine: bool = False, groups_only: bool = False, db: Session = Depends(get_db),
                     user: AppUser = Depends(get_current_user)):
     from chat_session_history import list_sessions
-    return list_sessions(db, user, keyword, offset, limit, mine)
+    return list_sessions(db, user, keyword, offset, limit, mine, groups_only)
 
 
 @router.get('/sessions')
@@ -400,8 +409,17 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
              project_status: str | None = None, project_id: UUID | None = None,
              sort: Literal['time_desc', 'time_asc', 'customer_asc', 'customer_desc'] = 'time_desc',
              mention_kind: Literal['personal', 'all'] | None = None,
-             sender_name: str | None = Query(None,max_length=255), include_senders: bool = False,
+             sender_name: str | None = Query(None,max_length=255), sender_names: str | None = Query(None,max_length=20000), include_senders: bool = False,
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    selected_senders = None
+    if sender_names:
+        import json
+        try:
+            selected_senders = json.loads(sender_names)
+        except (ValueError, TypeError):
+            raise HTTPException(422, '发送人筛选格式不正确')
+        if not isinstance(selected_senders, list) or len(selected_senders)>200 or any(not isinstance(name,str) or not name or len(name)>255 for name in selected_senders):
+            raise HTTPException(422, '发送人筛选格式不正确')
     if project_id is not None and project_type is None:
         raise HTTPException(422, '指定项目时必须同时指定项目类型')
     if project_status is not None and project_status not in ANNOTATION_PROJECT_STATUSES:
@@ -409,7 +427,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
     if project_status and project_type == 'translation':
         raise HTTPException(422, '标注项目状态不能用于笔译项目')
     return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
-                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort, mention_kind=mention_kind, sender_name=sender_name, include_senders=include_senders)
+                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort, mention_kind=mention_kind, sender_name=sender_name, sender_names=selected_senders, include_senders=include_senders)
 
 
 class PreferenceRequest(BaseModel):

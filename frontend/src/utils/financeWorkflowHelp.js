@@ -1,7 +1,7 @@
 // 帮助与实际入口共用术语；截图使用系统开发测试客户，不展示真实客户资料。
 import { customerManagementAccess } from './customerManagementHelp.js'
 
-export const financeHelpUpdatedAt = '2026-11-27'
+export const financeHelpUpdatedAt = '2026-11-29'
 
 export const financeWorkflowOverview = {
   id: 'workflow-overview',
@@ -289,3 +289,5 @@ financeWorkflowSections.push({id:'oral-translation-parity',title:'口译与笔�
  '口译保留按时长单位及组合工作量计算单价、总价和加班费的差异；总价调整、计费税口径、付款凭证和行政确认沿用共用表单。',
  '客户管理→财务信息→口译可维护独立的客户/子客户设置，不会覆盖笔译设置。单据需求保存后双向同步；项目单价回写客户仍需点击确认。',
  '多单或子客户结算的单据按月份及期次隔离，切换账期结算对象后，新单据采用相应客户名称和资料。合并及特殊结算在实际对账单中登记付款；查账追账按有效单据金额、付款核对，不再重复累计源项目。客户付款账期支持自由填写。']})
+
+financeWorkflowSections.push({id:'full-payment-verification',title:'已付全款的核对结果与双向凭证',paragraphs:['选择已付全款后，按付款币种核对实际金额与对应项目、合并订单或账单总价。加载总价和刷新核对结果属于系统读取，不应清空核对键或制造未保存草稿。','固定收费的计费口径在上方费用区调整；核对区显示系统总价。金额不一致时补充原因，所选币种与总价币种必须对应。','客户支付截图和信实收款截图分别填写；已保存的凭证及备注可查修改记录，行政确认人和时间为系统只读记录。']})

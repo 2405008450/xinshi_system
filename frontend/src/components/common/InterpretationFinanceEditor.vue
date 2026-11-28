@@ -99,7 +99,7 @@
     <CustomerQuotationDialog v-if="quotationVisible" v-model="quotationVisible" module="interpretation" :defer-save="deferSave"
       :projects="documentProjects" :draft-project="quotationProject" :draft="quotationDraft||context.quotation||quotationDefaults"
       @update:draft="quotationDraft=$event" @saved="refreshQuotationRevision" />
-    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :projects="documentProjects" />
+    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :project-id="targetId" :projects="documentProjects" />
   </span>
 </template>
 <script setup>

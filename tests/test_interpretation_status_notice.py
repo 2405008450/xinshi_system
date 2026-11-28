@@ -18,7 +18,7 @@ def test_status_chat_and_email_only_send_saved_status_reason_in_existing_room(de
     db.add(event);project.project_status='candidates_provided';db.commit()
     result=service.send(db,users[0],'interpretation',project.id,uuid4(),status_change_id=event.id)
     assert original['room_id']==result['room_id']
-    body='项目状态：已提供人选\n变更原因：已登记译员：测试译员（1人）\n\n【登记时自动发送】'
+    body='项目状态：已提供人选（1人）\n变更原因：已登记译员：测试译员（1人）\n\n【登记时自动发送】'
     message=db.query(DiscussionMessage).order_by(DiscussionMessage.created_at.desc()).first()
     assert message.content==project.order_no+' · 项目状态更新\n\n'+body
     monkeypatch.setattr(mail,'resolve_project_sender',lambda *_:(None,{}))

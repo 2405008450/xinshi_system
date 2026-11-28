@@ -10,3 +10,5 @@ test('自动人选状态中文、人数与共用状态目录一致',()=>{
  assert.equal(getProjectStatusLabel('interpretation','candidates_provided'),'已提供人选')
  assert.equal(statusType('client_changed'),'warning')
 })
+
+test('人选增加及调整均显示当前人数，包含零人',()=>{assert.equal(statusLabel('candidates_added',3),'人选增加（3人）');assert.equal(statusLabel('candidates_adjusted',0),'人选调整（0人）')})

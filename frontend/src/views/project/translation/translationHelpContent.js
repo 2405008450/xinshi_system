@@ -1,6 +1,6 @@
 import { customerManagementAccess, customerManagementHelpSections } from '@/utils/customerManagementHelp'
 
-export const translationHelpUpdatedAt = '2026-11-27'
+export const translationHelpUpdatedAt = '2026-11-29'
 
 export const translationHelpSections = [
   ...customerManagementHelpSections.filter(section => ['customer-registration-source', 'customer-name-history'].includes(section.id)).map(section => ({ ...section, group: '先看这里：登记与补充' })),
@@ -188,3 +188,5 @@ export const translationHelpSections = [
 translationHelpSections.push({id:'service-content-statistics-help',group:'项目填写',title:`${translationHelpSections.length+1}. 服务内容、翻译方向与统计提示`,paragraphs:[
  '服务内容和翻译方向旁的提示用于解释选项及填写方式，简要展示，点击可查看完整说明。',
  '工作量统计填写要求默认折叠，点击标题展开；重新打开恢复折叠，截止日期和逾期提示保持直接可见。']})
+
+translationHelpSections.push({id:'project-conversation-entry',group:'项目协作与发送',title:'从项目列表创建或进入会话',steps:['项目管理→操作→…，点击创建会话或进入会话；会话内左侧“笔译项目”的项目列表也使用同一入口。','已有有效会话会沿用原会话；原生笔译会话也继续复用。进入已有会话不会重新发送项目概览。','创建需要项目编辑权限；只有查看权限的账号可进入其已经参与的会话。']})

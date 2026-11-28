@@ -25,10 +25,7 @@
               </tbody>
             </table>
           </div>
-          <figure v-if="screenshots[section.shot]">
-            <el-image :src="screenshots[section.shot].src" :alt="screenshots[section.shot].caption" :preview-src-list="[screenshots[section.shot].src]" preview-teleported fit="contain" />
-            <figcaption>{{ screenshots[section.shot].caption }}（点击放大）</figcaption>
-          </figure>
+          <HelpScreenshotGallery :images="helpSectionImages(helpSections?'客户管理':'财务',{...section,images:screenshots[section.shot]?[screenshots[section.shot]]:[]})"/>
         </section>
         <el-empty v-if="!visibleSections.length" description="没有匹配内容，请尝试其他关键词" />
       </div>
@@ -37,6 +34,8 @@
   </DraggableFormDialog>
 </template>
 <script setup>
+import HelpScreenshotGallery from './HelpScreenshotGallery.vue'
+import {helpSectionImages} from '@/utils/helpScreenshots'
 import {computed,nextTick,ref,watch} from 'vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import {financeEntryComparison,financeWorkflowOverview,financeWorkflowRules,financeWorkflowSections,financeWorkflowSync,financeHelpUpdatedAt} from '@/utils/financeWorkflowHelp'

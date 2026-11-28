@@ -1,11 +1,11 @@
 <template>
-  <section class="chat-session-directory" :aria-label="mine ? '我的项目' : '全部会话'">
+  <section class="chat-session-directory" :aria-label="mine ? '我的项目' : '全部群聊'">
     <div class="chat-session-directory__scroll">
-    <p role="status">{{ mine ? '我的项目' : '全部会话' }} · {{ total }} 个</p>
+    <p role="status">{{ mine ? '我的项目' : '全部群聊' }} · {{ total }} 个</p>
     <p v-if="error" role="alert">{{ error }} <el-button link @click="load">重试</el-button></p>
     <p v-if="loading">加载中…</p>
     <el-empty v-else-if="!items.length && !error" description="没有符合条件的会话" :image-size="48" />
-    <button v-for="item in items" :key="item.key" type="button" class="chat-session-directory__item" :class="{'is-pinned':item.pinned}" @click="$emit('open', { ...item, projectType: item.kind })">
+    <button v-for="item in items" draggable="true" @dragstart="dragChatSession($event,{...item,projectType:item.kind})" :key="item.key" type="button" class="chat-session-directory__item" :class="{'is-pinned':item.pinned}" @click="$emit('open', { ...item, projectType: item.kind })">
       <strong>{{ item.title }}</strong><small><span v-if="item.pinned" class="chat-session-directory__pin">↑ 已置顶 · </span>{{ item.subtitle }} · {{actionLabel}}</small>
     </button>
     </div>
@@ -13,6 +13,7 @@
   </section>
 </template>
 <script setup>
+import {dragChatSession} from '@/utils/chatPersonalFolders'
 import { ref, watch, onBeforeUnmount } from 'vue'
 import ChatListPagination from './ChatListPagination.vue'
 import { chatRequest } from '@/api/projectChat'
@@ -28,13 +29,13 @@ async function load() {
   const current = new AbortController(); controller = current
   loading.value = true; error.value = ''; items.value = []
   try {
-    const data = await chatRequest('sessions/history', { params: { keyword: props.keyword || '', mine: props.mine, offset: (page.value - 1) * pageSize.value, limit: pageSize.value }, signal: current.signal })
+    const data = await chatRequest('sessions/history', { params: { keyword: props.keyword || '', mine: props.mine, groups_only: true, offset: (page.value - 1) * pageSize.value, limit: pageSize.value }, signal: current.signal })
     if (version !== generation || identity !== localStorage.getItem('user_id')) return
     total.value = data.total || 0
     const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
     if (page.value > lastPage) { page.value = lastPage; return load() }
     items.value = data.items || []
-  } catch (e) { if (version === generation && !current.signal.aborted) error.value = e.detail || e.message || '全部会话暂时无法加载' }
+  } catch (e) { if (version === generation && !current.signal.aborted) error.value = e.detail || e.message || '全部群聊暂时无法加载' }
   finally { if (version === generation) loading.value = false }
 }
 watch(() => [props.keyword, props.revision, props.preferencesRevision, props.active, props.mine], () => { page.value = 1; total.value = 0; items.value = []; load() }, { immediate: true })

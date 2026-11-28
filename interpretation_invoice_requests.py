@@ -139,6 +139,7 @@ class Action(BaseModel):
     project_id:UUID|None=None
     invoice_status:Literal['unissued','partial','issued']='issued'
     proofs:str=Field(default='',max_length=20000)
+    receipt_proofs:str=Field(default='',max_length=20000)
 
 
 @router.post('/request/{uid}')

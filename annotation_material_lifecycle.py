@@ -27,6 +27,11 @@ async def material_lifespan(app):
             except Exception:
                 logging.getLogger(__name__).exception('项目资料清理失败，下一轮重试')
             try:
+                from interpretation_lifecycle import worker_once as interpretation_tick
+                await asyncio.to_thread(interpretation_tick)
+            except Exception:
+                logging.getLogger(__name__).exception('口译项目自动状态或跟进提醒检查失败，下一轮重试')
+            try:
                 await asyncio.wait_for(stop.wait(), timeout=60)
             except asyncio.TimeoutError:
                 pass
